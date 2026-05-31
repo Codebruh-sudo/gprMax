@@ -73,6 +73,8 @@ class Solver:
             self.updates.update_magnetic_sources(iteration)
             if isinstance(self.updates, CPUUpdates):
                 self.updates.update_plane_waves_magnetic(iteration)
+            elif isinstance(self.updates, CUDAUpdates):
+                self.updates.update_plane_waves_magnetic(iteration)
           
             if isinstance(self.updates, MPIUpdates):
                 self.updates.halo_swap_magnetic()
@@ -84,6 +86,8 @@ class Solver:
             self.updates.update_electric_pml()
             self.updates.update_electric_sources(iteration)
             if isinstance(self.updates, CPUUpdates):
+                self.updates.update_plane_waves_electric(iteration)
+            elif isinstance(self.updates, CUDAUpdates):
                 self.updates.update_plane_waves_electric(iteration)      
 
            # TODO: Increment iteration here if add Model to Solver
