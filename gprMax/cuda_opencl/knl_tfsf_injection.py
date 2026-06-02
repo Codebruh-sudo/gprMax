@@ -1,14 +1,14 @@
 
 from string import Template
 
-# =============================================================================
+
 # TF/SF BOUNDARY INJECTION KERNELS
-# =============================================================================
-# Ports: applyTFSFMagnetic(), applyTFSFMagnetic_axial(),
+
+# Ports- applyTFSFMagnetic(), applyTFSFMagnetic_axial(),
 #        applyTFSFElectric(), applyTFSFElectric_axial()
 #        from plane_wave.pyx
 #
-# 24 kernels total:
+# 24 kernels total-
 #   12 standard (homogeneous) — scalar coefficients
 #   12 axial    (heterogeneous) — per-cell GID lookup
 #
@@ -16,7 +16,7 @@ from string import Template
 #   x_low_H,  x_high_H,  y_low_H,  y_high_H,  z_low_H,  z_high_H
 #   x_low_E,  x_high_E,  y_low_E,  y_high_E,  z_low_E,  z_high_E
 #
-# Thread layout for all kernels:
+# Thread layout for all kernels-
 #   Thread t handles one cell on the face.
 #   x-faces: face patch is (y_stop - y_start + 1) × (z_stop - z_start + 1)
 #     t = (j - y_start) * NZ_FACE + (k - z_start)
@@ -25,35 +25,28 @@ from string import Template
 #   z-faces: face patch is (x_stop - x_start + 1) × (y_stop - y_start + 1)
 #     t = (i - x_start) * NY_FACE + (j - y_start)
 #
-# Coefficient mapping (from Cython):
+# Coefficient mapping (from Cython)-
 #   Standard:  coef_H_yx = updatecoeffsH[1] (DBx)
 #              coef_H_xy = updatecoeffsH[2] (DBy)
 #              coef_H_xz = updatecoeffsH[3] (DBz)
 #              (same indices for coef_H_zy, coef_H_zx, coef_H_yz)
-#   Axial:     GID[4,i,j,k] for Hy, GID[5,i,j,k] for Hz, GID[3,i,j,k] for Hx
+#   Axial-     GID[4,i,j,k] for Hy, GID[5,i,j,k] for Hz, GID[3,i,j,k] for Hx
 #              Column: 1 for x-faces, 2 for y-faces, 3 for z-faces
 #
-# GID 3D array layout: ID[component, x, y, z] — shape [6, Nx, Ny, Nz]
+# GID 3D array layout: ID[component, x, y, z] - shape [6, Nx, Ny, Nz]
 # Flat index: GID[comp, i, j, k] = GID[comp*Nx*Ny*Nz + i*Ny*Nz + j*Nz + k]
 # Accessed via IDX4D_ID macro from knl_common_base.tmpl.
 #
-# updatecoeffsH/E are in constant memory — accessed via IDX2D_MAT macro.
+# updatecoeffsH/E are in constant memory - accessed via IDX2D_MAT macro.
 # Both already resident on GPU from existing field update kernels.
 # No new allocations needed for 3D side.
-#
-# Reference: Tan & Potter (2010), DOI: 10.1109/LAWP.2009.2016851
-# =============================================================================
 
-
-# =============================================================================
-# ARGS TEMPLATE HELPERS
-# =============================================================================
 # Each kernel shares the same base args with small variations.
 # Standard H kernels: scalar coef_H_* args
 # Axial H kernels: O_axial int arg + ID pointer, no scalar coefs
 # Standard E kernels: scalar coef_E_* args
 # Axial E kernels: O_axial int arg + ID pointer, no scalar coefs
-# =============================================================================
+
 
 def _std_H_args_cuda(name):
     return Template(f"""
@@ -293,9 +286,8 @@ def _axial_E_args_metal(name):
     """)
 
 
-# =============================================================================
 # STANDARD MAGNETIC — X_LOW FACE
-# =============================================================================
+
 # Cython reference (applyTFSFMagnetic, i = x_start):
 #   for j in [y_start, y_stop+1):  for k in [z_start, z_stop):
 #     index = m_x*(i-Ox) + m_y*(j-Oy) + m_z*(k-Oz)
@@ -305,7 +297,7 @@ def _axial_E_args_metal(name):
 #
 # Thread t handles one (j,k) pair. Face patch: NY_FACE × NZ_FACE
 # Two corrections per thread (Hy and Hz) with different loop bounds.
-# =============================================================================
+
 
 inject_std_xlow_H = {
     "name": "inject_std_xlow_H",
@@ -347,13 +339,13 @@ inject_std_xlow_H = {
 }
 
 
-# =============================================================================
-# STANDARD MAGNETIC — X_HIGH FACE
-# =============================================================================
+
+# STANDARD MAGNETIC - X_HIGH FACE
+
 # Cython (i = x_stop):
 #   Hy[i, j, k] += coef_H_yx * E_z[index]   sign FLIPPED vs x_low
 #   Hz[i, j, k] -= coef_H_zx * E_y[index]   sign FLIPPED vs x_low
-# =============================================================================
+
 
 inject_std_xhigh_H = {
     "name": "inject_std_xhigh_H",
@@ -387,13 +379,11 @@ inject_std_xhigh_H = {
 }
 
 
-# =============================================================================
-# STANDARD MAGNETIC — Y_LOW FACE
-# =============================================================================
+STANDARD MAGNETIC -Y_LOW FACE----
 # Cython (j = y_start):
 #   Hx[i, j-1, k] += coef_H_xy * E_z[index]   coef_H_xy = updatecoeffsH[2]
 #   Hz[i, j-1, k] -= coef_H_zy * E_x[index]   coef_H_zy = updatecoeffsH[2]
-# =============================================================================
+
 
 inject_std_ylow_H = {
     "name": "inject_std_ylow_H",
@@ -431,9 +421,7 @@ inject_std_ylow_H = {
 }
 
 
-# =============================================================================
-# STANDARD MAGNETIC — Y_HIGH FACE
-# =============================================================================
+# STANDARD MAGNETIC - Y_HIGH FACE
 
 inject_std_yhigh_H = {
     "name": "inject_std_yhigh_H",
@@ -467,14 +455,12 @@ inject_std_yhigh_H = {
 }
 
 
-# =============================================================================
 # STANDARD MAGNETIC — Z_LOW FACE
-# =============================================================================
 # Cython (k = z_start):
 #   Hy[i, j, k-1] += coef_H_yz * E_x[index]   coef_H_yz = updatecoeffsH[3]
 #   Hx[i, j, k-1] -= coef_H_xz * E_y[index]   coef_H_xz = updatecoeffsH[3]
 # Thread t: i = t/NY_FACE + x_start, j = t%NY_FACE + y_start
-# =============================================================================
+
 
 inject_std_zlow_H = {
     "name": "inject_std_zlow_H",
@@ -512,9 +498,9 @@ inject_std_zlow_H = {
 }
 
 
-# =============================================================================
+
 # STANDARD MAGNETIC — Z_HIGH FACE
-# =============================================================================
+
 
 inject_std_zhigh_H = {
     "name": "inject_std_zhigh_H",
@@ -548,15 +534,15 @@ inject_std_zhigh_H = {
 }
 
 
-# =============================================================================
+
 # STANDARD ELECTRIC — X_LOW FACE
-# =============================================================================
+
 # Cython (applyTFSFElectric, i = x_start):
 #   Ez[i, j, k] -= coef_E_zx * H_y[index]   index uses (i-1-Ox) not (i-Ox)!
 #   Ey[i, j, k] += coef_E_yx * H_z[index]   same offset (i-1-Ox)
 #
 # CRITICAL: Electric x-face uses m_x*(i-1-Ox) for x_start — staggered by 1
-# =============================================================================
+
 
 inject_std_xlow_E = {
     "name": "inject_std_xlow_E",
@@ -597,12 +583,12 @@ inject_std_xlow_E = {
 }
 
 
-# =============================================================================
+
 # STANDARD ELECTRIC — X_HIGH FACE
-# =============================================================================
+
 # x_stop uses m_x*(i-Ox) — normal offset (no -1)
 # Signs flipped vs x_low.
-# =============================================================================
+
 
 inject_std_xhigh_E = {
     "name": "inject_std_xhigh_E",
@@ -636,13 +622,13 @@ inject_std_xhigh_E = {
 }
 
 
-# =============================================================================
+
 # STANDARD ELECTRIC — Y_LOW FACE
-# =============================================================================
+
 # Cython (j = y_start): index uses m_y*(j-1-Oy) — staggered by 1 in y
 #   Ez[i, j, k] += coef_E_zy * H_x[index]   coef_E_zy = updatecoeffsE[2]
 #   Ex[i, j, k] -= coef_E_xy * H_z[index]   coef_E_xy = updatecoeffsE[2]
-# =============================================================================
+
 
 inject_std_ylow_E = {
     "name": "inject_std_ylow_E",
@@ -679,11 +665,10 @@ inject_std_ylow_E = {
 }
 
 
-# =============================================================================
+
 # STANDARD ELECTRIC — Y_HIGH FACE
-# =============================================================================
+
 # y_stop uses m_y*(j-Oy) — normal offset. Signs flipped vs y_low.
-# =============================================================================
 
 inject_std_yhigh_E = {
     "name": "inject_std_yhigh_E",
@@ -717,13 +702,13 @@ inject_std_yhigh_E = {
 }
 
 
-# =============================================================================
+
 # STANDARD ELECTRIC — Z_LOW FACE
-# =============================================================================
+
 # Cython (k = z_start): index uses m_z*(k-1-Oz) — staggered by 1 in z
 #   Ey[i, j, k] -= coef_E_yz * H_x[index]   coef_E_yz = updatecoeffsE[3]
 #   Ex[i, j, k] += coef_E_xz * H_y[index]   coef_E_xz = updatecoeffsE[3]
-# =============================================================================
+
 
 inject_std_zlow_E = {
     "name": "inject_std_zlow_E",
@@ -759,10 +744,7 @@ inject_std_zlow_E = {
     """),
 }
 
-
-# =============================================================================
-# STANDARD ELECTRIC — Z_HIGH FACE
-# =============================================================================
+# STANDARD ELECTRIC — Z_HIGH FACE-----
 
 inject_std_zhigh_E = {
     "name": "inject_std_zhigh_E",
@@ -796,9 +778,8 @@ inject_std_zhigh_E = {
 }
 
 
-# =============================================================================
+
 # AXIAL MAGNETIC — X_LOW FACE
-# =============================================================================
 # Cython (applyTFSFMagnetic_axial, i = x_start):
 #   index = O_axial + m_x*(i-Ox) + m_y*(j-Oy) + m_z*(k-Oz)
 #   Hy[i-1,j,k] -= updatecoeffsH[GID[4,i-1,j,k], 1] * E_z[index]
@@ -807,7 +788,7 @@ inject_std_zhigh_E = {
 # GID component 4 = Hy material, component 5 = Hz material. Column = 1 (DBx).
 # GID accessed via IDX4D_ID(component, x, y, z) macro.
 # updatecoeffsH accessed via IDX2D_MAT(mat_id, col) macro.
-# =============================================================================
+
 
 inject_axial_xlow_H = {
     "name": "inject_axial_xlow_H",
@@ -1018,14 +999,12 @@ inject_axial_zhigh_H = {
 }
 
 
-# =============================================================================
 # AXIAL ELECTRIC — X_LOW FACE
-# =============================================================================
 # Cython (applyTFSFElectric_axial, i = x_start):
 #   index = O_axial + m_x*(i-1-Ox) + m_y*(j-Oy) + m_z*(k-Oz)  ← staggered!
 #   Ez[i,j,k] -= updatecoeffsE[GID[2,i,j,k], 1] * H_y[index]  GID comp=2 (Ez mat)
 #   Ey[i,j,k] += updatecoeffsE[GID[1,i,j,k], 1] * H_z[index]  GID comp=1 (Ey mat)
-# =============================================================================
+
 
 inject_axial_xlow_E = {
     "name": "inject_axial_xlow_E",
@@ -1241,31 +1220,3 @@ inject_axial_zhigh_E = {
 }
 
 
-# =============================================================================
-# KERNEL REGISTRY
-# =============================================================================
-# Convenient list for cuda_updates.py to iterate over when compiling kernels.
-
-STANDARD_H_KERNELS = [
-    inject_std_xlow_H,  inject_std_xhigh_H,
-    inject_std_ylow_H,  inject_std_yhigh_H,
-    inject_std_zlow_H,  inject_std_zhigh_H,
-]
-
-STANDARD_E_KERNELS = [
-    inject_std_xlow_E,  inject_std_xhigh_E,
-    inject_std_ylow_E,  inject_std_yhigh_E,
-    inject_std_zlow_E,  inject_std_zhigh_E,
-]
-
-AXIAL_H_KERNELS = [
-    inject_axial_xlow_H,  inject_axial_xhigh_H,
-    inject_axial_ylow_H,  inject_axial_yhigh_H,
-    inject_axial_zlow_H,  inject_axial_zhigh_H,
-]
-
-AXIAL_E_KERNELS = [
-    inject_axial_xlow_E,  inject_axial_xhigh_E,
-    inject_axial_ylow_E,  inject_axial_yhigh_E,
-    inject_axial_zlow_E,  inject_axial_zhigh_E,
-]
