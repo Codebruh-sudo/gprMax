@@ -1,15 +1,19 @@
-
 from string import Template
-# =====================================================================
+
+# =============================================================================
 # STANDARD (HOMOGENEOUS) MAGNETIC UPDATE
+# =============================================================================
 # Ports: updateMagneticFields() from plane_wave.pyx
+#
 # Updates the 1D DPW auxiliary grid H fields for the standard (homogeneous)
 # case. The medium is assumed uniform — scalar coefficients from the background
 # material are passed directly as kernel arguments.
+#
 # Bulk update: parallel over j in [m[3], n-m[3]]
 # PML update:  separate kernel (update_1d_magnetic_pml) over p cells
+#
 # Reference: Equation 8 of DOI: 10.1109/LAWP.2009.2016851
-#=============================================================================
+# =============================================================================
 
 update_1d_magnetic = {
     "args_cuda": Template(
@@ -472,19 +476,22 @@ update_1d_electric = {
     if (j >= N - M) return;
 
     // E_x update: curl of H in yz plane
+    // E_x[j] = CA*E_x[j] + CBy*(H_z[j]-H_z[j-m_y]) - CBz*(H_y[j]-H_y[j-m_z])
     E_x[j] = coef_E_xt * E_x[j]
-            + coef_E_xz * (H_z[j] - H_z[j - m_y])
-            - coef_E_xy * (H_y[j] - H_y[j - m_z]);
+            + coef_E_xy * (H_z[j] - H_z[j - m_y])
+            - coef_E_xz * (H_y[j] - H_y[j - m_z]);
 
     // E_y update: curl of H in xz plane
+    // E_y[j] = CA*E_y[j] + CBz*(H_x[j]-H_x[j-m_z]) - CBx*(H_z[j]-H_z[j-m_x])
     E_y[j] = coef_E_yt * E_y[j]
-            + coef_E_yx * (H_x[j] - H_x[j - m_z])
-            - coef_E_yz * (H_z[j] - H_z[j - m_x]);
+            + coef_E_yz * (H_x[j] - H_x[j - m_z])
+            - coef_E_yx * (H_z[j] - H_z[j - m_x]);
 
     // E_z update: curl of H in xy plane
+    // E_z[j] = CA*E_z[j] + CBx*(H_y[j]-H_y[j-m_x]) - CBy*(H_x[j]-H_x[j-m_y])
     E_z[j] = coef_E_zt * E_z[j]
-            + coef_E_zy * (H_y[j] - H_y[j - m_x])
-            - coef_E_zx * (H_x[j] - H_x[j - m_y]);
+            + coef_E_zx * (H_y[j] - H_y[j - m_x])
+            - coef_E_zy * (H_x[j] - H_x[j - m_y]);
     """
     ),
 }
@@ -2414,3 +2421,15 @@ update_1d_electric_axial_main_pml_start = {
 # All launches in same CUDA stream — in-order execution guaranteed.
 # No explicit cudaDeviceSynchronize() needed between launches.
 # =============================================================================
+
+
+
+         
+    
+            
+  
+     
+             
+        
+                        
+  
