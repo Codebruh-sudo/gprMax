@@ -939,11 +939,11 @@ class DiscretePlaneWaveAngles(GridUserObject):
         except KeyError:    
             precompute = True
 
-        # Warn about using a discrete plane wave on GPU
-        if config.sim_config.general["solver"] in ["cuda", "opencl", "metal"]:
+        # Plane wave GPU support: CUDA implemented (GSoC); OpenCL and Metal not yet.
+        if config.sim_config.general["solver"] in ["opencl", "metal"]:
             logger.exception(
                 f"{self.params_str()} cannot currently be used "
-                + "with the CUDA or OpenCL or Apple Metal-based solver. "
+                + "with the OpenCL or Apple Metal-based solver. "
             )
             raise ValueError
 
