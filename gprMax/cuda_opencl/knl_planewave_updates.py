@@ -8,8 +8,7 @@ from string import Template
 # material are passed directly as kernel arguments.
 # Bulk update: parallel over j in [m[3], n-m[3]]
 # PML update:  separate kernel (update_1d_magnetic_pml) over p cells
-#
-# Reference: Equation 8 of DOI: 10.1109/LAWP.2009.2016851
+
 
 update_1d_magnetic = {
     "args_cuda": Template(
@@ -276,7 +275,7 @@ update_1d_magnetic_pml = {
     ),
     "func": Template(
         """
-    // 1D DPW PML magnetic field update — standard (homogeneous) case.
+    // 1D DPW PML magnetic field update - standard (homogeneous) case.
     //
     // Updates H fields and PML integral arrays at the p PML cells
     // at the end of the 1D DPW grid using the first-order RIPML scheme.
@@ -285,16 +284,16 @@ update_1d_magnetic_pml = {
     //   N:   total length of 1D DPW array.
     //   P:   PML thickness in number of cells.
     //   M:   max(m_x, m_y, m_z).
-    //   coef_H_D: updatecoeffsH[4] (srcm — source coefficient).
+    //   coef_H_D: updatecoeffsH[4] (srcm - source coefficient).
     //   dx, dy, dz: spatial step sizes.
     //   H_x/y/z:   1D magnetic field arrays.
     //   E_x/y/z:   1D electric field arrays.
-    //   Ixmzy..Izmxy: PML integral arrays — shape [P] each (rows 2,3 of Ix,Iy,Iz).
-    //   RAHx..RDHz: PML coefficients — shape [P] each (rows 0-3 of rcHx,rcHy,rcHz).
+    //   Ixmzy..Izmxy: PML integral arrays - shape [P] each (rows 2,3 of Ix,Iy,Iz).
+    //   RAHx..RDHz: PML coefficients - shape [P] each (rows 0-3 of rcHx,rcHy,rcHz).
 
     $CUDA_IDX
 
-    // Thread i handles PML cell i — bounds check
+    // Thread i handles PML cell i - bounds check
     if (i >= P) return;
 
     // Map PML index i to position in 1D grid (same as Cython: reversed loop)
@@ -305,7 +304,7 @@ update_1d_magnetic_pml = {
     $REAL dEzy, dEyz, dEzx, dExz, dEyx, dExy;
     $REAL mxy, mxz, myx, myz, mzx, mzy;
 
-    // --- H_x PML correction ---
+    //  H_x PML correction 
     dEzy = (E_z[idx + m_y] - E_z[idx]) / dy;
     dEyz = (E_y[idx + m_z] - E_y[idx]) / dz;
 
@@ -317,7 +316,7 @@ update_1d_magnetic_pml = {
     Ixmzy[pml_i] = Ixmzy[pml_i] - RCHx[pml_i] * mxy + RDHx[pml_i] * dEzy;
     Ixmyz[pml_i] = Ixmyz[pml_i] - RCHx[pml_i] * mxz + RDHx[pml_i] * dEyz;
 
-    // --- H_y PML correction ---
+    //  H_y PML correction 
     dEzx = (E_z[idx + m_x] - E_z[idx]) / dx;
     dExz = (E_x[idx + m_z] - E_x[idx]) / dz;
 
@@ -329,7 +328,7 @@ update_1d_magnetic_pml = {
     Iymzx[pml_i] = Iymzx[pml_i] - RCHy[pml_i] * myx + RDHy[pml_i] * dEzx;
     Iymxz[pml_i] = Iymxz[pml_i] - RCHy[pml_i] * myz + RDHy[pml_i] * dExz;
 
-    // --- H_z PML correction ---
+    //  H_z PML correction 
     dEyx = (E_y[idx + m_x] - E_y[idx]) / dx;
     dExy = (E_x[idx + m_y] - E_x[idx]) / dy;
 
@@ -348,10 +347,8 @@ update_1d_magnetic_pml = {
 
 # STANDARD (HOMOGENEOUS) ELECTRIC UPDATE
 # Ports: updateElectricFields() from plane_wave.pyx
-#
 # Updates the 1D DPW auxiliary grid E fields for the standard case.
 # Scalar coefficients from background material passed as kernel arguments.
-
 
 update_1d_electric = {
     "args_cuda": Template(
@@ -433,8 +430,7 @@ update_1d_electric = {
     ),
     "func": Template(
         """
-    // 1D DPW auxiliary grid — standard (homogeneous) electric field update.
-    //
+    // 1D DPW auxiliary grid - standard (homogeneous) electric field update.
     // Updates E_x, E_y, E_z at each position j in the bulk 1D grid.
     // Scalar coefficients are passed as kernel arguments (same for all cells).
     //
@@ -487,7 +483,7 @@ update_1d_electric = {
 
 # STANDARD (HOMOGENEOUS) ELECTRIC PML UPDATE
 
-# Ports: PML section of updateElectricFields() from plane_wave.pyx
+# Ports- PML section of updateElectricFields() from plane_wave.pyx
 # Same structure as magnetic PML but for E fields and rcEx, rcEy, rcEz.
 
 update_1d_electric_pml = {
@@ -612,7 +608,7 @@ update_1d_electric_pml = {
     ),
     "func": Template(
         """
-    // 1D DPW PML electric field update — standard (homogeneous) case.
+    // 1D DPW PML electric field update - standard (homogeneous) case.
     //
     // Updates E fields and PML integral arrays at the p PML cells
     // at the end of the 1D DPW grid using the first-order RIPML scheme.
@@ -621,7 +617,7 @@ update_1d_electric_pml = {
     //   N:   total length of 1D DPW array.
     //   P:   PML thickness in number of cells.
     //   M:   max(m_x, m_y, m_z).
-    //   coef_E_D: updatecoeffsE[4] (srce — source coefficient).
+    //   coef_E_D: updatecoeffsE[4] (srce - source coefficient).
     //   dx, dy, dz: spatial step sizes.
     //   E_x/y/z:   1D electric field arrays.
     //   H_x/y/z:   1D magnetic field arrays.
@@ -638,7 +634,7 @@ update_1d_electric_pml = {
     $REAL dHzy, dHyz, dHzx, dHxz, dHyx, dHxy;
     $REAL jxy, jxz, jyx, jyz, jzx, jzy;
 
-    // --- E_x PML correction ---
+    // E_x PML correction
     dHzy = (H_z[idx] - H_z[idx - m_y]) / dy;
     dHyz = (H_y[idx] - H_y[idx - m_z]) / dz;
 
@@ -650,7 +646,7 @@ update_1d_electric_pml = {
     Jxmzy[pml_i] = Jxmzy[pml_i] - RCEx[pml_i] * jxy + RDEx[pml_i] * dHzy;
     Jxmyz[pml_i] = Jxmyz[pml_i] - RCEx[pml_i] * jxz + RDEx[pml_i] * dHyz;
 
-    // --- E_y PML correction ---
+    //  E_y PML correction 
     dHzx = (H_z[idx] - H_z[idx - m_x]) / dx;
     dHxz = (H_x[idx] - H_x[idx - m_z]) / dz;
 
@@ -662,7 +658,7 @@ update_1d_electric_pml = {
     Jymzx[pml_i] = Jymzx[pml_i] - RCEy[pml_i] * jyx + RDEy[pml_i] * dHzx;
     Jymxz[pml_i] = Jymxz[pml_i] - RCEy[pml_i] * jyz + RDEy[pml_i] * dHxz;
 
-    // --- E_z PML correction ---
+    // E_z PML correction 
     dHyx = (H_y[idx] - H_y[idx - m_x]) / dx;
     dHxy = (H_x[idx] - H_x[idx - m_y]) / dy;
 
@@ -804,7 +800,7 @@ update_1d_magnetic_axial_source = {
 
 
 
-# AXIAL MAGNETIC UPDATE — SOURCE GRID PML
+# AXIAL MAGNETIC UPDATE - SOURCE GRID PML
 
 # Ports: PML section of source grid in updateMagneticFields_axial()
 # Uses rcHx0, rcHy0, rcHz0 and Ix_s, Iy_s, Iz_s.
@@ -934,7 +930,7 @@ update_1d_magnetic_axial_source_pml = {
     ),
     "func": Template(
         """
-    // Axial 1D DPW — source grid PML magnetic update.
+    // Axial 1D DPW - source grid PML magnetic update.
     //
     // Updates source grid H fields and PML integrals at p PML cells.
     // Uses rcHx0/rcHy0/rcHz0 coefficients (second PML region arrays).
@@ -991,13 +987,10 @@ update_1d_magnetic_axial_source_pml = {
 
 
 # AXIAL MAGNETIC UPDATE — KERNEL 2 OF 3 (SOURCE INJECTION)
-
 # Ports- single-point source injection in updateMagneticFields_axial()
-#
 # H_x[src-2] -= matH[GID[3,src-2], 3] * E_y_s[src-2+m_z]
 #             - matH[GID[3,src-2], 2] * E_z_s[src-2+m_y]
 # (and same for H_y, H_z)
-#
 # Launched with block=(1,1,1), grid=(1,1,1) — single thread.
 # Must run AFTER source grid is fully updated (Kernel 1 + source PML).
 
@@ -1059,10 +1052,10 @@ update_1d_magnetic_axial_inject = {
     ),
     "func": Template(
         """
-    // Axial 1D DPW — source grid injection into main grid (Kernel 2 of 3).
+    // Axial 1D DPW - source grid injection into main grid (Kernel 2 of 3).
     //
     // Injects source grid E fields into main grid H fields at src-2.
-    // Single thread kernel — launched with block=(1,1,1), grid=(1,1,1).
+    // Single thread kernel - launched with block=(1,1,1), grid=(1,1,1).
     // Must run after source grid bulk + PML update is complete.
     //
     // Ports:
@@ -1200,7 +1193,6 @@ update_1d_magnetic_axial_main = {
 
 
 # AXIAL MAGNETIC UPDATE - MAIN GRID PML (END REGION)
-
 # Ports: PML end region of main grid in updateMagneticFields_axial()
 # Uses rcHx, rcHy, rcHz and Ix, Iy, Iz.
 # Per-cell srcm coefficient: matH[GID[component, idx], 4]
@@ -1639,7 +1631,7 @@ update_1d_electric_axial_source = {
     ),
     "func": Template(
         """
-    // Axial 1D DPW — source grid electric field update (Kernel 1 of 3).
+    // Axial 1D DPW -source grid electric field update (Kernel 1 of 3).
     //
     // Updates E_x_s, E_y_s, E_z_s for source 1D grid.
     // Fixed material at GID[0,2], GID[1,2], GID[2,2] for Ex, Ey, Ez.
