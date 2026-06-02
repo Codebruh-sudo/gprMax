@@ -1,8 +1,8 @@
 
 from string import Template
 
-
-# TF/SF BOUNDARY INJECTION KERNELS
+# what is going on in this file (SUMMARY) -
+# TF/SF BOUNDARY INJECTION KERNELS -- 
 
 # Ports- applyTFSFMagnetic(), applyTFSFMagnetic_axial(),
 #        applyTFSFElectric(), applyTFSFElectric_axial()
@@ -26,15 +26,15 @@ from string import Template
 #     t = (i - x_start) * NY_FACE + (j - y_start)
 #
 # Coefficient mapping (from Cython)-
-#   Standard:  coef_H_yx = updatecoeffsH[1] (DBx)
+#   Standard-  coef_H_yx = updatecoeffsH[1] (DBx)
 #              coef_H_xy = updatecoeffsH[2] (DBy)
 #              coef_H_xz = updatecoeffsH[3] (DBz)
 #              (same indices for coef_H_zy, coef_H_zx, coef_H_yz)
 #   Axial-     GID[4,i,j,k] for Hy, GID[5,i,j,k] for Hz, GID[3,i,j,k] for Hx
 #              Column: 1 for x-faces, 2 for y-faces, 3 for z-faces
 #
-# GID 3D array layout: ID[component, x, y, z] - shape [6, Nx, Ny, Nz]
-# Flat index: GID[comp, i, j, k] = GID[comp*Nx*Ny*Nz + i*Ny*Nz + j*Nz + k]
+# GID 3D array layout- ID[component, x, y, z] - shape [6, Nx, Ny, Nz]
+# Flat index GID[comp, i, j, k] = GID[comp*Nx*Ny*Nz + i*Ny*Nz + j*Nz + k]
 # Accessed via IDX4D_ID macro from knl_common_base.tmpl.
 #
 # updatecoeffsH/E are in constant memory - accessed via IDX2D_MAT macro.
