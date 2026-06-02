@@ -331,7 +331,7 @@ class CUDAUpdates(Updates[CUDAGrid]):
             # Upload all 1D DPW arrays to GPU
             self.grid.htod_planewave_arrays(dpw)
 
-            # --- Standard (homogeneous) kernels ---
+            # Standard (homogeneous) kernels 
             # Scalar coefficients passed as kernel args — no constant memory needed
 
             bld = self._build_knl(
@@ -373,8 +373,8 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 func_name = knl_dict["name"]
                 dpw.std_E_face_devs.append(knl.get_function(func_name))
 
-            # --- Axial kernels (only if dpw.axial != 0) ---
-            # updatecoeffsH/E passed as pointer args — no constant memory, no 64KB limit
+            # Axial kernels (only if dpw.axial != 0) 
+            # updatecoeffsH/E passed as pointer args - no constant memory, no 64KB limit
             if dpw.axial != 0:
 
                 bld = self._build_knl(
@@ -485,10 +485,10 @@ class CUDAUpdates(Updates[CUDAGrid]):
                     "update_1d_electric_axial_main_pml_start"
                 )
 
-                # Axial face injection kernels — 12 kernels (6 faces x H and E)
-                # NOTE: these kernels read updatecoeffsH/E from constant memory
+                # Axial face injection kernels - 12 kernels (6 faces x H and E)
+                # note: these kernels read updatecoeffsH/E from constant memory
                 # (declared by knl_common), so _copy_mat_coeffs must populate it
-                # on each compiled module — otherwise reads return uninitialised data.
+                # on each compiled module - otherwise reads return uninitialised data.
                 dpw.axial_H_face_devs = []
                 for knl_dict in knl_tfsf_injection.AXIAL_H_KERNELS:
                     bld = self._build_knl(knl_dict, self.subs_name_args, subs_pw)
@@ -993,7 +993,7 @@ class CUDAUpdates(Updates[CUDAGrid]):
             bulk_size  = int(np.ceil((dpw.length - 2 * dpw.m[3]) / 256))
             pml_size   = int(np.ceil(dpw.pml_length / 256))
 
-            # --- Source injection (initialize 1D grid source region) ---
+            #  Source injection (initialize 1D grid source region) 
             # Ports initializeMagneticFields() from plane_wave.pyx
             # Sets H_fields[comp, r] = projections[3+comp] * waveformvalues_halfdt[iteration, comp, r]
             # for r in [0, M) — the source region at start of 1D grid
@@ -1083,7 +1083,7 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 self._launch_std_H_face_kernels(dpw)
 
             else:
-                # --- Axial magnetic 1D update (3 sequential launches) ---
+                # Axial magnetic 1D update (3 sequential launches)
 
                 # Row offsets for axial source grid arrays
                 Hx_s = dpw.H_fields_s_dev[0]
@@ -1272,7 +1272,7 @@ class CUDAUpdates(Updates[CUDAGrid]):
                     )
 
             if dpw.axial == 0:
-                # --- Standard (homogeneous) electric 1D update ---
+                #  Standard (homogeneous) electric 1D update 
                 mat = self.grid.updatecoeffsE[dpw.material.numID]
                 CA  = REAL(mat[0])
                 CBx = REAL(mat[1])
@@ -1333,7 +1333,7 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 self._launch_std_E_face_kernels(dpw)
 
             else:
-                # --- Axial electric 1D update (3 sequential launches) ---
+                #  Axial electric 1D update (3 sequential launches) 
 
                 # Row offsets for axial electric arrays
                 Ex_s = dpw.E_fields_s_dev[0]
@@ -1390,7 +1390,7 @@ class CUDAUpdates(Updates[CUDAGrid]):
                         grid=(pml_size, 1, 1),
                     )
 
-                # Launch 2: Inject source into main grid at src-1
+                # Launch 2- Inject source into main grid at src-1
                 dpw.update_1d_electric_axial_inject_dev(
                     n, np.int32(dpw.origin_axial), mx, my, mz,
                     Ex_m, Ey_m, Ez_m,
@@ -1402,7 +1402,7 @@ class CUDAUpdates(Updates[CUDAGrid]):
                     grid=(1, 1, 1),
                 )
 
-                # Launch 3: Main grid bulk
+                # Launch 3- Main grid bulk
                 # Electric main range is [M, N-M) — size N - 2M (no -1, unlike magnetic)
                 main_bulk_threads = dpw.length - 2 * dpw.m[3]
                 main_bulk_size = int(np.ceil(main_bulk_threads / 256)) if main_bulk_threads > 0 else 0
