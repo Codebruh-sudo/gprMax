@@ -1,22 +1,3 @@
-# Copyright (C) 2015-2025: The University of Edinburgh, United Kingdom
-#                 Authors: Craig Warren, Antonis Giannopoulos, John Hartley, 
-#                          and Nathan Mannall
-#
-# This file is part of gprMax.
-#
-# gprMax is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-#
-# gprMax is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with gprMax.  If not, see <http://www.gnu.org/licenses/>.
-
 import logging
 from importlib import import_module
 
@@ -581,12 +562,12 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 np.int32(m[0]), np.int32(m[1]), np.int32(m[2]),
                 np.int32(origin[0]), np.int32(origin[1]), np.int32(origin[2]),
                 c1, c2,
-                self.grid.Hx_dev.gpudata,
-                self.grid.Hy_dev.gpudata,
-                self.grid.Hz_dev.gpudata,
-                dpw.E_fields_dev[0].gpudata,   # E_x row
-                dpw.E_fields_dev[1].gpudata,   # E_y row
-                dpw.E_fields_dev[2].gpudata,   # E_z row
+                self.grid.Hx_dev,
+                self.grid.Hy_dev,
+                self.grid.Hz_dev,
+                dpw.E_fields_dev[0],   # E_x row
+                dpw.E_fields_dev[1],   # E_y row
+                dpw.E_fields_dev[2],   # E_z row
                 block=(256, 1, 1),
                 grid=(int(np.ceil(face_size / 256)), 1, 1),
             )
@@ -645,12 +626,12 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 np.int32(m[0]), np.int32(m[1]), np.int32(m[2]),
                 np.int32(origin[0]), np.int32(origin[1]), np.int32(origin[2]),
                 c1, c2,
-                self.grid.Ex_dev.gpudata,
-                self.grid.Ey_dev.gpudata,
-                self.grid.Ez_dev.gpudata,
-                dpw.H_fields_dev[0].gpudata,   # H_x row
-                dpw.H_fields_dev[1].gpudata,   # H_y row
-                dpw.H_fields_dev[2].gpudata,   # H_z row
+                self.grid.Ex_dev,
+                self.grid.Ey_dev,
+                self.grid.Ez_dev,
+                dpw.H_fields_dev[0],   # H_x row
+                dpw.H_fields_dev[1],   # H_y row
+                dpw.H_fields_dev[2],   # H_z row
                 block=(256, 1, 1),
                 grid=(int(np.ceil(face_size / 256)), 1, 1),
             )
@@ -698,13 +679,13 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 np.int32(m[0]), np.int32(m[1]), np.int32(m[2]),
                 np.int32(origin[0]), np.int32(origin[1]), np.int32(origin[2]),
                 np.int32(dpw.origin_axial),
-                self.grid.Hx_dev.gpudata,
-                self.grid.Hy_dev.gpudata,
-                self.grid.Hz_dev.gpudata,
-                dpw.E_fields_dev[0].gpudata,   # E_x_s row
-                dpw.E_fields_dev[1].gpudata,   # E_y_s row
-                dpw.E_fields_dev[2].gpudata,   # E_z_s row
-                self.grid.ID_dev.gpudata,
+                self.grid.Hx_dev,
+                self.grid.Hy_dev,
+                self.grid.Hz_dev,
+                dpw.E_fields_dev[0],   # E_x_s row
+                dpw.E_fields_dev[1],   # E_y_s row
+                dpw.E_fields_dev[2],   # E_z_s row
+                self.grid.ID_dev,
                 # updatecoeffsH is read from constant memory (populated by _copy_mat_coeffs)
                 block=(256, 1, 1),
                 grid=(int(np.ceil(face_size / 256)), 1, 1),
@@ -753,13 +734,13 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 np.int32(m[0]), np.int32(m[1]), np.int32(m[2]),
                 np.int32(origin[0]), np.int32(origin[1]), np.int32(origin[2]),
                 np.int32(dpw.origin_axial),
-                self.grid.Ex_dev.gpudata,
-                self.grid.Ey_dev.gpudata,
-                self.grid.Ez_dev.gpudata,
-                dpw.H_fields_dev[0].gpudata,   # H_x_s row
-                dpw.H_fields_dev[1].gpudata,   # H_y_s row
-                dpw.H_fields_dev[2].gpudata,   # H_z_s row
-                self.grid.ID_dev.gpudata,
+                self.grid.Ex_dev,
+                self.grid.Ey_dev,
+                self.grid.Ez_dev,
+                dpw.H_fields_dev[0],   # H_x_s row
+                dpw.H_fields_dev[1],   # H_y_s row
+                dpw.H_fields_dev[2],   # H_z_s row
+                self.grid.ID_dev,
                 # updatecoeffsE is read from constant memory (populated by _copy_mat_coeffs)
                 block=(256, 1, 1),
                 grid=(int(np.ceil(face_size / 256)), 1, 1),
@@ -798,14 +779,14 @@ class CUDAUpdates(Updates[CUDAGrid]):
             self.store_outputs_dev(
                 np.int32(len(self.grid.rxs)),
                 np.int32(iteration),
-                self.rxcoords_dev.gpudata,
-                self.rxs_dev.gpudata,
-                self.grid.Ex_dev.gpudata,
-                self.grid.Ey_dev.gpudata,
-                self.grid.Ez_dev.gpudata,
-                self.grid.Hx_dev.gpudata,
-                self.grid.Hy_dev.gpudata,
-                self.grid.Hz_dev.gpudata,
+                self.rxcoords_dev,
+                self.rxs_dev,
+                self.grid.Ex_dev,
+                self.grid.Ey_dev,
+                self.grid.Ez_dev,
+                self.grid.Hx_dev,
+                self.grid.Hy_dev,
+                self.grid.Hz_dev,
                 block=(1, 1, 1),
                 grid=(round32(len(self.grid.rxs)), 1, 1),
             )
@@ -831,18 +812,18 @@ class CUDAUpdates(Updates[CUDAGrid]):
                     np.int32(snap.dx),
                     np.int32(snap.dy),
                     np.int32(snap.dz),
-                    self.grid.Ex_dev.gpudata,
-                    self.grid.Ey_dev.gpudata,
-                    self.grid.Ez_dev.gpudata,
-                    self.grid.Hx_dev.gpudata,
-                    self.grid.Hy_dev.gpudata,
-                    self.grid.Hz_dev.gpudata,
-                    self.snapEx_dev.gpudata,
-                    self.snapEy_dev.gpudata,
-                    self.snapEz_dev.gpudata,
-                    self.snapHx_dev.gpudata,
-                    self.snapHy_dev.gpudata,
-                    self.snapHz_dev.gpudata,
+                    self.grid.Ex_dev,
+                    self.grid.Ey_dev,
+                    self.grid.Ez_dev,
+                    self.grid.Hx_dev,
+                    self.grid.Hy_dev,
+                    self.grid.Hz_dev,
+                    self.snapEx_dev,
+                    self.snapEy_dev,
+                    self.snapEz_dev,
+                    self.snapHx_dev,
+                    self.snapHy_dev,
+                    self.snapHz_dev,
                     block=Snapshot.tpb,
                     grid=Snapshot.bpg,
                 )
@@ -864,13 +845,13 @@ class CUDAUpdates(Updates[CUDAGrid]):
             np.int32(self.grid.nx),
             np.int32(self.grid.ny),
             np.int32(self.grid.nz),
-            self.grid.ID_dev.gpudata,
-            self.grid.Hx_dev.gpudata,
-            self.grid.Hy_dev.gpudata,
-            self.grid.Hz_dev.gpudata,
-            self.grid.Ex_dev.gpudata,
-            self.grid.Ey_dev.gpudata,
-            self.grid.Ez_dev.gpudata,
+            self.grid.ID_dev,
+            self.grid.Hx_dev,
+            self.grid.Hy_dev,
+            self.grid.Hz_dev,
+            self.grid.Ex_dev,
+            self.grid.Ey_dev,
+            self.grid.Ez_dev,
             block=self.grid.tpb,
             grid=self.grid.bpg,
         )
@@ -889,13 +870,13 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 config.sim_config.dtypes["float_or_double"](self.grid.dx),
                 config.sim_config.dtypes["float_or_double"](self.grid.dy),
                 config.sim_config.dtypes["float_or_double"](self.grid.dz),
-                self.srcinfo1_magnetic_dev.gpudata,
-                self.srcinfo2_magnetic_dev.gpudata,
-                self.srcwaves_magnetic_dev.gpudata,
-                self.grid.ID_dev.gpudata,
-                self.grid.Hx_dev.gpudata,
-                self.grid.Hy_dev.gpudata,
-                self.grid.Hz_dev.gpudata,
+                self.srcinfo1_magnetic_dev,
+                self.srcinfo2_magnetic_dev,
+                self.srcwaves_magnetic_dev,
+                self.grid.ID_dev,
+                self.grid.Hx_dev,
+                self.grid.Hy_dev,
+                self.grid.Hz_dev,
                 block=(1, 1, 1),
                 grid=(round32(len(self.grid.magneticdipoles)), 1, 1),
             )
@@ -908,13 +889,13 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 np.int32(self.grid.nx),
                 np.int32(self.grid.ny),
                 np.int32(self.grid.nz),
-                self.grid.ID_dev.gpudata,
-                self.grid.Ex_dev.gpudata,
-                self.grid.Ey_dev.gpudata,
-                self.grid.Ez_dev.gpudata,
-                self.grid.Hx_dev.gpudata,
-                self.grid.Hy_dev.gpudata,
-                self.grid.Hz_dev.gpudata,
+                self.grid.ID_dev,
+                self.grid.Ex_dev,
+                self.grid.Ey_dev,
+                self.grid.Ez_dev,
+                self.grid.Hx_dev,
+                self.grid.Hy_dev,
+                self.grid.Hz_dev,
                 block=self.grid.tpb,
                 grid=self.grid.bpg,
             )
@@ -927,17 +908,17 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 np.int32(self.grid.ny),
                 np.int32(self.grid.nz),
                 np.int32(config.get_model_config().materials["maxpoles"]),
-                self.grid.updatecoeffsdispersive_dev.gpudata,
-                self.grid.Tx_dev.gpudata,
-                self.grid.Ty_dev.gpudata,
-                self.grid.Tz_dev.gpudata,
-                self.grid.ID_dev.gpudata,
-                self.grid.Ex_dev.gpudata,
-                self.grid.Ey_dev.gpudata,
-                self.grid.Ez_dev.gpudata,
-                self.grid.Hx_dev.gpudata,
-                self.grid.Hy_dev.gpudata,
-                self.grid.Hz_dev.gpudata,
+                self.grid.updatecoeffsdispersive_dev,
+                self.grid.Tx_dev,
+                self.grid.Ty_dev,
+                self.grid.Tz_dev,
+                self.grid.ID_dev,
+                self.grid.Ex_dev,
+                self.grid.Ey_dev,
+                self.grid.Ez_dev,
+                self.grid.Hx_dev,
+                self.grid.Hy_dev,
+                self.grid.Hz_dev,
                 block=self.grid.tpb,
                 grid=self.grid.bpg,
             )
@@ -958,13 +939,13 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 config.sim_config.dtypes["float_or_double"](self.grid.dx),
                 config.sim_config.dtypes["float_or_double"](self.grid.dy),
                 config.sim_config.dtypes["float_or_double"](self.grid.dz),
-                self.srcinfo1_voltage_dev.gpudata,
-                self.srcinfo2_voltage_dev.gpudata,
-                self.srcwaves_voltage_dev.gpudata,
-                self.grid.ID_dev.gpudata,
-                self.grid.Ex_dev.gpudata,
-                self.grid.Ey_dev.gpudata,
-                self.grid.Ez_dev.gpudata,
+                self.srcinfo1_voltage_dev,
+                self.srcinfo2_voltage_dev,
+                self.srcwaves_voltage_dev,
+                self.grid.ID_dev,
+                self.grid.Ex_dev,
+                self.grid.Ey_dev,
+                self.grid.Ez_dev,
                 block=(1, 1, 1),
                 grid=(round32(len(self.grid.voltagesources)), 1, 1),
             )
@@ -976,13 +957,13 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 config.sim_config.dtypes["float_or_double"](self.grid.dx),
                 config.sim_config.dtypes["float_or_double"](self.grid.dy),
                 config.sim_config.dtypes["float_or_double"](self.grid.dz),
-                self.srcinfo1_hertzian_dev.gpudata,
-                self.srcinfo2_hertzian_dev.gpudata,
-                self.srcwaves_hertzian_dev.gpudata,
-                self.grid.ID_dev.gpudata,
-                self.grid.Ex_dev.gpudata,
-                self.grid.Ey_dev.gpudata,
-                self.grid.Ez_dev.gpudata,
+                self.srcinfo1_hertzian_dev,
+                self.srcinfo2_hertzian_dev,
+                self.srcwaves_hertzian_dev,
+                self.grid.ID_dev,
+                self.grid.Ex_dev,
+                self.grid.Ey_dev,
+                self.grid.Ez_dev,
                 block=(1, 1, 1),
                 grid=(round32(len(self.grid.hertziandipoles)), 1, 1),
             )
@@ -1042,12 +1023,12 @@ class CUDAUpdates(Updates[CUDAGrid]):
 
                 # Bulk update
                 # Row offsets for [3, N] arrays: row_i starts at i * N * itemsize
-                Hx_ptr = dpw.H_fields_dev[0].gpudata
-                Hy_ptr = dpw.H_fields_dev[1].gpudata
-                Hz_ptr = dpw.H_fields_dev[2].gpudata
-                Ex_ptr = dpw.E_fields_dev[0].gpudata
-                Ey_ptr = dpw.E_fields_dev[1].gpudata
-                Ez_ptr = dpw.E_fields_dev[2].gpudata
+                Hx_ptr = dpw.H_fields_dev[0]
+                Hy_ptr = dpw.H_fields_dev[1]
+                Hz_ptr = dpw.H_fields_dev[2]
+                Ex_ptr = dpw.E_fields_dev[0]
+                Ey_ptr = dpw.E_fields_dev[1]
+                Ez_ptr = dpw.E_fields_dev[2]
 
                 # Coefficient order MUST match kernel signature:
                 # (xt, xy, xz), (yt, yx, yz), (zt, zx, zy)
@@ -1076,24 +1057,24 @@ class CUDAUpdates(Updates[CUDAGrid]):
                         n, p, M, mx, my, mz, srcm, dx, dy, dz,
                         Hx_ptr, Hy_ptr, Hz_ptr,
                         Ex_ptr, Ey_ptr, Ez_ptr,
-                        dpw.Ix_dev[3].gpudata,   # Ixmzy
-                        dpw.Ix_dev[2].gpudata,   # Ixmyz
-                        dpw.Iy_dev[3].gpudata,   # Iymzx
-                        dpw.Iy_dev[2].gpudata,   # Iymxz
-                        dpw.Iz_dev[3].gpudata,   # Izmyx
-                        dpw.Iz_dev[2].gpudata,   # Izmxy
-                        dpw.pml_rhx_dev[0].gpudata,  # RAHx
-                        dpw.pml_rhx_dev[1].gpudata,  # RBHx
-                        dpw.pml_rhx_dev[2].gpudata,  # RCHx
-                        dpw.pml_rhx_dev[3].gpudata,  # RDHx
-                        dpw.pml_rhy_dev[0].gpudata,  # RAHy
-                        dpw.pml_rhy_dev[1].gpudata,  # RBHy
-                        dpw.pml_rhy_dev[2].gpudata,  # RCHy
-                        dpw.pml_rhy_dev[3].gpudata,  # RDHy
-                        dpw.pml_rhz_dev[0].gpudata,  # RAHz
-                        dpw.pml_rhz_dev[1].gpudata,  # RBHz
-                        dpw.pml_rhz_dev[2].gpudata,  # RCHz
-                        dpw.pml_rhz_dev[3].gpudata,  # RDHz
+                        dpw.Ix_dev[3],   # Ixmzy
+                        dpw.Ix_dev[2],   # Ixmyz
+                        dpw.Iy_dev[3],   # Iymzx
+                        dpw.Iy_dev[2],   # Iymxz
+                        dpw.Iz_dev[3],   # Izmyx
+                        dpw.Iz_dev[2],   # Izmxy
+                        dpw.pml_rhx_dev[0],  # RAHx
+                        dpw.pml_rhx_dev[1],  # RBHx
+                        dpw.pml_rhx_dev[2],  # RCHx
+                        dpw.pml_rhx_dev[3],  # RDHx
+                        dpw.pml_rhy_dev[0],  # RAHy
+                        dpw.pml_rhy_dev[1],  # RBHy
+                        dpw.pml_rhy_dev[2],  # RCHy
+                        dpw.pml_rhy_dev[3],  # RDHy
+                        dpw.pml_rhz_dev[0],  # RAHz
+                        dpw.pml_rhz_dev[1],  # RBHz
+                        dpw.pml_rhz_dev[2],  # RCHz
+                        dpw.pml_rhz_dev[3],  # RDHz
                         block=(256, 1, 1),
                         grid=(pml_size, 1, 1),
                     )
@@ -1105,18 +1086,18 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 # --- Axial magnetic 1D update (3 sequential launches) ---
 
                 # Row offsets for axial source grid arrays
-                Hx_s = dpw.H_fields_s_dev[0].gpudata
-                Hy_s = dpw.H_fields_s_dev[1].gpudata
-                Hz_s = dpw.H_fields_s_dev[2].gpudata
-                Ex_s = dpw.E_fields_s_dev[0].gpudata
-                Ey_s = dpw.E_fields_s_dev[1].gpudata
-                Ez_s = dpw.E_fields_s_dev[2].gpudata
-                Hx_m = dpw.H_fields_dev[0].gpudata
-                Hy_m = dpw.H_fields_dev[1].gpudata
-                Hz_m = dpw.H_fields_dev[2].gpudata
-                Ex_m = dpw.E_fields_dev[0].gpudata
-                Ey_m = dpw.E_fields_dev[1].gpudata
-                Ez_m = dpw.E_fields_dev[2].gpudata
+                Hx_s = dpw.H_fields_s_dev[0]
+                Hy_s = dpw.H_fields_s_dev[1]
+                Hz_s = dpw.H_fields_s_dev[2]
+                Ex_s = dpw.E_fields_s_dev[0]
+                Ey_s = dpw.E_fields_s_dev[1]
+                Ez_s = dpw.E_fields_s_dev[2]
+                Hx_m = dpw.H_fields_dev[0]
+                Hy_m = dpw.H_fields_dev[1]
+                Hz_m = dpw.H_fields_dev[2]
+                Ex_m = dpw.E_fields_dev[0]
+                Ey_m = dpw.E_fields_dev[1]
+                Ez_m = dpw.E_fields_dev[2]
 
                 # Launch 1: Update source grid bulk
                 if bulk_size > 0:
@@ -1124,9 +1105,9 @@ class CUDAUpdates(Updates[CUDAGrid]):
                         n, M, mx, my, mz,
                         Hx_s, Hy_s, Hz_s,
                         Ex_s, Ey_s, Ez_s,
-                        dpw.ID_dev.gpudata,
-                        self.grid.updatecoeffsH_dev.gpudata,
-                        self.grid.updatecoeffsE_dev.gpudata,
+                        dpw.ID_dev,
+                        self.grid.updatecoeffsH_dev,
+                        self.grid.updatecoeffsE_dev,
                         block=(256, 1, 1),
                         grid=(bulk_size, 1, 1),
                     )
@@ -1142,27 +1123,27 @@ class CUDAUpdates(Updates[CUDAGrid]):
                         n, p, M, mx, my, mz, dx, dy, dz,
                         Hx_s, Hy_s, Hz_s,
                         Ex_s, Ey_s, Ez_s,
-                        dpw.Ix_s_dev[3].gpudata,   # Ixmzy_s
-                        dpw.Ix_s_dev[2].gpudata,   # Ixmyz_s
-                        dpw.Iy_s_dev[3].gpudata,   # Iymzx_s
-                        dpw.Iy_s_dev[2].gpudata,   # Iymxz_s
-                        dpw.Iz_s_dev[3].gpudata,   # Izmyx_s
-                        dpw.Iz_s_dev[2].gpudata,   # Izmxy_s
-                        dpw.pml_rhx0_dev[0].gpudata,  # RAHx0
-                        dpw.pml_rhx0_dev[1].gpudata,  # RBHx0
-                        dpw.pml_rhx0_dev[2].gpudata,  # RCHx0
-                        dpw.pml_rhx0_dev[3].gpudata,  # RDHx0
-                        dpw.pml_rhy0_dev[0].gpudata,  # RAHy0
-                        dpw.pml_rhy0_dev[1].gpudata,  # RBHy0
-                        dpw.pml_rhy0_dev[2].gpudata,  # RCHy0
-                        dpw.pml_rhy0_dev[3].gpudata,  # RDHy0
-                        dpw.pml_rhz0_dev[0].gpudata,  # RAHz0
-                        dpw.pml_rhz0_dev[1].gpudata,  # RBHz0
-                        dpw.pml_rhz0_dev[2].gpudata,  # RCHz0
-                        dpw.pml_rhz0_dev[3].gpudata,  # RDHz0
-                        dpw.ID_dev.gpudata,
-                        self.grid.updatecoeffsH_dev.gpudata,
-                        self.grid.updatecoeffsE_dev.gpudata,
+                        dpw.Ix_s_dev[3],   # Ixmzy_s
+                        dpw.Ix_s_dev[2],   # Ixmyz_s
+                        dpw.Iy_s_dev[3],   # Iymzx_s
+                        dpw.Iy_s_dev[2],   # Iymxz_s
+                        dpw.Iz_s_dev[3],   # Izmyx_s
+                        dpw.Iz_s_dev[2],   # Izmxy_s
+                        dpw.pml_rhx0_dev[0],  # RAHx0
+                        dpw.pml_rhx0_dev[1],  # RBHx0
+                        dpw.pml_rhx0_dev[2],  # RCHx0
+                        dpw.pml_rhx0_dev[3],  # RDHx0
+                        dpw.pml_rhy0_dev[0],  # RAHy0
+                        dpw.pml_rhy0_dev[1],  # RBHy0
+                        dpw.pml_rhy0_dev[2],  # RCHy0
+                        dpw.pml_rhy0_dev[3],  # RDHy0
+                        dpw.pml_rhz0_dev[0],  # RAHz0
+                        dpw.pml_rhz0_dev[1],  # RBHz0
+                        dpw.pml_rhz0_dev[2],  # RCHz0
+                        dpw.pml_rhz0_dev[3],  # RDHz0
+                        dpw.ID_dev,
+                        self.grid.updatecoeffsH_dev,
+                        self.grid.updatecoeffsE_dev,
                         block=(256, 1, 1),
                         grid=(pml_size, 1, 1),
                     )
@@ -1172,9 +1153,9 @@ class CUDAUpdates(Updates[CUDAGrid]):
                     n, np.int32(dpw.origin_axial), mx, my, mz,
                     Hx_m, Hy_m, Hz_m,
                     Ex_s, Ey_s, Ez_s,
-                    dpw.ID_dev.gpudata,
-                    self.grid.updatecoeffsH_dev.gpudata,
-                    self.grid.updatecoeffsE_dev.gpudata,
+                    dpw.ID_dev,
+                    self.grid.updatecoeffsH_dev,
+                    self.grid.updatecoeffsE_dev,
                     block=(1, 1, 1),
                     grid=(1, 1, 1),
                 )
@@ -1188,9 +1169,9 @@ class CUDAUpdates(Updates[CUDAGrid]):
                         n, M, mx, my, mz,
                         Hx_m, Hy_m, Hz_m,
                         Ex_m, Ey_m, Ez_m,
-                        dpw.ID_dev.gpudata,
-                        self.grid.updatecoeffsH_dev.gpudata,
-                        self.grid.updatecoeffsE_dev.gpudata,
+                        dpw.ID_dev,
+                        self.grid.updatecoeffsH_dev,
+                        self.grid.updatecoeffsE_dev,
                         block=(256, 1, 1),
                         grid=(main_bulk_size, 1, 1),
                     )
@@ -1202,21 +1183,21 @@ class CUDAUpdates(Updates[CUDAGrid]):
                         n, p, M, mx, my, mz, dx, dy, dz,
                         Hx_m, Hy_m, Hz_m,
                         Ex_m, Ey_m, Ez_m,
-                        dpw.Ix_dev[3].gpudata,   # Ixmzy
-                        dpw.Ix_dev[2].gpudata,   # Ixmyz
-                        dpw.Iy_dev[3].gpudata,   # Iymzx
-                        dpw.Iy_dev[2].gpudata,   # Iymxz
-                        dpw.Iz_dev[3].gpudata,   # Izmyx
-                        dpw.Iz_dev[2].gpudata,   # Izmxy
-                        dpw.pml_rhx_dev[0].gpudata, dpw.pml_rhx_dev[1].gpudata,
-                        dpw.pml_rhx_dev[2].gpudata, dpw.pml_rhx_dev[3].gpudata,
-                        dpw.pml_rhy_dev[0].gpudata, dpw.pml_rhy_dev[1].gpudata,
-                        dpw.pml_rhy_dev[2].gpudata, dpw.pml_rhy_dev[3].gpudata,
-                        dpw.pml_rhz_dev[0].gpudata, dpw.pml_rhz_dev[1].gpudata,
-                        dpw.pml_rhz_dev[2].gpudata, dpw.pml_rhz_dev[3].gpudata,
-                        dpw.ID_dev.gpudata,
-                        self.grid.updatecoeffsH_dev.gpudata,
-                        self.grid.updatecoeffsE_dev.gpudata,
+                        dpw.Ix_dev[3],   # Ixmzy
+                        dpw.Ix_dev[2],   # Ixmyz
+                        dpw.Iy_dev[3],   # Iymzx
+                        dpw.Iy_dev[2],   # Iymxz
+                        dpw.Iz_dev[3],   # Izmyx
+                        dpw.Iz_dev[2],   # Izmxy
+                        dpw.pml_rhx_dev[0], dpw.pml_rhx_dev[1],
+                        dpw.pml_rhx_dev[2], dpw.pml_rhx_dev[3],
+                        dpw.pml_rhy_dev[0], dpw.pml_rhy_dev[1],
+                        dpw.pml_rhy_dev[2], dpw.pml_rhy_dev[3],
+                        dpw.pml_rhz_dev[0], dpw.pml_rhz_dev[1],
+                        dpw.pml_rhz_dev[2], dpw.pml_rhz_dev[3],
+                        dpw.ID_dev,
+                        self.grid.updatecoeffsH_dev,
+                        self.grid.updatecoeffsE_dev,
                         block=(256, 1, 1),
                         grid=(pml_size, 1, 1),
                     )
@@ -1228,21 +1209,21 @@ class CUDAUpdates(Updates[CUDAGrid]):
                         n, p, mx, my, mz, dx, dy, dz,
                         Hx_m, Hy_m, Hz_m,
                         Ex_m, Ey_m, Ez_m,
-                        dpw.Ix0_dev[3].gpudata,   # Ixmzy0
-                        dpw.Ix0_dev[2].gpudata,   # Ixmyz0
-                        dpw.Iy0_dev[3].gpudata,   # Iymzx0
-                        dpw.Iy0_dev[2].gpudata,   # Iymxz0
-                        dpw.Iz0_dev[3].gpudata,   # Izmyx0
-                        dpw.Iz0_dev[2].gpudata,   # Izmxy0
-                        dpw.pml_rhx0_dev[0].gpudata, dpw.pml_rhx0_dev[1].gpudata,
-                        dpw.pml_rhx0_dev[2].gpudata, dpw.pml_rhx0_dev[3].gpudata,
-                        dpw.pml_rhy0_dev[0].gpudata, dpw.pml_rhy0_dev[1].gpudata,
-                        dpw.pml_rhy0_dev[2].gpudata, dpw.pml_rhy0_dev[3].gpudata,
-                        dpw.pml_rhz0_dev[0].gpudata, dpw.pml_rhz0_dev[1].gpudata,
-                        dpw.pml_rhz0_dev[2].gpudata, dpw.pml_rhz0_dev[3].gpudata,
-                        dpw.ID_dev.gpudata,
-                        self.grid.updatecoeffsH_dev.gpudata,
-                        self.grid.updatecoeffsE_dev.gpudata,
+                        dpw.Ix0_dev[3],   # Ixmzy0
+                        dpw.Ix0_dev[2],   # Ixmyz0
+                        dpw.Iy0_dev[3],   # Iymzx0
+                        dpw.Iy0_dev[2],   # Iymxz0
+                        dpw.Iz0_dev[3],   # Izmyx0
+                        dpw.Iz0_dev[2],   # Izmxy0
+                        dpw.pml_rhx0_dev[0], dpw.pml_rhx0_dev[1],
+                        dpw.pml_rhx0_dev[2], dpw.pml_rhx0_dev[3],
+                        dpw.pml_rhy0_dev[0], dpw.pml_rhy0_dev[1],
+                        dpw.pml_rhy0_dev[2], dpw.pml_rhy0_dev[3],
+                        dpw.pml_rhz0_dev[0], dpw.pml_rhz0_dev[1],
+                        dpw.pml_rhz0_dev[2], dpw.pml_rhz0_dev[3],
+                        dpw.ID_dev,
+                        self.grid.updatecoeffsH_dev,
+                        self.grid.updatecoeffsE_dev,
                         block=(256, 1, 1),
                         grid=(pml_size, 1, 1),
                     )
@@ -1299,12 +1280,12 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 CBz = REAL(mat[3])
                 srce = REAL(mat[4])
 
-                Ex_ptr = dpw.E_fields_dev[0].gpudata
-                Ey_ptr = dpw.E_fields_dev[1].gpudata
-                Ez_ptr = dpw.E_fields_dev[2].gpudata
-                Hx_ptr = dpw.H_fields_dev[0].gpudata
-                Hy_ptr = dpw.H_fields_dev[1].gpudata
-                Hz_ptr = dpw.H_fields_dev[2].gpudata
+                Ex_ptr = dpw.E_fields_dev[0]
+                Ey_ptr = dpw.E_fields_dev[1]
+                Ez_ptr = dpw.E_fields_dev[2]
+                Hx_ptr = dpw.H_fields_dev[0]
+                Hy_ptr = dpw.H_fields_dev[1]
+                Hz_ptr = dpw.H_fields_dev[2]
 
                 dpw.update_1d_electric_dev(
                     n, M, mx, my, mz,
@@ -1327,24 +1308,24 @@ class CUDAUpdates(Updates[CUDAGrid]):
                         n, p, M, mx, my, mz, srce, dx, dy, dz,
                         Ex_ptr, Ey_ptr, Ez_ptr,
                         Hx_ptr, Hy_ptr, Hz_ptr,
-                        dpw.Ix_dev[1].gpudata,   # Jxmzy
-                        dpw.Ix_dev[0].gpudata,   # Jxmyz
-                        dpw.Iy_dev[1].gpudata,   # Jymzx
-                        dpw.Iy_dev[0].gpudata,   # Jymxz
-                        dpw.Iz_dev[1].gpudata,   # Jzmyx
-                        dpw.Iz_dev[0].gpudata,   # Jzmxy
-                        dpw.pml_rex_dev[0].gpudata,  # RAEx
-                        dpw.pml_rex_dev[1].gpudata,  # RBEx
-                        dpw.pml_rex_dev[2].gpudata,  # RCEx
-                        dpw.pml_rex_dev[3].gpudata,  # RDEx
-                        dpw.pml_rey_dev[0].gpudata,  # RAEy
-                        dpw.pml_rey_dev[1].gpudata,  # RBEy
-                        dpw.pml_rey_dev[2].gpudata,  # RCEy
-                        dpw.pml_rey_dev[3].gpudata,  # RDEy
-                        dpw.pml_rez_dev[0].gpudata,  # RAEz
-                        dpw.pml_rez_dev[1].gpudata,  # RBEz
-                        dpw.pml_rez_dev[2].gpudata,  # RCEz
-                        dpw.pml_rez_dev[3].gpudata,  # RDEz
+                        dpw.Ix_dev[1],   # Jxmzy
+                        dpw.Ix_dev[0],   # Jxmyz
+                        dpw.Iy_dev[1],   # Jymzx
+                        dpw.Iy_dev[0],   # Jymxz
+                        dpw.Iz_dev[1],   # Jzmyx
+                        dpw.Iz_dev[0],   # Jzmxy
+                        dpw.pml_rex_dev[0],  # RAEx
+                        dpw.pml_rex_dev[1],  # RBEx
+                        dpw.pml_rex_dev[2],  # RCEx
+                        dpw.pml_rex_dev[3],  # RDEx
+                        dpw.pml_rey_dev[0],  # RAEy
+                        dpw.pml_rey_dev[1],  # RBEy
+                        dpw.pml_rey_dev[2],  # RCEy
+                        dpw.pml_rey_dev[3],  # RDEy
+                        dpw.pml_rez_dev[0],  # RAEz
+                        dpw.pml_rez_dev[1],  # RBEz
+                        dpw.pml_rez_dev[2],  # RCEz
+                        dpw.pml_rez_dev[3],  # RDEz
                         block=(256, 1, 1),
                         grid=(pml_size, 1, 1),
                     )
@@ -1355,18 +1336,18 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 # --- Axial electric 1D update (3 sequential launches) ---
 
                 # Row offsets for axial electric arrays
-                Ex_s = dpw.E_fields_s_dev[0].gpudata
-                Ey_s = dpw.E_fields_s_dev[1].gpudata
-                Ez_s = dpw.E_fields_s_dev[2].gpudata
-                Hx_s = dpw.H_fields_s_dev[0].gpudata
-                Hy_s = dpw.H_fields_s_dev[1].gpudata
-                Hz_s = dpw.H_fields_s_dev[2].gpudata
-                Ex_m = dpw.E_fields_dev[0].gpudata
-                Ey_m = dpw.E_fields_dev[1].gpudata
-                Ez_m = dpw.E_fields_dev[2].gpudata
-                Hx_m = dpw.H_fields_dev[0].gpudata
-                Hy_m = dpw.H_fields_dev[1].gpudata
-                Hz_m = dpw.H_fields_dev[2].gpudata
+                Ex_s = dpw.E_fields_s_dev[0]
+                Ey_s = dpw.E_fields_s_dev[1]
+                Ez_s = dpw.E_fields_s_dev[2]
+                Hx_s = dpw.H_fields_s_dev[0]
+                Hy_s = dpw.H_fields_s_dev[1]
+                Hz_s = dpw.H_fields_s_dev[2]
+                Ex_m = dpw.E_fields_dev[0]
+                Ey_m = dpw.E_fields_dev[1]
+                Ez_m = dpw.E_fields_dev[2]
+                Hx_m = dpw.H_fields_dev[0]
+                Hy_m = dpw.H_fields_dev[1]
+                Hz_m = dpw.H_fields_dev[2]
 
                 # Launch 1: Source grid bulk
                 if bulk_size > 0:
@@ -1374,9 +1355,9 @@ class CUDAUpdates(Updates[CUDAGrid]):
                         n, M, mx, my, mz,
                         Ex_s, Ey_s, Ez_s,
                         Hx_s, Hy_s, Hz_s,
-                        dpw.ID_dev.gpudata,
-                        self.grid.updatecoeffsH_dev.gpudata,
-                        self.grid.updatecoeffsE_dev.gpudata,
+                        dpw.ID_dev,
+                        self.grid.updatecoeffsH_dev,
+                        self.grid.updatecoeffsE_dev,
                         block=(256, 1, 1),
                         grid=(bulk_size, 1, 1),
                     )
@@ -1390,21 +1371,21 @@ class CUDAUpdates(Updates[CUDAGrid]):
                         n, p, M, mx, my, mz, dx, dy, dz,
                         Ex_s, Ey_s, Ez_s,
                         Hx_s, Hy_s, Hz_s,
-                        dpw.Ix_s_dev[1].gpudata,   # Ixjzy_s
-                        dpw.Ix_s_dev[0].gpudata,   # Ixjyz_s
-                        dpw.Iy_s_dev[1].gpudata,   # Iyjzx_s
-                        dpw.Iy_s_dev[0].gpudata,   # Iyjxz_s
-                        dpw.Iz_s_dev[1].gpudata,   # Izjyx_s
-                        dpw.Iz_s_dev[0].gpudata,   # Izjxy_s
-                        dpw.pml_rex0_dev[0].gpudata, dpw.pml_rex0_dev[1].gpudata,
-                        dpw.pml_rex0_dev[2].gpudata, dpw.pml_rex0_dev[3].gpudata,
-                        dpw.pml_rey0_dev[0].gpudata, dpw.pml_rey0_dev[1].gpudata,
-                        dpw.pml_rey0_dev[2].gpudata, dpw.pml_rey0_dev[3].gpudata,
-                        dpw.pml_rez0_dev[0].gpudata, dpw.pml_rez0_dev[1].gpudata,
-                        dpw.pml_rez0_dev[2].gpudata, dpw.pml_rez0_dev[3].gpudata,
-                        dpw.ID_dev.gpudata,
-                        self.grid.updatecoeffsH_dev.gpudata,
-                        self.grid.updatecoeffsE_dev.gpudata,
+                        dpw.Ix_s_dev[1],   # Ixjzy_s
+                        dpw.Ix_s_dev[0],   # Ixjyz_s
+                        dpw.Iy_s_dev[1],   # Iyjzx_s
+                        dpw.Iy_s_dev[0],   # Iyjxz_s
+                        dpw.Iz_s_dev[1],   # Izjyx_s
+                        dpw.Iz_s_dev[0],   # Izjxy_s
+                        dpw.pml_rex0_dev[0], dpw.pml_rex0_dev[1],
+                        dpw.pml_rex0_dev[2], dpw.pml_rex0_dev[3],
+                        dpw.pml_rey0_dev[0], dpw.pml_rey0_dev[1],
+                        dpw.pml_rey0_dev[2], dpw.pml_rey0_dev[3],
+                        dpw.pml_rez0_dev[0], dpw.pml_rez0_dev[1],
+                        dpw.pml_rez0_dev[2], dpw.pml_rez0_dev[3],
+                        dpw.ID_dev,
+                        self.grid.updatecoeffsH_dev,
+                        self.grid.updatecoeffsE_dev,
                         block=(256, 1, 1),
                         grid=(pml_size, 1, 1),
                     )
@@ -1414,9 +1395,9 @@ class CUDAUpdates(Updates[CUDAGrid]):
                     n, np.int32(dpw.origin_axial), mx, my, mz,
                     Ex_m, Ey_m, Ez_m,
                     Hx_s, Hy_s, Hz_s,
-                    dpw.ID_dev.gpudata,
-                    self.grid.updatecoeffsH_dev.gpudata,
-                    self.grid.updatecoeffsE_dev.gpudata,
+                    dpw.ID_dev,
+                    self.grid.updatecoeffsH_dev,
+                    self.grid.updatecoeffsE_dev,
                     block=(1, 1, 1),
                     grid=(1, 1, 1),
                 )
@@ -1430,9 +1411,9 @@ class CUDAUpdates(Updates[CUDAGrid]):
                         n, M, mx, my, mz,
                         Ex_m, Ey_m, Ez_m,
                         Hx_m, Hy_m, Hz_m,
-                        dpw.ID_dev.gpudata,
-                        self.grid.updatecoeffsH_dev.gpudata,
-                        self.grid.updatecoeffsE_dev.gpudata,
+                        dpw.ID_dev,
+                        self.grid.updatecoeffsH_dev,
+                        self.grid.updatecoeffsE_dev,
                         block=(256, 1, 1),
                         grid=(main_bulk_size, 1, 1),
                     )
@@ -1443,21 +1424,21 @@ class CUDAUpdates(Updates[CUDAGrid]):
                         n, p, M, mx, my, mz, dx, dy, dz,
                         Ex_m, Ey_m, Ez_m,
                         Hx_m, Hy_m, Hz_m,
-                        dpw.Ix_dev[1].gpudata,   # Ixjzy
-                        dpw.Ix_dev[0].gpudata,   # Ixjyz
-                        dpw.Iy_dev[1].gpudata,   # Iyjzx
-                        dpw.Iy_dev[0].gpudata,   # Iyjxz
-                        dpw.Iz_dev[1].gpudata,   # Izjyx
-                        dpw.Iz_dev[0].gpudata,   # Izjxy
-                        dpw.pml_rex_dev[0].gpudata, dpw.pml_rex_dev[1].gpudata,
-                        dpw.pml_rex_dev[2].gpudata, dpw.pml_rex_dev[3].gpudata,
-                        dpw.pml_rey_dev[0].gpudata, dpw.pml_rey_dev[1].gpudata,
-                        dpw.pml_rey_dev[2].gpudata, dpw.pml_rey_dev[3].gpudata,
-                        dpw.pml_rez_dev[0].gpudata, dpw.pml_rez_dev[1].gpudata,
-                        dpw.pml_rez_dev[2].gpudata, dpw.pml_rez_dev[3].gpudata,
-                        dpw.ID_dev.gpudata,
-                        self.grid.updatecoeffsH_dev.gpudata,
-                        self.grid.updatecoeffsE_dev.gpudata,
+                        dpw.Ix_dev[1],   # Ixjzy
+                        dpw.Ix_dev[0],   # Ixjyz
+                        dpw.Iy_dev[1],   # Iyjzx
+                        dpw.Iy_dev[0],   # Iyjxz
+                        dpw.Iz_dev[1],   # Izjyx
+                        dpw.Iz_dev[0],   # Izjxy
+                        dpw.pml_rex_dev[0], dpw.pml_rex_dev[1],
+                        dpw.pml_rex_dev[2], dpw.pml_rex_dev[3],
+                        dpw.pml_rey_dev[0], dpw.pml_rey_dev[1],
+                        dpw.pml_rey_dev[2], dpw.pml_rey_dev[3],
+                        dpw.pml_rez_dev[0], dpw.pml_rez_dev[1],
+                        dpw.pml_rez_dev[2], dpw.pml_rez_dev[3],
+                        dpw.ID_dev,
+                        self.grid.updatecoeffsH_dev,
+                        self.grid.updatecoeffsE_dev,
                         block=(256, 1, 1),
                         grid=(pml_size, 1, 1),
                     )
@@ -1468,21 +1449,21 @@ class CUDAUpdates(Updates[CUDAGrid]):
                         n, p, mx, my, mz, dx, dy, dz,
                         Ex_m, Ey_m, Ez_m,
                         Hx_m, Hy_m, Hz_m,
-                        dpw.Ix0_dev[1].gpudata,   # Ixjzy0
-                        dpw.Ix0_dev[0].gpudata,   # Ixjyz0
-                        dpw.Iy0_dev[1].gpudata,   # Iyjzx0
-                        dpw.Iy0_dev[0].gpudata,   # Iyjxz0
-                        dpw.Iz0_dev[1].gpudata,   # Izjyx0
-                        dpw.Iz0_dev[0].gpudata,   # Izjxy0
-                        dpw.pml_rex0_dev[0].gpudata, dpw.pml_rex0_dev[1].gpudata,
-                        dpw.pml_rex0_dev[2].gpudata, dpw.pml_rex0_dev[3].gpudata,
-                        dpw.pml_rey0_dev[0].gpudata, dpw.pml_rey0_dev[1].gpudata,
-                        dpw.pml_rey0_dev[2].gpudata, dpw.pml_rey0_dev[3].gpudata,
-                        dpw.pml_rez0_dev[0].gpudata, dpw.pml_rez0_dev[1].gpudata,
-                        dpw.pml_rez0_dev[2].gpudata, dpw.pml_rez0_dev[3].gpudata,
-                        dpw.ID_dev.gpudata,
-                        self.grid.updatecoeffsH_dev.gpudata,
-                        self.grid.updatecoeffsE_dev.gpudata,
+                        dpw.Ix0_dev[1],   # Ixjzy0
+                        dpw.Ix0_dev[0],   # Ixjyz0
+                        dpw.Iy0_dev[1],   # Iyjzx0
+                        dpw.Iy0_dev[0],   # Iyjxz0
+                        dpw.Iz0_dev[1],   # Izjyx0
+                        dpw.Iz0_dev[0],   # Izjxy0
+                        dpw.pml_rex0_dev[0], dpw.pml_rex0_dev[1],
+                        dpw.pml_rex0_dev[2], dpw.pml_rex0_dev[3],
+                        dpw.pml_rey0_dev[0], dpw.pml_rey0_dev[1],
+                        dpw.pml_rey0_dev[2], dpw.pml_rey0_dev[3],
+                        dpw.pml_rez0_dev[0], dpw.pml_rez0_dev[1],
+                        dpw.pml_rez0_dev[2], dpw.pml_rez0_dev[3],
+                        dpw.ID_dev,
+                        self.grid.updatecoeffsH_dev,
+                        self.grid.updatecoeffsE_dev,
                         block=(256, 1, 1),
                         grid=(pml_size, 1, 1),
                     )
@@ -1502,14 +1483,14 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 np.int32(self.grid.ny),
                 np.int32(self.grid.nz),
                 np.int32(config.get_model_config().materials["maxpoles"]),
-                self.grid.updatecoeffsdispersive_dev.gpudata,
-                self.grid.Tx_dev.gpudata,
-                self.grid.Ty_dev.gpudata,
-                self.grid.Tz_dev.gpudata,
-                self.grid.ID_dev.gpudata,
-                self.grid.Ex_dev.gpudata,
-                self.grid.Ey_dev.gpudata,
-                self.grid.Ez_dev.gpudata,
+                self.grid.updatecoeffsdispersive_dev,
+                self.grid.Tx_dev,
+                self.grid.Ty_dev,
+                self.grid.Tz_dev,
+                self.grid.ID_dev,
+                self.grid.Ex_dev,
+                self.grid.Ey_dev,
+                self.grid.Ez_dev,
                 block=self.grid.tpb,
                 grid=self.grid.bpg,
             )
@@ -1565,3 +1546,14 @@ class CUDAUpdates(Updates[CUDAGrid]):
         # Remove context from top of stack and clear
         self.ctx.pop()
         self.ctx = None
+
+                
+
+                
+                        
+                        
+                       
+            
+                   
+                       
+            
