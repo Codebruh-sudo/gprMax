@@ -1,19 +1,15 @@
 from string import Template
 
-# =============================================================================
+
 # STANDARD (HOMOGENEOUS) MAGNETIC UPDATE
-# =============================================================================
 # Ports: updateMagneticFields() from plane_wave.pyx
-#
 # Updates the 1D DPW auxiliary grid H fields for the standard (homogeneous)
 # case. The medium is assumed uniform — scalar coefficients from the background
 # material are passed directly as kernel arguments.
-#
 # Bulk update: parallel over j in [m[3], n-m[3]]
 # PML update:  separate kernel (update_1d_magnetic_pml) over p cells
 #
 # Reference: Equation 8 of DOI: 10.1109/LAWP.2009.2016851
-# =============================================================================
 
 update_1d_magnetic = {
     "args_cuda": Template(
@@ -114,11 +110,9 @@ update_1d_magnetic = {
     //             coef_H_zt = updatecoeffsH[0] (DA)
     //             coef_H_zx = updatecoeffsH[1] (DBx)
     //             coef_H_zy = updatecoeffsH[2] (DBy)
-    //   H_x, H_y, H_z: 1D magnetic field arrays — shape [N].
-    //   E_x, E_y, E_z: 1D electric field arrays — shape [N].
-    //
-    // Reference: Equation 8 of Tan & Potter (2010),
-    //            DOI: 10.1109/LAWP.2009.2016851
+    //   H_x, H_y, H_z: 1D magnetic field arrays - shape [N].
+    //   E_x, E_y, E_z: 1D electric field arrays - shape [N].
+
 
     $CUDA_IDX
 
@@ -150,21 +144,15 @@ update_1d_magnetic = {
 }
 
 
-# =============================================================================
 # STANDARD (HOMOGENEOUS) MAGNETIC PML UPDATE
-# =============================================================================
 # Ports: PML section of updateMagneticFields() from plane_wave.pyx
-#
 # Updates PML integral arrays Ix, Iy, Iz and applies PML correction to
 # H_x, H_y, H_z at the p cells at the end of the 1D DPW grid.
-#
 # Separate from the bulk update because:
 # - Only p cells (typically 10-20) vs n cells in bulk
 # - Uses different coefficient arrays (rcHx, rcHy, rcHz)
 # - Runs sequentially in the Cython — kept as small separate kernel
-#
 # Thread i handles PML cell i (i in [0, p))
-# =============================================================================
 
 update_1d_magnetic_pml = {
     "args_cuda": Template(
@@ -357,14 +345,13 @@ update_1d_magnetic_pml = {
 }
 
 
-# =============================================================================
+
 # STANDARD (HOMOGENEOUS) ELECTRIC UPDATE
-# =============================================================================
 # Ports: updateElectricFields() from plane_wave.pyx
 #
 # Updates the 1D DPW auxiliary grid E fields for the standard case.
 # Scalar coefficients from background material passed as kernel arguments.
-# =============================================================================
+
 
 update_1d_electric = {
     "args_cuda": Template(
@@ -497,12 +484,11 @@ update_1d_electric = {
 }
 
 
-# =============================================================================
+
 # STANDARD (HOMOGENEOUS) ELECTRIC PML UPDATE
-# =============================================================================
+
 # Ports: PML section of updateElectricFields() from plane_wave.pyx
 # Same structure as magnetic PML but for E fields and rcEx, rcEy, rcEz.
-# =============================================================================
 
 update_1d_electric_pml = {
     "args_cuda": Template(
@@ -691,18 +677,17 @@ update_1d_electric_pml = {
     ),
 }
 
-# =============================================================================
+
 # NOTE: Axial variants (update_1d_magnetic_axial, update_1d_electric_axial)
 # will be added here after standard variants are validated.
-# They follow the same dict structure but use per-cell GID lookup:
+# They follow the same dict structure but use per-cell GID lookup-
 #   updatecoeffsH[ID[component * N + j], col]
 # and require three sequential kernel launches due to source injection
 # dependency at origin_axial.
-# =============================================================================
 
-# =============================================================================
-# AXIAL MAGNETIC UPDATE — KERNEL 1 OF 3
-# =============================================================================
+
+
+# AXIAL MAGNETIC UPDATE - KERNEL 1 OF 3
 # Ports: source grid bulk update section of updateMagneticFields_axial()
 #
 # Updates H_fields_s (source 1D grid) in parallel over j in [M, N-M).
@@ -712,7 +697,6 @@ update_1d_electric_pml = {
 # GID layout: GID[component, position] — shape [6, N] flattened row-major.
 # Components: 0=Ex,1=Ey,2=Ez,3=Hx,4=Hy,5=Hz
 # Source grid always uses GID[component, 2] — fixed scalar per component.
-# =============================================================================
 
 update_1d_magnetic_axial_source = {
     "args_cuda": Template(
@@ -819,13 +803,12 @@ update_1d_magnetic_axial_source = {
 }
 
 
-# =============================================================================
+
 # AXIAL MAGNETIC UPDATE — SOURCE GRID PML
-# =============================================================================
+
 # Ports: PML section of source grid in updateMagneticFields_axial()
 # Uses rcHx0, rcHy0, rcHz0 and Ix_s, Iy_s, Iz_s.
 # Fixed material at GID[component, 2].
-# =============================================================================
 
 update_1d_magnetic_axial_source_pml = {
     "args_cuda": Template(
@@ -1007,10 +990,9 @@ update_1d_magnetic_axial_source_pml = {
 }
 
 
-# =============================================================================
 # AXIAL MAGNETIC UPDATE — KERNEL 2 OF 3 (SOURCE INJECTION)
-# =============================================================================
-# Ports: single-point source injection in updateMagneticFields_axial()
+
+# Ports- single-point source injection in updateMagneticFields_axial()
 #
 # H_x[src-2] -= matH[GID[3,src-2], 3] * E_y_s[src-2+m_z]
 #             - matH[GID[3,src-2], 2] * E_z_s[src-2+m_y]
@@ -1018,7 +1000,6 @@ update_1d_magnetic_axial_source_pml = {
 #
 # Launched with block=(1,1,1), grid=(1,1,1) — single thread.
 # Must run AFTER source grid is fully updated (Kernel 1 + source PML).
-# =============================================================================
 
 update_1d_magnetic_axial_inject = {
     "args_cuda": Template(
@@ -1112,15 +1093,14 @@ update_1d_magnetic_axial_inject = {
 }
 
 
-# =============================================================================
-# AXIAL MAGNETIC UPDATE — KERNEL 3 OF 3 (MAIN GRID BULK)
-# =============================================================================
+
+# AXIAL MAGNETIC UPDATE - KERNEL 3 OF 3 (MAIN GRID BULK)
+
 # Ports: main grid bulk update in updateMagneticFields_axial()
 #
 # Per-cell material lookup: matH[GID[component, j], col]
 # Loop range: j in [M-1, N-M) — note M-1 to include origin point
 # Must run AFTER injection kernel (Kernel 2).
-# =============================================================================
 
 update_1d_magnetic_axial_main = {
     "args_cuda": Template(
@@ -1218,13 +1198,13 @@ update_1d_magnetic_axial_main = {
 }
 
 
-# =============================================================================
-# AXIAL MAGNETIC UPDATE — MAIN GRID PML (END REGION)
-# =============================================================================
+
+# AXIAL MAGNETIC UPDATE - MAIN GRID PML (END REGION)
+
 # Ports: PML end region of main grid in updateMagneticFields_axial()
 # Uses rcHx, rcHy, rcHz and Ix, Iy, Iz.
 # Per-cell srcm coefficient: matH[GID[component, idx], 4]
-# =============================================================================
+
 
 update_1d_magnetic_axial_main_pml_end = {
     "args_cuda": Template(
@@ -1404,13 +1384,11 @@ update_1d_magnetic_axial_main_pml_end = {
 }
 
 
-# =============================================================================
-# AXIAL MAGNETIC UPDATE — MAIN GRID PML (START REGION)
-# =============================================================================
+# AXIAL MAGNETIC UPDATE - MAIN GRID PML (START REGION)
 # Ports: PML start region of main grid in updateMagneticFields_axial()
 # Uses rcHx0, rcHy0, rcHz0 and Ix0, Iy0, Iz0.
 # idx = (P - pml_i) - 1  (start of grid, not end)
-# =============================================================================
+
 
 update_1d_magnetic_axial_main_pml_start = {
     "args_cuda": Template(
@@ -1588,9 +1566,7 @@ update_1d_magnetic_axial_main_pml_start = {
 }
 
 
-# =============================================================================
 # AXIAL ELECTRIC UPDATE KERNELS
-# =============================================================================
 # Mirrors the magnetic axial structure exactly but for E fields.
 # Three sequential kernel launches:
 #   1. update_1d_electric_axial_source      (source grid bulk + PML)
@@ -1603,7 +1579,7 @@ update_1d_magnetic_axial_main_pml_start = {
 #   - Injection at src-1 instead of src-2
 #   - Electric PML start region: idx = (P - pml_i) not (P - pml_i) - 1
 #   - E update curl formula uses H neighbors (H[j] - H[j-m]) not (H[j+m] - H[j])
-# =============================================================================
+
 
 update_1d_electric_axial_source = {
     "args_cuda": Template(
@@ -2402,25 +2378,6 @@ update_1d_electric_axial_main_pml_start = {
     ),
 }
 
-# =============================================================================
-# KERNEL LAUNCH SEQUENCE SUMMARY
-# =============================================================================
-#
-# STANDARD case — 4 kernel launches per half-timestep:
-#   1. update_1d_magnetic / update_1d_electric        (bulk, N-2M threads)
-#   2. update_1d_magnetic_pml / update_1d_electric_pml (PML end, P threads)
-#
-# AXIAL case — 7 kernel launches per half-timestep:
-#   1. update_1d_magnetic_axial_source                 (source bulk, N-2M threads)
-#   2. update_1d_magnetic_axial_source_pml             (source PML, P threads)
-#   3. update_1d_magnetic_axial_inject                 (injection, 1 thread)
-#   4. update_1d_magnetic_axial_main                   (main bulk, N-2M+1 threads)
-#   5. update_1d_magnetic_axial_main_pml_end           (main PML end, P threads)
-#   6. update_1d_magnetic_axial_main_pml_start         (main PML start, P threads)
-#
-# All launches in same CUDA stream — in-order execution guaranteed.
-# No explicit cudaDeviceSynchronize() needed between launches.
-# =============================================================================
 
 
 
