@@ -2,7 +2,7 @@
 from string import Template
 
 # what is going on in this file (SUMMARY) -
-# TF/SF BOUNDARY INJECTION KERNELS -- 
+# TF/SF BOUNDARY INJECTION KERNELS - 
 
 # Ports- applyTFSFMagnetic(), applyTFSFMagnetic_axial(),
 #        applyTFSFElectric(), applyTFSFElectric_axial()
@@ -12,7 +12,7 @@ from string import Template
 #   12 standard (homogeneous) -scalar coefficients
 #   12 axial    (heterogeneous) - per-cell GID lookup
 #
-# One kernel per face per field type:
+# One kernel per face per field type-
 #   x_low_H,  x_high_H,  y_low_H,  y_high_H,  z_low_H,  z_high_H
 #   x_low_E,  x_high_E,  y_low_E,  y_high_E,  z_low_E,  z_high_E
 #
@@ -46,7 +46,7 @@ from string import Template
 # Axial H kernels: O_axial int arg + ID pointer, no scalar coefs
 # Standard E kernels: scalar coef_E_* args
 # Axial E kernels: O_axial int arg + ID pointer, no scalar coefs
-
+#ACTUAL CODES START FROM HERE -
 
 def _std_H_args_cuda(name):
     return Template(f"""
@@ -341,7 +341,6 @@ inject_std_xlow_H = {
 
 
 # STANDARD MAGNETIC - X_HIGH FACE
-
 # Cython (i = x_stop):
 #   Hy[i, j, k] += coef_H_yx * E_z[index]   sign FLIPPED vs x_low
 #   Hz[i, j, k] -= coef_H_zx * E_y[index]   sign FLIPPED vs x_low
