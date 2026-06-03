@@ -9,8 +9,8 @@ from string import Template
 #        from plane_wave.pyx
 #
 # 24 kernels total-
-#   12 standard (homogeneous) — scalar coefficients
-#   12 axial    (heterogeneous) — per-cell GID lookup
+#   12 standard (homogeneous) -scalar coefficients
+#   12 axial    (heterogeneous) - per-cell GID lookup
 #
 # One kernel per face per field type:
 #   x_low_H,  x_high_H,  y_low_H,  y_high_H,  z_low_H,  z_high_H
@@ -379,7 +379,7 @@ inject_std_xhigh_H = {
 }
 
 
-STANDARD MAGNETIC -Y_LOW FACE----
+STANDARD MAGNETIC -Y_LOW FACE
 # Cython (j = y_start):
 #   Hx[i, j-1, k] += coef_H_xy * E_z[index]   coef_H_xy = updatecoeffsH[2]
 #   Hz[i, j-1, k] -= coef_H_zy * E_x[index]   coef_H_zy = updatecoeffsH[2]
