@@ -378,8 +378,8 @@ inject_std_xhigh_H = {
 }
 
 
-STANDARD MAGNETIC -Y_LOW FACE
-# Cython (j = y_start):
+#STANDARD MAGNETIC -Y_LOW FACE
+# Cython (j = y_start)-
 #   Hx[i, j-1, k] += coef_H_xy * E_z[index]   coef_H_xy = updatecoeffsH[2]
 #   Hz[i, j-1, k] -= coef_H_zy * E_x[index]   coef_H_zy = updatecoeffsH[2]
 
@@ -455,7 +455,7 @@ inject_std_yhigh_H = {
 
 
 # STANDARD MAGNETIC — Z_LOW FACE
-# Cython (k = z_start):
+# Cython (k = z_start)-
 #   Hy[i, j, k-1] += coef_H_yz * E_x[index]   coef_H_yz = updatecoeffsH[3]
 #   Hx[i, j, k-1] -= coef_H_xz * E_y[index]   coef_H_xz = updatecoeffsH[3]
 # Thread t: i = t/NY_FACE + x_start, j = t%NY_FACE + y_start
@@ -743,7 +743,7 @@ inject_std_zlow_E = {
     """),
 }
 
-# STANDARD ELECTRIC — Z_HIGH FACE-----
+# STANDARD ELECTRIC - Z_HIGH FACE
 
 inject_std_zhigh_E = {
     "name": "inject_std_zhigh_E",
@@ -778,7 +778,7 @@ inject_std_zhigh_E = {
 
 
 
-# AXIAL MAGNETIC — X_LOW FACE
+# AXIAL MAGNETIC -X_LOW FACE
 # Cython (applyTFSFMagnetic_axial, i = x_start):
 #   index = O_axial + m_x*(i-Ox) + m_y*(j-Oy) + m_z*(k-Oz)
 #   Hy[i-1,j,k] -= updatecoeffsH[GID[4,i-1,j,k], 1] * E_z[index]
@@ -998,7 +998,7 @@ inject_axial_zhigh_H = {
 }
 
 
-# AXIAL ELECTRIC — X_LOW FACE
+# AXIAL ELECTRIC - X_LOW FACE
 # Cython (applyTFSFElectric_axial, i = x_start):
 #   index = O_axial + m_x*(i-1-Ox) + m_y*(j-Oy) + m_z*(k-Oz)  ← staggered!
 #   Ez[i,j,k] -= updatecoeffsE[GID[2,i,j,k], 1] * H_y[index]  GID comp=2 (Ez mat)
