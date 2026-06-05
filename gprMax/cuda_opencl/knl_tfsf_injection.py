@@ -1217,5 +1217,56 @@ inject_axial_zhigh_E = {
     }
     """),
 }
+patch = '''
+STANDARD_H_KERNELS = [
+    inject_std_xlow_H, inject_std_xhigh_H,
+    inject_std_ylow_H, inject_std_yhigh_H,
+    inject_std_zlow_H, inject_std_zhigh_H,
+]
+
+STANDARD_E_KERNELS = [
+    inject_std_xlow_E, inject_std_xhigh_E,
+    inject_std_ylow_E, inject_std_yhigh_E,
+    inject_std_zlow_E, inject_std_zhigh_E,
+]
+
+AXIAL_H_KERNELS = [
+    inject_axial_xlow_H, inject_axial_xhigh_H,
+    inject_axial_ylow_H, inject_axial_yhigh_H,
+    inject_axial_zlow_H, inject_axial_zhigh_H,
+]
+
+AXIAL_E_KERNELS = [
+    inject_axial_xlow_E, inject_axial_xhigh_E,
+    inject_axial_ylow_E, inject_axial_yhigh_E,
+    inject_axial_zlow_E, inject_axial_zhigh_E,
+]
+'''
+
+patch = '''
+STANDARD_H_KERNELS = [
+    inject_std_xlow_H, inject_std_xhigh_H,
+    inject_std_ylow_H, inject_std_yhigh_H,
+    inject_std_zlow_H, inject_std_zhigh_H,
+]
+
+STANDARD_E_KERNELS = [
+    inject_std_xlow_E, inject_std_xhigh_E,
+    inject_std_ylow_E, inject_std_yhigh_E,
+    inject_std_zlow_E, inject_std_zhigh_E,
+]
+
+AXIAL_H_KERNELS = [
+    inject_axial_xlow_H, inject_axial_xhigh_H,
+    inject_axial_ylow_H, inject_axial_yhigh_H,
+    inject_axial_zlow_H, inject_axial_zhigh_H,
+]
+
+AXIAL_E_KERNELS = [
+    inject_axial_xlow_E, inject_axial_xhigh_E,
+    inject_axial_ylow_E, inject_axial_yhigh_E,
+    inject_axial_zlow_E, inject_axial_zhigh_E,
+]
+'''
 
 
