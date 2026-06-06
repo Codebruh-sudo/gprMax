@@ -120,12 +120,17 @@ store_snapshot = {
     // Subscripts for field arrays
     int xx, yy, zz;
 
-    if (x >= xs && x < xf && y >= ys && y < yf && z >= zs && z < zf) {
+    // Snapshot region size in snapshot-index units (xf, yf, zf are field-coord
+    // limits; (xf - xs) / dx is the number of snapshot voxels along x, etc.)
+    // We allocate the snapshot array up to nx_max/ny_max/nz_max, so we must
+    // gate each thread by the actual region size of THIS snapshot.
+    if (x < (xf - xs) / dx && y < (yf - ys) / dy && z < (zf - zs) / dz) {
 
-        // Increment subscripts for field array to account for spatial sampling of snapshot
-        xx = (xs + x) * dx;
-        yy = (ys + y) * dy;
-        zz = (zs + z) * dz;
+        // Map snapshot index (x, y, z) -> field cell (xx, yy, zz).
+        // Origin is xs (field cells), stride along each axis is dx/dy/dz.
+        xx = xs + x * dx;
+        yy = ys + y * dy;
+        zz = zs + z * dz;
 
         // The electric field component value at a point comes from an average of
         // the 4 electric field component values in that cell
