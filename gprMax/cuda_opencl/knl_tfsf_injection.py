@@ -8,8 +8,8 @@ from string import Template
 #        from plane_wave.pyx
 #
 # 24 kernels total-
-#   12 standard (homogeneous) — scalar coefficients
-#   12 axial    (heterogeneous) — per-cell GID lookup
+#   12 standard (homogeneous) - scalar coefficients
+#   12 axial    (heterogeneous) - per-cell GID lookup
 #
 # One kernel per face per field type:
 #   x_low_H,  x_high_H,  y_low_H,  y_high_H,  z_low_H,  z_high_H
