@@ -1,15 +1,15 @@
 from string import Template
 
 # what is going on in this file (SUMMARY) -
-# TF/SF BOUNDARY INJECTION KERNELS - 
+# TF/SF BOUNDARY INJECTION KERNELS -- 
 
 # Ports- applyTFSFMagnetic(), applyTFSFMagnetic_axial(),
 #        applyTFSFElectric(), applyTFSFElectric_axial()
 #        from plane_wave.pyx
 #
 # 24 kernels total-
-#   12 standard (homogeneous) - scalar coefficients
-#   12 axial    (heterogeneous) - per-cell GID lookup
+#   12 standard (homogeneous) — scalar coefficients
+#   12 axial    (heterogeneous) — per-cell GID lookup
 #
 # One kernel per face per field type:
 #   x_low_H,  x_high_H,  y_low_H,  y_high_H,  z_low_H,  z_high_H
@@ -284,7 +284,7 @@ def _axial_E_args_metal(name):
     """)
 
 
-# STANDARD MAGNETIC - X_LOW FACE
+# STANDARD MAGNETIC — X_LOW FACE
 
 # Cython reference (applyTFSFMagnetic, i = x_start):
 #   for j in [y_start, y_stop+1):  for k in [z_start, z_stop):
@@ -377,7 +377,7 @@ inject_std_xhigh_H = {
 }
 
 
-# STANDARD MAGNETIC - Y_LOW FACE
+# STANDARD MAGNETIC — Y_LOW FACE
 # Cython (j = y_start):
 #   Hx[i, j-1, k] += coef_H_xy * E_z[index]   coef_H_xy = updatecoeffsH[2]
 #   Hz[i, j-1, k] -= coef_H_zy * E_x[index]   coef_H_zy = updatecoeffsH[2]
@@ -453,7 +453,7 @@ inject_std_yhigh_H = {
 }
 
 
-# STANDARD MAGNETIC - Z_LOW FACE
+# STANDARD MAGNETIC — Z_LOW FACE
 # Cython (k = z_start):
 #   Hy[i, j, k-1] += coef_H_yz * E_x[index]   coef_H_yz = updatecoeffsH[3]
 #   Hx[i, j, k-1] -= coef_H_xz * E_y[index]   coef_H_xz = updatecoeffsH[3]
@@ -477,8 +477,8 @@ inject_std_zlow_H = {
 
     int t = blockIdx.x * blockDim.x + threadIdx.x;
 
-    int i = t / NY_FACE + x_start;
-    int j = t % NY_FACE + y_start;
+    int i = t / NZ_FACE + x_start;
+    int j = t % NZ_FACE + y_start;
 
     int k = z_start;
     int index;
@@ -497,7 +497,7 @@ inject_std_zlow_H = {
 
 
 
-# STANDARD MAGNETIC - Z_HIGH FACE
+# STANDARD MAGNETIC — Z_HIGH FACE
 
 
 inject_std_zhigh_H = {
@@ -513,8 +513,8 @@ inject_std_zhigh_H = {
 
     int t = blockIdx.x * blockDim.x + threadIdx.x;
 
-    int i = t / NY_FACE + x_start;
-    int j = t % NY_FACE + y_start;
+    int i = t / NZ_FACE + x_start;
+    int j = t % NZ_FACE + y_start;
 
     int k = z_stop;
     int index;
@@ -533,7 +533,7 @@ inject_std_zhigh_H = {
 
 
 
-# STANDARD ELECTRIC - X_LOW FACE
+# STANDARD ELECTRIC — X_LOW FACE
 
 # Cython (applyTFSFElectric, i = x_start):
 #   Ez[i, j, k] -= coef_E_zx * H_y[index]   index uses (i-1-Ox) not (i-Ox)!
@@ -664,9 +664,9 @@ inject_std_ylow_E = {
 
 
 
-# STANDARD ELECTRIC - Y_HIGH FACE
+# STANDARD ELECTRIC — Y_HIGH FACE
 
-# y_stop uses m_y*(j-Oy) - normal offset. Signs flipped vs y_low.
+# y_stop uses m_y*(j-Oy) — normal offset. Signs flipped vs y_low.
 
 inject_std_yhigh_E = {
     "name": "inject_std_yhigh_E",
@@ -701,7 +701,7 @@ inject_std_yhigh_E = {
 
 
 
-# STANDARD ELECTRIC - Z_LOW FACE
+# STANDARD ELECTRIC — Z_LOW FACE
 
 # Cython (k = z_start): index uses m_z*(k-1-Oz) — staggered by 1 in z
 #   Ey[i, j, k] -= coef_E_yz * H_x[index]   coef_E_yz = updatecoeffsE[3]
@@ -724,8 +724,8 @@ inject_std_zlow_E = {
 
     int t = blockIdx.x * blockDim.x + threadIdx.x;
 
-    int i = t / NY_FACE + x_start;
-    int j = t % NY_FACE + y_start;
+    int i = t / NZ_FACE + x_start;
+    int j = t % NZ_FACE + y_start;
 
     int k = z_start;
     int index;
@@ -742,7 +742,7 @@ inject_std_zlow_E = {
     """),
 }
 
-# STANDARD ELECTRIC - Z_HIGH FACE
+# STANDARD ELECTRIC — Z_HIGH FACE-----
 
 inject_std_zhigh_E = {
     "name": "inject_std_zhigh_E",
@@ -757,8 +757,8 @@ inject_std_zhigh_E = {
 
     int t = blockIdx.x * blockDim.x + threadIdx.x;
 
-    int i = t / NY_FACE + x_start;
-    int j = t % NY_FACE + y_start;
+    int i = t / NZ_FACE + x_start;
+    int j = t % NZ_FACE + y_start;
 
     int k = z_stop;
     int index;
@@ -777,7 +777,7 @@ inject_std_zhigh_E = {
 
 
 
-# AXIAL MAGNETIC - X_LOW FACE
+# AXIAL MAGNETIC — X_LOW FACE
 # Cython (applyTFSFMagnetic_axial, i = x_start):
 #   index = O_axial + m_x*(i-Ox) + m_y*(j-Oy) + m_z*(k-Oz)
 #   Hy[i-1,j,k] -= updatecoeffsH[GID[4,i-1,j,k], 1] * E_z[index]
@@ -941,8 +941,8 @@ inject_axial_zlow_H = {
 
     int t = blockIdx.x * blockDim.x + threadIdx.x;
 
-    int i = t / NY_FACE + x_start;
-    int j = t % NY_FACE + y_start;
+    int i = t / NZ_FACE + x_start;
+    int j = t % NZ_FACE + y_start;
 
     int k = z_start;
     int index;
@@ -975,8 +975,8 @@ inject_axial_zhigh_H = {
 
     int t = blockIdx.x * blockDim.x + threadIdx.x;
 
-    int i = t / NY_FACE + x_start;
-    int j = t % NY_FACE + y_start;
+    int i = t / NZ_FACE + x_start;
+    int j = t % NZ_FACE + y_start;
 
     int k = z_stop;
     int index;
@@ -997,7 +997,7 @@ inject_axial_zhigh_H = {
 }
 
 
-# AXIAL ELECTRIC -X_LOW FACE
+# AXIAL ELECTRIC — X_LOW FACE
 # Cython (applyTFSFElectric_axial, i = x_start):
 #   index = O_axial + m_x*(i-1-Ox) + m_y*(j-Oy) + m_z*(k-Oz)  ← staggered!
 #   Ez[i,j,k] -= updatecoeffsE[GID[2,i,j,k], 1] * H_y[index]  GID comp=2 (Ez mat)
@@ -1161,8 +1161,8 @@ inject_axial_zlow_E = {
 
     int t = blockIdx.x * blockDim.x + threadIdx.x;
 
-    int i = t / NY_FACE + x_start;
-    int j = t % NY_FACE + y_start;
+    int i = t / NZ_FACE + x_start;
+    int j = t % NZ_FACE + y_start;
 
     int k = z_start;
     int index;
@@ -1196,8 +1196,8 @@ inject_axial_zhigh_E = {
 
     int t = blockIdx.x * blockDim.x + threadIdx.x;
 
-    int i = t / NY_FACE + x_start;
-    int j = t % NY_FACE + y_start;
+    int i = t / NZ_FACE + x_start;
+    int j = t % NZ_FACE + y_start;
 
     int k = z_stop;
     int index;
@@ -1216,6 +1216,30 @@ inject_axial_zhigh_E = {
     }
     """),
 }
+STANDARD_H_KERNELS = [
+    inject_std_xlow_H, inject_std_xhigh_H,
+    inject_std_ylow_H, inject_std_yhigh_H,
+    inject_std_zlow_H, inject_std_zhigh_H,
+]
+
+STANDARD_E_KERNELS = [
+    inject_std_xlow_E, inject_std_xhigh_E,
+    inject_std_ylow_E, inject_std_yhigh_E,
+    inject_std_zlow_E, inject_std_zhigh_E,
+]
+
+AXIAL_H_KERNELS = [
+    inject_axial_xlow_H, inject_axial_xhigh_H,
+    inject_axial_ylow_H, inject_axial_yhigh_H,
+    inject_axial_zlow_H, inject_axial_zhigh_H,
+]
+
+AXIAL_E_KERNELS = [
+    inject_axial_xlow_E, inject_axial_xhigh_E,
+    inject_axial_ylow_E, inject_axial_yhigh_E,
+    inject_axial_zlow_E, inject_axial_zhigh_E,
+]
+
 
 
 
