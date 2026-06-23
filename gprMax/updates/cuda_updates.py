@@ -318,7 +318,7 @@ class CUDAUpdates(Updates[CUDAGrid]):
         Called once at simulation init if discreteplanewaves exist.
         """
 
-        # Additional subs needed for plane wave kernels
+        # Additional subs needed for plane wave kernels.
         # These are used in the func body template substitutions
         subs_pw = dict(self.subs_func)
 
