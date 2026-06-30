@@ -273,10 +273,11 @@ class SimulationConfig:
         self.hostinfo = get_host_info()
 
         # CUDA
-        if self.gpu is not None:
-           self.general["solver"] = "cuda"
-           if self.general["precision"] != "double":
-              self.general["precision"] = "single"  # default to single unless double explicitly set
+         if self.gpu is not None:
+            self.general["solver"] = "cuda"
+            # Both single and double precision are possible on GPUs, but single
+            # provides best performance.
+            self.general["precision"] = "single"
             self.devices = {
                 "devs": [],
                 "nvcc_opts": None,
