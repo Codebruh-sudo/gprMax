@@ -1619,7 +1619,7 @@ class CUDAUpdates(Updates[CUDAGrid]):
 
                 # Dispersive axial electric update
                 # Mirrors updateElectricFields_dispersive_axial() in plane_wave.pyx.
-                # Sequence: source bulk → source PML → source T → inject → main bulk → main PML end → main PML start → main T
+                # Sequence: source bulk - source PML - source T - inject - main bulk - main PML end - main PML start - main T
                 # Non-dispersive source/inject/PML kernels are reused where the math is identical.
                 if dpw.dispersive:
                     num_poles = np.int32(config.get_model_config().materials["maxpoles"])
