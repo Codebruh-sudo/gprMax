@@ -149,3 +149,14 @@ class CUDAGrid(FDTDGrid):
             # Used by axial 1D update kernel for per-cell coefficient lookup
             # updatecoeffsH[ID[component, j], col]
             dpw.ID_dev = self.gpuarray.to_gpu(dpw.ID)
+
+        # --- Dispersive polarization arrays (uploaded when dpw.dispersive) ---
+        # Shape [max_poles, n], flattened row-major for kernel access as T[pole*N + j]
+        if dpw.dispersive:
+            dpw.Px_dev = self.gpuarray.to_gpu(dpw.Px)
+            dpw.Py_dev = self.gpuarray.to_gpu(dpw.Py)
+            dpw.Pz_dev = self.gpuarray.to_gpu(dpw.Pz)
+            if dpw.axial != 0:
+                dpw.Px_s_dev = self.gpuarray.to_gpu(dpw.Px_s)
+                dpw.Py_s_dev = self.gpuarray.to_gpu(dpw.Py_s)
+                dpw.Pz_s_dev = self.gpuarray.to_gpu(dpw.Pz_s)
