@@ -95,9 +95,9 @@ class CUDAGrid(FDTDGrid):
                  dpw.axial == 1/2/3 for axial case (x/y/z direction).
         """
 
-        # --- Standard arrays (uploaded for both standard and axial) ---
+        # -Standard arrays (uploaded for both standard and axial) -
 
-        # 1D DPW field arrays — shape [3, n]
+        # 1D DPW field arrays - shape [3, n]
         # E_fields[0]=Ex, E_fields[1]=Ey, E_fields[2]=Ez
         dpw.E_fields_dev = self.gpuarray.to_gpu(dpw.E_fields)
         dpw.H_fields_dev = self.gpuarray.to_gpu(dpw.H_fields)
@@ -107,7 +107,7 @@ class CUDAGrid(FDTDGrid):
         dpw.Iy_dev = self.gpuarray.to_gpu(dpw.Iy)
         dpw.Iz_dev = self.gpuarray.to_gpu(dpw.Iz)
 
-        # PML coefficient arrays — shape [4, pml_length]
+        # PML coefficient arrays - shape [4, pml_length]
         # Used in 1D DPW PML update kernel
         dpw.pml_rhx_dev = self.gpuarray.to_gpu(dpw.pml_rhx)
         dpw.pml_rhy_dev = self.gpuarray.to_gpu(dpw.pml_rhy)
@@ -116,27 +116,27 @@ class CUDAGrid(FDTDGrid):
         dpw.pml_rey_dev = self.gpuarray.to_gpu(dpw.pml_rey)
         dpw.pml_rez_dev = self.gpuarray.to_gpu(dpw.pml_rez)
 
-        # --- Axial-only arrays (uploaded only when dpw.axial != 0) ---
+        # -Axial-only arrays (uploaded only when dpw.axial != 0)-
 
         if dpw.axial != 0:
 
-            # Source 1D grid field arrays — shape [3, n]
+            # Source 1D grid field arrays - shape [3, n]
             # Runs in background material, feeds into main 1D grid at origin_axial
             dpw.E_fields_s_dev = self.gpuarray.to_gpu(dpw.E_fields_s)
             dpw.H_fields_s_dev = self.gpuarray.to_gpu(dpw.H_fields_s)
 
-            # Source grid PML integral arrays — shape [4, pml_length]
+            # Source grid PML integral arrays - shape [4, pml_length]
             dpw.Ix_s_dev = self.gpuarray.to_gpu(dpw.Ix_s)
             dpw.Iy_s_dev = self.gpuarray.to_gpu(dpw.Iy_s)
             dpw.Iz_s_dev = self.gpuarray.to_gpu(dpw.Iz_s)
 
-            # Second PML region integral arrays — shape [4, pml_length]
+            # Second PML region integral arrays - shape [4, pml_length]
             # Axial main grid has two PML regions (start and end)
             dpw.Ix0_dev = self.gpuarray.to_gpu(dpw.Ix0)
             dpw.Iy0_dev = self.gpuarray.to_gpu(dpw.Iy0)
             dpw.Iz0_dev = self.gpuarray.to_gpu(dpw.Iz0)
 
-            # Second PML region coefficient arrays — shape [4, pml_length]
+            # Second PML region coefficient arrays - shape [4, pml_length]
             dpw.pml_rhx0_dev = self.gpuarray.to_gpu(dpw.pml_rhx0)
             dpw.pml_rhy0_dev = self.gpuarray.to_gpu(dpw.pml_rhy0)
             dpw.pml_rhz0_dev = self.gpuarray.to_gpu(dpw.pml_rhz0)
@@ -144,13 +144,13 @@ class CUDAGrid(FDTDGrid):
             dpw.pml_rey0_dev = self.gpuarray.to_gpu(dpw.pml_rey0)
             dpw.pml_rez0_dev = self.gpuarray.to_gpu(dpw.pml_rez0)
 
-            # 1D material ID array — shape [6, n]
+            # 1D material ID array - shape [6, n]
             # Maps each position j in the 1D grid to a material ID
             # Used by axial 1D update kernel for per-cell coefficient lookup
             # updatecoeffsH[ID[component, j], col]
             dpw.ID_dev = self.gpuarray.to_gpu(dpw.ID)
 
-        # --- Dispersive polarization arrays (uploaded when dpw.dispersive) ---
+        # -Dispersive polarization arrays (uploaded when dpw.dispersive)-
         # Shape [max_poles, n], flattened row-major for kernel access as T[pole*N + j]
         if dpw.dispersive:
             dpw.Px_dev = self.gpuarray.to_gpu(dpw.Px)
