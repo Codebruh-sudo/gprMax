@@ -273,7 +273,7 @@ class SimulationConfig:
         self.hostinfo = get_host_info()
 
         # CUDA
-         if self.gpu is not None:
+        if self.gpu is not None:
             self.general["solver"] = "cuda"
             # Both single and double precision are possible on GPUs, but single
             # provides best performance.
