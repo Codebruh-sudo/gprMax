@@ -132,11 +132,12 @@ def create_solver(model: Model) -> Solver:
         solver: Solver object.
     """
     grid = model.G
-    if config.sim_config.general["subgrid"]:
+        if config.sim_config.general["subgrid"]:
         updates = create_subgrid_updates(model)
-        if config.get_model_config().materials["maxpoles"] != 0:
-            # Set dispersive update functions for both SubgridUpdates and
-            # SubgridUpdaters subclasses
+        if (config.sim_config.general["solver"] == "cpu"
+                and config.get_model_config().materials["maxpoles"] != 0):
+            # Cython dispersive update functions; CUDA handles dispersive
+            # materials through templating instead
             updates.set_dispersive_updates()
             for u in updates.updaters:
                 u.set_dispersive_updates()
