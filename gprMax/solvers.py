@@ -80,7 +80,8 @@ class Solver:
                 self.updates.halo_swap_magnetic()
                 self.updates.update_magnetic_edge_devices(iteration)
 
-            if isinstance(self.updates, SubgridUpdates):
+           
+            if hasattr(self.updates, "hsg_2"):
                 self.updates.hsg_2()
 
             self.updates.observe_ntff_magnetic(iteration)
@@ -98,7 +99,7 @@ class Solver:
             self.updates.update_plane_waves_electric(iteration)
 
             # TODO: Increment iteration here if add Model to Solver
-            if isinstance(self.updates, SubgridUpdates):
+            if hasattr(self.updates, "hsg_1"):
                 self.updates.hsg_1()
 
             # Complete the dispersive PMC correction after PML and sources,
@@ -137,18 +138,15 @@ def create_solver(model: Model) -> Solver:
         solver: Solver object.
     """
     grid = model.G
+  
     if config.sim_config.general["subgrid"]:
         updates = create_subgrid_updates(model)
-        if config.get_model_config().materials["maxpoles"] != 0:
-            # Set dispersive update functions for both SubgridUpdates and
-            # SubgridUpdaters subclasses
+        
+        if (config.sim_config.general["solver"] == "cpu"
+                and config.get_model_config().materials["maxpoles"] != 0):
             updates.set_dispersive_updates()
             for u in updates.updaters:
                 u.set_dispersive_updates()
-    elif type(grid) is FDTDGrid:
-        updates = CPUUpdates(grid)
-        if config.get_model_config().materials["maxpoles"] != 0:
-            updates.set_dispersive_updates()
     elif type(grid) is MPIGrid:
         updates = MPIUpdates(grid)
         if config.get_model_config().materials["maxpoles"] != 0:
