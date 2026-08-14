@@ -19,6 +19,7 @@
 
 import logging
 
+import gprMax.config as config
 from gprMax.grid.fdtd_grid import FDTDGrid
 from gprMax.model import Model
 from gprMax.subgrids.grid import SubGridBaseGrid
@@ -32,6 +33,13 @@ logger = logging.getLogger(__name__)
 
 def create_updates(model: Model):
     """Return the solver for the given subgrids."""
+    # Everything CUDA-specific lives in cuda_subgrid_updates; the CPU classes
+    # below are untouched by the GPU port.
+    if config.sim_config.general["solver"] == "cuda":
+        from .cuda_subgrid_updates import create_cuda_updates
+
+        return create_cuda_updates(model, SubGridHSG)
+
     updaters = []
 
     for sg in model.subgrids:
@@ -185,3 +193,4 @@ class SubgridUpdater(CPUUpdates[SubGridBaseGrid]):
         subgrid.update_magnetic_is(precursors)
         self.update_magnetic_sources()
         subgrid.update_magnetic_os(G)
+
