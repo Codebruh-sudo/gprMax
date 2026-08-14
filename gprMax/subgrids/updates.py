@@ -17,37 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with gprMax.  If not, see <http://www.gnu.org/licenses/>.
 
-"""GPU subgrid updaters.
 
-Everything CUDA-specific about driving an HSG subgrid lives here, so
-subgrids/updates.py needs only a small dispatch change and its CPU classes
-stay exactly as written.
-
-    CUDASubgridUpdates    drives every subgrid, owns the CUDA context
-    CUDASubgridUpdater    drives one subgrid, launches the interface kernels
-
-Nothing in updates/cuda_updates.py needs changing. It already provides the
-two things a second grid requires:
-
-    __init__(G, shared=...)   attaches to an existing context instead of
-                                creating one, with cleanup() guarded by
-                                _owns_context. Added for virtual waveguides,
-                                which have the same need - a kernel that
-                                addresses two grids without per-step
-                                transfers.
-    CUDA implementations of store_snapshots, update_eigenmode_sources_*,
-    observe_eigenmode_ports and update_network_terminals, so the extended
-    HSG phase sequence runs on the GPU unchanged.
-
-IMPORTANT - the phase sequence below is a verbatim copy of
-SubgridUpdater.hsg_1 / hsg_2 and their helpers in subgrids/updates.py. It
-cannot be inherited or referenced: those methods use zero-argument super(),
-which binds to SubgridUpdater's MRO at compile time and would dispatch the
-bulk updates back to the Cython path.
-
-Because it is a copy, it can go stale. tools/check_subgrid_drift.py compares
-the two by AST and fails if they diverge; run it after every upstream sync.
-"""
 
 import logging
 
