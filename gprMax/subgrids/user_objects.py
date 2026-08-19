@@ -225,6 +225,7 @@ class SubGridHSG(SubGridBase):
 
     # gprMax/subgrids/user_objects.py
     def build(self, model: Model) -> SubGridHSGUser:
+        import gprMax.config as config
         if config.sim_config.general["solver"] == "cuda":
             # Imported here so the CPU path never pulls in PyCUDA
             from gprMax.subgrids.cuda_subgrid_hsg import CUDASubGridHSG
