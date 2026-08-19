@@ -440,12 +440,11 @@ class SimulationConfig:
                     " single precision."
                 )
             self.general["precision"] = "double"
-            if (self.general["subgrid"] and self.general["solver"] == "cuda") or (
-                self.general["subgrid"] and self.general["solver"] == "opencl") or (
+            if (self.general["subgrid"] and self.general["solver"] == "opencl") or (
                 self.general["subgrid"] and self.general["solver"] == "metal"
             ):
                 logger.error(
-                    "You cannot currently use CUDA, OpenCL, or Metal based solvers with models that contain sub-grids."
+                    "You cannot currently use OpenCL or Metal based solvers with models that contain sub-grids."
                 )
                 raise ValueError
         else:
