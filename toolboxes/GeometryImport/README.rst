@@ -17,13 +17,24 @@ geometry.
 Dependencies
 ------------
 
-The recommended conda environment installs the format readers. The individual
-dependencies are:
+These format readers are optional and are not installed by
+``pip install gprMax``. Install only the readers required by the input formats
+you use:
 
 * ``nibabel`` for NIfTI;
 * ``pynrrd`` for NRRD and 3D Slicer segmentation NRRD;
 * ``SimpleITK`` for MetaImage;
 * ``meshio`` and ``pyvista``/VTK for Gmsh and VTK-family meshes.
+
+For example, a PyPI installation can be extended with all supported readers
+using:
+
+.. code-block:: console
+
+    python -m pip install nibabel pynrrd SimpleITK meshio pyvista
+
+The repository's recommended ``conda_env.yml`` development environment
+already includes these readers.
 
 They are imported only when the corresponding converter is used and add no
 runtime work to the FDTD solver.

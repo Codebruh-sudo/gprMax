@@ -145,6 +145,8 @@ an isolated environment before any test runs.
   libraries;
 * verifies that build-only C/Cython sources were not installed;
 * lists and copies the version-matched packaged examples; and
+* imports ``numpy-stl`` and performs an STL voxelisation using the packaged
+  ``STLtoVoxel`` example;
 * runs a compact CPU model using the installed wheel.
 
 The workflow uses ``auditwheel``, ``delvewheel``, and ``delocate`` through

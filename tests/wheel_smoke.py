@@ -29,6 +29,7 @@ os.environ.setdefault("MPLCONFIGDIR", tempfile.mkdtemp(prefix="gprmax-matplotlib
 
 import gprMax
 from gprMax.examples import copy_examples, list_examples
+from toolboxes.STLtoVoxel.convert import convert_file
 
 CYTHON_MODULES = (
     "eigenmode_dft",
@@ -94,6 +95,19 @@ def _assert_matlab_utilities_are_available() -> None:
     assert (matlab / "plot_Bscan.m").is_file()
 
 
+def _assert_stl_toolbox_is_available() -> None:
+    """Exercise the STL dependency from an installed distribution."""
+
+    toolboxes = Path(importlib.import_module("toolboxes").__file__).resolve().parent
+    source = toolboxes / "STLtoVoxel" / "examples" / "stl" / "Stanford_Bunny.stl"
+    assert source.is_file()
+
+    volume = convert_file(source, (0.004, 0.004, 0.004), parallel=False)
+    assert volume.ndim == 3
+    assert volume.size > 0
+    assert (volume >= 0).any()
+
+
 def _run_tiny_cpu_model(output: Path) -> None:
     scene = gprMax.Scene()
     scene.add(gprMax.Discretisation(p1=(0.001, 0.001, 0.001)))
@@ -120,6 +134,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory(prefix="gprmax-wheel-") as directory:
         root = Path(directory)
         _assert_examples_are_available(root / "workspace")
+        _assert_stl_toolbox_is_available()
         _run_tiny_cpu_model(root / "smoke")
 
 
