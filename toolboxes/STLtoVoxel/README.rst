@@ -25,6 +25,13 @@ Package contents
 * ``convert.py``, ``perimeter.py``, ``slice.py`` are modules adapted from the `stl-to-voxel <https://github.com/cpederkoff/stl-to-voxel>`_ Python library by Christian Pederkoff.
 * ``license.md`` is the license for the `stl-to-voxel <https://github.com/cpederkoff/stl-to-voxel>`_ Python library by Christian Pederkoff.
 
+Installation
+============
+
+``STLtoVoxel`` and its ``numpy-stl`` dependency are installed automatically
+with gprMax. No separate toolbox installation is required when gprMax is
+installed from PyPI or from source.
+
 How to use the package
 ======================
 

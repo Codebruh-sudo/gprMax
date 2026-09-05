@@ -259,6 +259,7 @@ else:
             "jinja2",
             "matplotlib",
             "numpy",
+            "numpy-stl",
             "Pillow",
             "psutil",
             "scipy",
