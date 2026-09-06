@@ -78,6 +78,12 @@ MPI-enabled HDF5/h5py. Run the complete locally available suite with:
 
     $ python -m pytest
 
+Small MPI regressions can require more ranks than a CI runner has processor
+slots. The pytest configuration enables oversubscription by default for both
+older Open MPI and Open MPI 5/PRRTE; MPICH ignores these environment settings.
+Explicit user mapping policies are preserved. This is test-only configuration
+and does not change the resource policy of ordinary gprMax simulations.
+
 The markers registered in ``pyproject.toml`` are:
 
 ``unit``

@@ -218,6 +218,36 @@ scripts are retained locally at
 tests are the repository evidence; transient generated models and large
 historical research directories are not part of the PR.
 
+## CI follow-up: Open MPI 5 slot allocation
+
+PR828's standard CPU job exposed a launcher condition missed by the initial
+many-core local runs: the task-farm regression needs three ranks, while the
+runner supplied fewer slots. Open MPI 5/PRRTE ignored the older
+`OMPI_MCA_rmaps_base_oversubscribe` setting, so gprMax never started. This was
+not a failure of task-farm error handling.
+
+Pytest now defaults both that legacy variable and
+`PRTE_MCA_rmaps_default_mapping_policy=:oversubscribe`, preserving explicit
+user settings. This applies to the whole test suite, including eight-rank
+cases, without changing ordinary simulation launch policy or reducing tests'
+requested rank counts. Four new unit cases check defaulting, preservation and
+idempotence; they are additional to the earlier inventory above.
+
+The original insufficient-slots failure was reproduced with three processes
+and an explicit `localhost slots=2` allocation. Verification after correction:
+
+- Open MPI 5.0.8, forced two slots: all 14 selected environment and release
+  regressions passed, including the three-rank task farm. The expected bad job
+  was reported and the good job's output retained.
+- MPICH 4.3.2: the same 14 selected tests passed.
+- Open MPI, eight ranks on two slots: both snapshot corner tests passed,
+  retaining the single/double precision and serial-equivalence assertions.
+
+Logs and JUnit records are in `/tmp/gprmax-pr828-slots/`. These focused results
+are not a rerun of the entire earlier verification inventory. Optional toolbox
+dependency skips and pre-existing unimplemented test placeholders are unrelated
+to this launcher correction.
+
 ## Scope and compatibility
 
 - No dependency or Python-version requirement is changed. Python 3.12 remains

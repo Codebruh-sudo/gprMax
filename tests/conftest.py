@@ -28,6 +28,21 @@ from types import SimpleNamespace
 if sys.platform.startswith("linux"):
     os.environ.setdefault("FI_PROVIDER", "shm")
 
+
+def _configure_mpi_test_environment(environment):
+    """Allow small MPI regressions to run on hosts with fewer slots than ranks.
+
+    Open MPI 5 delegates mapping to PRRTE and no longer uses the older
+    Open MPI oversubscription parameter. Set both compatibility defaults;
+    MPICH ignores them. Explicit user mapping/allocation policies win.
+    This affects pytest subprocesses, not normal gprMax launches.
+    """
+    environment.setdefault("OMPI_MCA_rmaps_base_oversubscribe", "1")
+    environment.setdefault("PRTE_MCA_rmaps_default_mapping_policy", ":oversubscribe")
+
+
+_configure_mpi_test_environment(os.environ)
+
 import pytest
 
 from gprMax.materials import DispersiveMaterial, Material
