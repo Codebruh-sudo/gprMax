@@ -447,6 +447,14 @@ For example to create a model of water with a single Debye pole, :math:`\epsilon
     * You can continue to add pairs of values for :math:`\Delta \epsilon_{rp}` and :math:`\tau_p` for as many Debye poles as you have specified with ``i1``.
     * The relative permittivity in the ``#material`` command should be given as the relative permittivity at infinite frequency, i.e. :math:`\epsilon_{r \infty}`.
     * Temporal values associated with pole frequencies and relaxation times should always be greater than the time step :math:`\Delta t` used in the model.
+    * Very long relaxation times can also require double precision: if
+      :math:`\exp(-\Delta t/\tau_p)` rounds to one in the selected precision,
+      gprMax warns that long-time pole decay may be inaccurate. The small
+      exponential differences used for pole coupling are evaluated with
+      cancellation-resistant ``expm1`` arithmetic, but the stored recurrence
+      still has the solver's precision. Check time-window and precision
+      convergence when this warning occurs. The same consideration applies
+      to the decaying exponential poles of Lorentz, Drude, and mixed materials.
 
 
 #add_dispersion_lorentz:
@@ -1234,9 +1242,19 @@ database. The syntax of the command is:
 
 .. note::
 
-    * The integer numbers in the HDF5 file must be stored as a NumPy array at the root named ``data`` with type ``np.int16``.
+    * Store the cell-material indices in an integer array at the root named
+      ``data``. The gprMax writer uses ``np.int16``; the reader also accepts
+      wider integer arrays and legacy unsigned arrays. Non-negative values
+      index the file's material table, not the destination grid's material
+      IDs. Imported indices are mapped without narrowing the destination IDs
+      to 16 bits.
     * ``/material_keys`` maps each non-negative integer to an entry key in the JSON database.
-    * You can use an integer of -1 in the HDF5 file to indicate not to build any material at that location, i.e. whatever material is already in the model at that location.
+    * In a signed array, ``-1`` means leave the existing geometry unchanged;
+      it does not mean free space. Other negative indices are invalid.
+      For complete component meshes, transparency in ``/ID`` also preserves
+      the corresponding existing rigidity flags. Cell materials and tags
+      follow ``/data`` independently, allowing explicit component-only
+      objects without overwriting the surrounding cells.
     * The spatial resolution of the geometry objects must match the spatial resolution defined in the model.
     * The spatial resolution must be specified as a root attribute of the HDF5 file with the name ``dx_dy_dz`` equal to a tuple of floats, e.g. (0.002, 0.002, 0.002)
     * Legacy material command files remain supported. Supply the ``.txt`` filename as ``file2``; files ending in ``.txt`` select the legacy reader.
@@ -1272,6 +1290,12 @@ Allows you to write geometry generated in a model to file. The file can be read 
 
     * The structure of the HDF5 file is the same as that described for the ``#geometry_objects_read`` command.
     * Objects are stored using spatial resolution defined in the model.
+    * The exported material table includes both cell-centred materials and
+      Yee-edge materials, including generated interface averages. Indices
+      are compacted before writing; the ``int16`` geometry format permits
+      at most 32768 distinct exported materials. Larger catalogues raise an
+      error rather than wrapping material indices. Large global material
+      IDs are allowed when the exported subset fits this limit.
 
 
 Source and output commands
@@ -2579,6 +2603,18 @@ time-step index :math:`n` directly. The electric fields are therefore at
 from zero to one less than the model's number of iterations. The existing
 spatial collocation of the Yee components is independent of this timing
 convention.
+
+Spatial samples lie at the centres of the regular output cells described by
+the file's origin and spacing. For spacing larger than one native cell, each
+component is linearly interpolated from its surrounding native Yee samples;
+this is not a volume average. Stride-one arithmetic is unchanged. A
+non-dividing interior extent retains ``ceil((p2-p1)/dl)`` output cells, including
+its final regular cell. If that cell's centre or interpolation stencil falls
+outside the physical Yee grid, model construction raises an error: ``p2`` and
+``dl`` are no longer silently clipped or enlarged. Reduce the requested extent
+or spacing in that case. In MPI, all ranks participate in sparse native-sample
+exchange only at the requested snapshot iterations, including ranks that own
+no output cells.
 
 In a reduced 2-D model, the invariant-axis range is collapsed to the genuine
 field plane: index zero for TM and index one for TE. The two-cell TE thickness

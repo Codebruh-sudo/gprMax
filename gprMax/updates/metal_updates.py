@@ -247,9 +247,9 @@ class MetalUpdates(Updates[MetalGrid]):
             # (len(sources), G.iterations + 1)), not G.iterations - see
             # cuda_updates.py's equivalent comment for the full mechanism.
             NY_SRCWAVES=self.grid.iterations + 1,
-            NX_SNAPS=Snapshot.nx_max,
-            NY_SNAPS=Snapshot.ny_max,
-            NZ_SNAPS=Snapshot.nz_max,
+            NX_SNAPS=self.snapshot_shape[0],
+            NY_SNAPS=self.snapshot_shape[1],
+            NZ_SNAPS=self.snapshot_shape[2],
         )
 
     def _set_field_knls(self):
@@ -683,9 +683,9 @@ class MetalUpdates(Updates[MetalGrid]):
         subs_func_snap = dict(self.subs_func)
         subs_func_snap.update(
             {
-                "NX_SNAPS": Snapshot.nx_max,
-                "NY_SNAPS": Snapshot.ny_max,
-                "NZ_SNAPS": Snapshot.nz_max,
+                "NX_SNAPS": self.snapshot_shape[0],
+                "NY_SNAPS": self.snapshot_shape[1],
+                "NZ_SNAPS": self.snapshot_shape[2],
             }
         )
         bld = self._build_knl(knl_snapshots.store_snapshot, self.subs_name_args, subs_func_snap)
@@ -703,7 +703,7 @@ class MetalUpdates(Updates[MetalGrid]):
         numsnaps = (
             1 if config.get_model_config().device["snapsgpu2cpu"] else len(self.grid.snapshots)
         )
-        shape = (numsnaps, Snapshot.nx_max, Snapshot.ny_max, Snapshot.nz_max)
+        shape = (numsnaps, *self.snapshot_shape)
         dtype = config.sim_config.dtypes["float_or_double"]
         nbytes = int(np.prod(shape)) * np.dtype(dtype).itemsize
 
@@ -863,7 +863,7 @@ class MetalUpdates(Updates[MetalGrid]):
                 for offset, buf in enumerate(field_args):
                     cmpencoder_snap.setBuffer_offset_atIndex_(buf, 0, len(scalar_args) + offset)
 
-                total_threads = Snapshot.nx_max * Snapshot.ny_max * Snapshot.nz_max
+                total_threads = int(np.prod(self.snapshot_shape))
                 cmpencoder_snap.dispatchThreads_threadsPerThreadgroup_(
                     self.metal.MTLSizeMake(round32(total_threads), 1, 1),
                     self.metal.MTLSizeMake(
@@ -1147,8 +1147,8 @@ class MetalUpdates(Updates[MetalGrid]):
         for pml in self.grid.pmls["slabs"]:
             pml.update_magnetic()
 
-    def update_magnetic_sources(self, iteration):
-        """Updates magnetic field components from sources."""
+    def update_magnetic_edge_devices(self, iteration):
+        """Sample corrected magnetic fields for transmission-line devices."""
         if getattr(self.grid, "transmissionlines", ()):
             real = config.sim_config.dtypes["float_or_double"]
             self._dispatch_1d(
@@ -1176,6 +1176,8 @@ class MetalUpdates(Updates[MetalGrid]):
                 len(self.grid.transmissionlines),
             )
 
+    def update_magnetic_sources(self, iteration):
+        """Updates magnetic field components from sources."""
         if self.grid.magneticdipoles:
             real_dtype = config.sim_config.dtypes["float_or_double"]
             real_nbytes = np.dtype(real_dtype).itemsize
@@ -1704,10 +1706,7 @@ class MetalUpdates(Updates[MetalGrid]):
 
     def update_symmetry_boundaries_electric_b(self):
         """Complete the dispersive PMC ADE update on Metal."""
-        if (
-            "pmc" not in self.grid.symmetry_boundaries.values()
-            or self.grid.maxpoles == 0
-        ):
+        if "pmc" not in self.grid.symmetry_boundaries.values() or self.grid.maxpoles == 0:
             return
         command = self.cmdqueue.commandBuffer()
         encoder = command.computeCommandEncoder()

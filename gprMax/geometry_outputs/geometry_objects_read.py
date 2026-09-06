@@ -56,6 +56,15 @@ class ReadGeometryObject(AbstractContextManager):
             target_invariant_size: 1 (TM) or 2 (TE), required if
                 `invariant_axis` is given.
         """
+        material_id_map = np.asarray(material_id_map)
+        if material_id_map.ndim != 1 or material_id_map.dtype.kind not in "iu":
+            raise ValueError("Geometry material ID map must be a one-dimensional integer array")
+        if material_id_map.size and (
+            int(material_id_map.min()) < 0 or int(material_id_map.max()) > np.iinfo(np.int32).max
+        ):
+            raise ValueError("Geometry material ID map entries must fit non-negative int32 IDs")
+        self.material_id_map = material_id_map.astype(np.int32, copy=False)
+
         self.file_handler = h5py.File(filename)
 
         data = self.file_handler["/data"]
@@ -94,8 +103,6 @@ class ReadGeometryObject(AbstractContextManager):
 
         else:
             self.grid_view = GridView(grid, start[0], start[1], start[2], stop[0], stop[1], stop[2])
-
-        self.material_id_map = material_id_map
 
     def _resize_cell_axis(self, array: npt.NDArray, spatial_axis_offset: int) -> npt.NDArray:
         """Broadcasts (1 -> N) or reduces (N -> 1, taking the first layer)
@@ -146,7 +153,7 @@ class ReadGeometryObject(AbstractContextManager):
         reps[axis] = self.target_invariant_size + 1
         return np.tile(canonical, reps)
 
-    def _check_material_coverage(self, data: npt.NDArray[np.int16]) -> None:
+    def _check_material_coverage(self, data: npt.NDArray) -> None:
         """Raises a clear error if `data` references a file-local material
         index this file's materials file never declared, rather than
         letting numpy fancy-indexing fail with a bare IndexError. This
@@ -157,6 +164,10 @@ class ReadGeometryObject(AbstractContextManager):
         free_space) of the written region, if the user only listed the
         material(s) they specifically cared about.
         """
+        if data.dtype.kind not in "iu":
+            raise ValueError("Geometry material indices must be integers")
+        if data.size and int(data.min()) < -1:
+            raise ValueError("Geometry material indices must be -1 (transparent) or non-negative")
         max_index = int(data.max()) if data.size else -1
         n_declared = len(self.material_id_map)
         if max_index >= n_declared:
@@ -171,9 +182,7 @@ class ReadGeometryObject(AbstractContextManager):
                 "not just the ones of interest."
             )
 
-    def _remap(
-        self, data: npt.NDArray[np.int16], existing: npt.NDArray[np.uint32]
-    ) -> npt.NDArray[np.int32]:
+    def _remap(self, data: npt.NDArray, existing: npt.NDArray[np.uint32]) -> npt.NDArray[np.uint32]:
         """Maps file-local material indices in `data` to numIDs in the
         target grid, via `self.material_id_map`. A value of -1 means "don't
         build anything here, leave whatever's already in the grid" (per the
@@ -184,9 +193,10 @@ class ReadGeometryObject(AbstractContextManager):
         before an imported target), isn't the same thing as free_space.
         """
         self._check_material_coverage(data)
-        safe_indices = np.where(data < 0, 0, data)
-        mapped = self.material_id_map[safe_indices]
-        return np.where(data < 0, existing, mapped)
+        present = data >= 0
+        result = existing.copy()
+        result[present] = self.material_id_map[data[present]]
+        return result
 
     def _read_spatial_dataset(
         self,
@@ -342,15 +352,10 @@ class ReadGeometryObject(AbstractContextManager):
         assert isinstance(data, h5py.Dataset)
         data = self._read_spatial_dataset(data)
 
-        # Should be int16 to allow for -1 which indicates background, i.e.
-        # don't build anything, but AustinMan/Woman maybe uint16
-        if data.dtype != "int16":
-            data = data.astype("int16")
-
         existing = self._get_assignment_region(self.grid_view.grid.solid)
         self.grid_view.set_solid(self._remap(data, existing))
 
-    def get_data(self) -> Optional[npt.NDArray[np.int16]]:
+    def get_data(self) -> Optional[npt.NDArray[np.int32]]:
         """Returns the file's material-index array with valid (>=0) entries
         already remapped to numIDs in the target grid. -1 is left as -1
         (rather than substituted, as read_data()/read_ID() do via _remap()),
@@ -364,35 +369,68 @@ class ReadGeometryObject(AbstractContextManager):
         assert isinstance(data, h5py.Dataset)
         data = self._read_spatial_dataset(data)
 
-        # Should be int16 to allow for -1 which indicates background, i.e.
-        # don't build anything, but AustinMan/Woman maybe uint16
-        if data.dtype != "int16":
-            data = data.astype("int16")
-
         self._check_material_coverage(data)
-        safe_indices = np.where(data < 0, 0, data)
-        mapped = self.material_id_map[safe_indices].astype(data.dtype)
-        return np.where(data < 0, data, mapped)
+        # The on-disk indices are compact, but the target catalogue may
+        # already contain more than 32768 materials. Keep global IDs wide
+        # and signed so -1 remains distinct from every valid material ID.
+        present = data >= 0
+        mapped = np.full(data.shape, -1, dtype=np.int32)
+        mapped[present] = self.material_id_map[data[present]]
+        return mapped
+
+    def _read_rigid(self, family: str) -> None:
+        """Import cell-owned rigidity only for non-transparent components.
+
+        Solid/tag transparency is defined by /data; each rigidity bit instead
+        follows its own /ID position. An explicit edge can therefore be
+        imported even when its surrounding cells are transparent. The offsets
+        mirror get_rigid_Ex/Ey/Ez/Hx/Hy/Hz in yee_cell_setget_rigid.pyx.
+        """
+        if self.grid_view is None:
+            return
+
+        dataset = self.file_handler[f"/rigid{family}"]
+        assert isinstance(dataset, h5py.Dataset)
+        rigid = self._read_spatial_dataset(dataset, component_axis=True)
+        if self.has_ID_array():
+            component_ids = self._read_spatial_dataset(self.file_handler["/ID"], component_axis=True, edge_based=True)
+            self._check_material_coverage(component_ids)
+            existing = self._get_assignment_region(getattr(self.grid_view.grid, f"rigid{family}"))
+            if family == "E":
+                positions = (
+                    (0, 0, 0, 0),
+                    (0, 0, 1, 0),
+                    (0, 0, 1, 1),
+                    (0, 0, 0, 1),
+                    (1, 0, 0, 0),
+                    (1, 0, 0, 1),
+                    (1, 1, 0, 1),
+                    (1, 1, 0, 0),
+                    (2, 0, 0, 0),
+                    (2, 1, 0, 0),
+                    (2, 1, 1, 0),
+                    (2, 0, 1, 0),
+                )
+            else:
+                positions = (
+                    (3, 0, 0, 0),
+                    (3, 1, 0, 0),
+                    (4, 0, 0, 0),
+                    (4, 0, 1, 0),
+                    (5, 0, 0, 0),
+                    (5, 0, 0, 1),
+                )
+            for bit, (component, *offset) in enumerate(positions):
+                spatial = tuple(slice(start, start + size) for start, size in zip(offset, rigid.shape[1:]))
+                transparent = component_ids[(component, *spatial)] == -1
+                rigid[bit] = np.where(transparent, existing[bit], rigid[bit])
+        getattr(self.grid_view, f"set_rigid{family}")(rigid)
 
     def read_rigidE(self):
-        if self.grid_view is None:
-            return
-
-        rigidE = self.file_handler["/rigidE"]
-        assert isinstance(rigidE, h5py.Dataset)
-
-        rigidE = self._read_spatial_dataset(rigidE, component_axis=True)
-        self.grid_view.set_rigidE(rigidE)
+        self._read_rigid("E")
 
     def read_rigidH(self):
-        if self.grid_view is None:
-            return
-
-        rigidH = self.file_handler["/rigidH"]
-        assert isinstance(rigidH, h5py.Dataset)
-
-        rigidH = self._read_spatial_dataset(rigidH, component_axis=True)
-        self.grid_view.set_rigidH(rigidH)
+        self._read_rigid("H")
 
     def read_ID(self):
         if self.grid_view is None:

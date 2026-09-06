@@ -130,35 +130,50 @@ class TestSubgridUpdaterState:
         u.update_magnetic_sources()
         assert u.iteration == 0
 
+    def test_magnetic_edge_devices_follow_all_fine_grid_writers(self, updater, monkeypatch):
+        u, _ = updater
+        calls = []
+        parent = type(u).__mro__[1]
+        stages = (
+            "update_magnetic_sources",
+            "update_eigenmode_sources_magnetic",
+            "update_magnetic_edge_devices",
+            "observe_eigenmode_ports",
+        )
+        for stage in stages:
+            monkeypatch.setattr(
+                parent,
+                stage,
+                lambda self, it, stage=stage: calls.append((stage, it)),
+            )
+
+        u.iteration = 7
+        u.update_magnetic_sources()
+
+        assert calls == [(stage, 7) for stage in stages]
+        assert u.iteration == 7
+
     def test_store_outputs_does_not_advance_the_iteration(self, updater, monkeypatch):
         u, _ = updater
         monkeypatch.setattr(type(u).__mro__[1], "store_outputs", lambda self, it: None)
         u.store_outputs()
         assert u.iteration == 0
 
-    def test_store_outputs_uses_the_current_complete_electric_level(
-        self, updater, monkeypatch
-    ):
+    def test_store_outputs_uses_the_current_complete_electric_level(self, updater, monkeypatch):
         u, c = updater
         c.sub.iterations = 4
         calls = []
         parent = type(u).__mro__[1]
         monkeypatch.setattr(parent, "store_outputs", lambda self, it: calls.append(("rx", it)))
-        monkeypatch.setattr(
-            parent, "store_snapshots", lambda self, it: calls.append(("snapshot", it))
-        )
-        monkeypatch.setattr(
-            parent, "observe_sar_electric", lambda self, it: calls.append(("sar", it))
-        )
+        monkeypatch.setattr(parent, "store_snapshots", lambda self, it: calls.append(("snapshot", it)))
+        monkeypatch.setattr(parent, "observe_sar_electric", lambda self, it: calls.append(("sar", it)))
 
         u.iteration = 2
         u.store_outputs()
 
         assert calls == [("rx", 2), ("snapshot", 2), ("sar", 2)]
 
-    def test_store_outputs_ignores_the_terminal_coupling_update(
-        self, updater, monkeypatch
-    ):
+    def test_store_outputs_ignores_the_terminal_coupling_update(self, updater, monkeypatch):
         u, c = updater
         c.sub.iterations = 4
         calls = []
@@ -369,6 +384,61 @@ class TestSubgridUpdatesFanOut:
     def test_no_updaters_is_a_no_op(self, coupled_grids):
         c = coupled_grids()
         SubgridUpdates(c.main, []).hsg_1()
+
+
+@pytest.mark.parametrize("ratio,filtered", [(1, False), (3, False), (3, True), (5, True)])
+def test_transmission_line_samples_once_per_completed_fine_h_step(coupled_grids, monkeypatch, ratio, filtered):
+    """Cover both interpolated H paths and the final exact H path together."""
+
+    c = coupled_grids(ratio=ratio, filtered=filtered)
+    updater = SubgridUpdater(c.sub, c.precursors, c.main)
+    samples = []
+
+    def write_magnetic(iteration, *args):
+        c.sub.Hy[0, 0, 0] = iteration + 1
+
+    def sample_magnetic(iteration, *args):
+        samples.append((iteration, c.sub.Hy[0, 0, 0]))
+
+    c.sub.magneticdipoles = [SimpleNamespace(update_magnetic=write_magnetic)]
+    c.sub.transmissionlines = [SimpleNamespace(update_magnetic=sample_magnetic)]
+
+    # Keep the actual magnetic source/sampler wrappers and the electric
+    # iteration advance, but avoid unrelated field and coupling calculations.
+    monkeypatch.setattr(type(updater).__mro__[1], "update_electric_sources", lambda self, it: None)
+    for name in (
+        "store_outputs",
+        "update_electric_a",
+        "update_electric_b",
+        "update_electric_pml",
+        "update_magnetic",
+        "update_magnetic_pml",
+        "update_network_terminals",
+    ):
+        monkeypatch.setattr(updater, name, lambda *args: None)
+    for name in (
+        "update_electric",
+        "update_magnetic",
+        "interpolate_magnetic_in_time",
+        "interpolate_electric_in_time",
+        "calc_exact_magnetic_in_time",
+        "calc_exact_electric_in_time",
+    ):
+        monkeypatch.setattr(c.precursors, name, lambda *args: None)
+    for name in (
+        "update_electric_is",
+        "update_magnetic_is",
+        "update_electric_os",
+        "update_magnetic_os",
+    ):
+        monkeypatch.setattr(c.sub, name, lambda *args: None)
+
+    for _ in range(3):
+        updater.hsg_2()
+        updater.hsg_1()
+
+    assert updater.iteration == 3 * ratio
+    assert samples == [(iteration, iteration + 1) for iteration in range(3 * ratio)]
 
 
 pytestmark = pytest.mark.unit

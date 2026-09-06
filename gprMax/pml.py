@@ -21,6 +21,7 @@ import logging
 from copy import deepcopy
 from dataclasses import dataclass
 from importlib import import_module
+from math import prod
 from typing import TYPE_CHECKING, List
 
 import numpy as np
@@ -735,6 +736,13 @@ class OpenCLPML(PML):
         self.HPhi1_dev = clarray.to_device(self.queue, self.HPhi1)
         self.HPhi2_dev = clarray.to_device(self.queue, self.HPhi2)
 
+        # ElementwiseKernel otherwise iterates over ID_dev (the first array
+        # argument), which spans the entire grid. Each work item updates all
+        # CFS terms at one spatial history index, so exclude the order axis.
+        # The two staggered Phi arrays have different pitches; cover both.
+        self._electric_update_range = slice(0, max(prod(self.EPhi1.shape[1:]), prod(self.EPhi2.shape[1:])))
+        self._magnetic_update_range = slice(0, max(prod(self.HPhi1.shape[1:]), prod(self.HPhi2.shape[1:])))
+
     def update_electric(self):
         """Updates electric field components with the PML correction on the
         compute device.
@@ -768,6 +776,7 @@ class OpenCLPML(PML):
             self.ERE_dev,
             self.ERF_dev,
             config.sim_config.dtypes["float_or_double"](self.d),
+            range=self._electric_update_range,
         )
         event.wait()
 
@@ -803,6 +812,7 @@ class OpenCLPML(PML):
             self.HRE_dev,
             self.HRF_dev,
             config.sim_config.dtypes["float_or_double"](self.d),
+            range=self._magnetic_update_range,
         )
         event.wait()
 

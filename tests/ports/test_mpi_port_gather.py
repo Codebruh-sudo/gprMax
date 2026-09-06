@@ -20,7 +20,7 @@ from types import SimpleNamespace
 import numpy as np
 
 from gprMax.ports import RationalNetworkPortOutput, VoltageSourcePortMonitor
-from gprMax.user_objects.cmds_multiuse import _reserve_voltage_port_output_id
+from gprMax.user_objects.cmds_multiuse import _reserve_port_output_id
 
 
 def test_mpi_port_id_reservation_keeps_coordinator_owner():
@@ -28,8 +28,8 @@ def test_mpi_port_id_reservation_keeps_coordinator_owner():
     first = SimpleNamespace()
     second = SimpleNamespace()
 
-    assert _reserve_voltage_port_output_id(grid, None, first) == "port1"
-    assert _reserve_voltage_port_output_id(grid, "feed", second) == "feed"
+    assert _reserve_port_output_id(grid, None, first) == "port1"
+    assert _reserve_port_output_id(grid, "feed", second) == "feed"
     assert grid.mpi_port_output_owners == {"port1": first, "feed": second}
 
 

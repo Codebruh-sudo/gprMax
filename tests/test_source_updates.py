@@ -52,12 +52,14 @@ class VoltageSource:
         self.xcoord, self.ycoord, self.zcoord = 1, 2, 3
         self.polarisation = "z"
         self.resistance = resistance
+        self.start, self.stop = 0, 4
         self.waveformvalues_halfdt = halfdt
         self.waveformvalues_wholedt = wholedt
 
 
 class _DummyGrid:
     iterations = 4
+    dt = 1
 
 
 class _PassthroughGPUArray:

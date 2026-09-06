@@ -197,9 +197,9 @@ class OpenCLUpdates(Updates[OpenCLGrid]):
             # (len(sources), G.iterations + 1)), not G.iterations - see
             # cuda_updates.py's equivalent comment for the full mechanism.
             NY_SRCWAVES=self.grid.iterations + 1,
-            NX_SNAPS=Snapshot.nx_max,
-            NY_SNAPS=Snapshot.ny_max,
-            NZ_SNAPS=Snapshot.nz_max,
+            NX_SNAPS=self.snapshot_shape[0],
+            NY_SNAPS=self.snapshot_shape[1],
+            NZ_SNAPS=self.snapshot_shape[2],
         )
 
     def _set_field_knls(self):
@@ -1628,9 +1628,9 @@ class OpenCLUpdates(Updates[OpenCLGrid]):
                 {
                     "CUDA_IDX": "",
                     "REAL": config.sim_config.dtypes["C_float_or_double"],
-                    "NX_SNAPS": Snapshot.nx_max,
-                    "NY_SNAPS": Snapshot.ny_max,
-                    "NZ_SNAPS": Snapshot.nz_max,
+                    "NX_SNAPS": self.snapshot_shape[0],
+                    "NY_SNAPS": self.snapshot_shape[1],
+                    "NZ_SNAPS": self.snapshot_shape[2],
                 }
             ),
             "store_snapshot",
@@ -1705,6 +1705,9 @@ class OpenCLUpdates(Updates[OpenCLGrid]):
                     self.snapHx_dev,
                     self.snapHy_dev,
                     self.snapHz_dev,
+                    # Indexing uses the updater's maximum allocation pitches,
+                    # not the current snapshot's (possibly smaller) volume.
+                    range=slice(0, int(np.prod(self.snapshot_shape))),
                 )
 
                 if config.get_model_config().device["snapsgpu2cpu"]:
@@ -1816,8 +1819,8 @@ class OpenCLUpdates(Updates[OpenCLGrid]):
         for pml in self.grid.pmls["slabs"]:
             pml.update_magnetic()
 
-    def update_magnetic_sources(self, iteration):
-        """Updates magnetic field components from sources."""
+    def update_magnetic_edge_devices(self, iteration):
+        """Sample corrected magnetic fields for transmission-line devices."""
         if self.grid.transmissionlines:
             self.update_transmission_line_magnetic_dev(
                 np.int32(len(self.grid.transmissionlines)),
@@ -1839,6 +1842,8 @@ class OpenCLUpdates(Updates[OpenCLGrid]):
                 range=slice(0, len(self.grid.transmissionlines)),
             )
 
+    def update_magnetic_sources(self, iteration):
+        """Updates magnetic field components from sources."""
         if self.grid.magneticdipoles:
             self.update_magnetic_dipole_dev(
                 np.int32(len(self.grid.magneticdipoles)),
@@ -2113,10 +2118,7 @@ class OpenCLUpdates(Updates[OpenCLGrid]):
 
     def update_symmetry_boundaries_electric_b(self):
         """Complete the dispersive PMC ADE update on OpenCL."""
-        if (
-            "pmc" not in self.grid.symmetry_boundaries.values()
-            or self.grid.maxpoles == 0
-        ):
+        if "pmc" not in self.grid.symmetry_boundaries.values() or self.grid.maxpoles == 0:
             return
         self.update_electric_pmc_dispersive_b_dev(
             np.int32(self.grid.nx),
@@ -2319,17 +2321,12 @@ class OpenCLUpdates(Updates[OpenCLGrid]):
 
         # Copy data from any snapshots back to correct snapshot objects
         if self.grid.snapshots and not config.get_model_config().device["snapsgpu2cpu"]:
+            fields = tuple(
+                getattr(self, f"snap{component}_dev").get()
+                for component in ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz")
+            )
             for i, snap in enumerate(self.grid.snapshots):
-                dtoh_snapshot_array(
-                    self.snapEx_dev.get(),
-                    self.snapEy_dev.get(),
-                    self.snapEz_dev.get(),
-                    self.snapHx_dev.get(),
-                    self.snapHy_dev.get(),
-                    self.snapHz_dev.get(),
-                    i,
-                    snap,
-                )
+                dtoh_snapshot_array(*fields, i, snap)
 
     def cleanup(self):
         pass

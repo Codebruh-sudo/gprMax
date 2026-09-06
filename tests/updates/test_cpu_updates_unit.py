@@ -613,8 +613,8 @@ class TestSourceUpdateOrder:
 
         assert log[-2:] == ["E:h1", "E:h2"]
 
-    def test_magnetic_sources_run_line_then_dipole(self, make_wiring_grid, make_source):
-        """Transmission lines precede magnetic dipoles and frill sources."""
+    def test_magnetic_sources_defer_lines_to_contour_stage(self, make_wiring_grid, make_source):
+        """Magnetic writers run before transmission-line contour sampling."""
         log = []
         grid = make_wiring_grid(
             transmissionlines=[make_source("t", log)],
@@ -622,18 +622,22 @@ class TestSourceUpdateOrder:
             log=log,
         )
 
-        CPUUpdates(grid).update_magnetic_sources(0)
-
-        assert log == ["H:t", "H:m"]
+        updates = CPUUpdates(grid)
+        updates.update_magnetic_sources(0)
+        assert log == ["H:m"]
+        updates.update_magnetic_edge_devices(0)
+        assert log == ["H:m", "H:t"]
 
     def test_transmission_lines_are_updated_by_both_paths(self, make_wiring_grid, make_source):
-        """A transmission line appears in the electric *and* magnetic lists."""
+        """A line samples H in the contour stage and drives E afterwards."""
         log = []
         line = make_source("t", log)
         grid = make_wiring_grid(transmissionlines=[line], log=log)
         updates = CPUUpdates(grid)
 
         updates.update_magnetic_sources(0)
+        assert log == []
+        updates.update_magnetic_edge_devices(0)
         updates.update_electric_sources(0)
 
         assert log == ["H:t", "E:t"]
@@ -658,6 +662,7 @@ class TestSourceUpdateOrder:
         updates = CPUUpdates(make_wiring_grid())
         assert updates.update_electric_sources(0) is None
         assert updates.update_magnetic_sources(0) is None
+        assert updates.update_magnetic_edge_devices(0) is None
 
     def test_sources_within_a_list_keep_their_order(self, make_wiring_grid, make_source):
         log = []

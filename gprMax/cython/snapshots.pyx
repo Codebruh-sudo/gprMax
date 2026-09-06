@@ -17,8 +17,30 @@
 # along with gprMax. If not, see <https://www.gnu.org/licenses/>.
 
 from cython.parallel import prange
+from cython cimport view
 
 from gprMax.config cimport float_or_double
+
+
+cdef inline float_or_double interpolate_native(
+    float_or_double[:, :, ::view.contiguous] field, int i, int j, int k,
+    int dx, int dy, int dz, int sx, int sy, int sz,
+    int ox, int oy, int oz
+) noexcept nogil:
+    # Twice the native fractional index relative to the coarse lower corner.
+    # Yee offsets ox/oy/oz are measured in half native cells.
+    cdef int qx = sx * (dx - ox)
+    cdef int qy = sy * (dy - oy)
+    cdef int qz = sz * (dz - oz)
+    cdef int a, b, c
+    cdef float_or_double value = 0
+    for a in range(1 + qx % 2):
+        for b in range(1 + qy % 2):
+            for c in range(1 + qz % 2):
+                value = value + field[i * dx + qx // 2 + a,
+                                      j * dy + qy // 2 + b,
+                                      k * dz + qz // 2 + c]
+    return value / ((1 + qx % 2) * (1 + qy % 2) * (1 + qz % 2))
 
 
 cpdef void calculate_snapshot_fields(
@@ -32,12 +54,12 @@ cpdef void calculate_snapshot_fields(
     bint isHx,
     bint isHy,
     bint isHz,
-    float_or_double[:, :, ::1] Exslice,
-    float_or_double[:, :, ::1] Eyslice,
-    float_or_double[:, :, ::1] Ezslice,
-    float_or_double[:, :, ::1] Hxslice,
-    float_or_double[:, :, ::1] Hyslice,
-    float_or_double[:, :, ::1] Hzslice,
+    float_or_double[:, :, ::view.contiguous] Exslice,
+    float_or_double[:, :, ::view.contiguous] Eyslice,
+    float_or_double[:, :, ::view.contiguous] Ezslice,
+    float_or_double[:, :, ::view.contiguous] Hxslice,
+    float_or_double[:, :, ::view.contiguous] Hyslice,
+    float_or_double[:, :, ::view.contiguous] Hzslice,
     float_or_double[:, :, ::1] Exsnap,
     float_or_double[:, :, ::1] Eysnap,
     float_or_double[:, :, ::1] Ezsnap,
@@ -46,7 +68,10 @@ cpdef void calculate_snapshot_fields(
     float_or_double[:, :, ::1] Hzsnap,
     int sx=1,
     int sy=1,
-    int sz=1
+    int sz=1,
+    int dx=1,
+    int dy=1,
+    int dz=1
 ):
     """Calculates electric and magnetic values at points from averaging values
         in cells.
@@ -55,7 +80,9 @@ cpdef void calculate_snapshot_fields(
         nx, ny, nz: ints for size of snapshot array.
         nthreads: int for number of threads to use.
         is: boolean to determine whether that field snapshot is required.
-        slice: memoryviews to access slices of field arrays.
+        slice: native field-array views starting at the lower snapshot corner.
+            Only their last axis must be contiguous: leading-axis strides let
+            an interior ROI share the original grid's storage without copies.
         snap: memoryviews to access snapshot arrays.
         sx, sy, sz: neighbour-offset strides along x, y, z (1 = genuine
             averaging with the +1 neighbour, as in 3D/2D-TM mode; 0 = no
@@ -66,6 +93,9 @@ cpdef void calculate_snapshot_fields(
             a second genuine value to average against. Defaults to 1 for
             every axis, reproducing the original (pre-2D-TE-mode) formula
             exactly.
+        dx, dy, dz: coarse output-cell widths in native cells. Components
+            are interpolated at the declared coarse-cell centre, not averaged
+            over the coarse cell. Defaults preserve the stride-one API.
     """
 
     cdef Py_ssize_t i, j, k
@@ -73,6 +103,21 @@ cpdef void calculate_snapshot_fields(
     for i in prange(0, nx, nogil=True, schedule='static', num_threads=nthreads):
         for j in range(ny):
             for k in range(nz):
+                if dx != 1 or dy != 1 or dz != 1:
+                    if isEx:
+                        Exsnap[i,j,k] = interpolate_native(Exslice, i,j,k, dx,dy,dz, sx,sy,sz, 1,0,0)
+                    if isEy:
+                        Eysnap[i,j,k] = interpolate_native(Eyslice, i,j,k, dx,dy,dz, sx,sy,sz, 0,1,0)
+                    if isEz:
+                        Ezsnap[i,j,k] = interpolate_native(Ezslice, i,j,k, dx,dy,dz, sx,sy,sz, 0,0,1)
+                    if isHx:
+                        Hxsnap[i,j,k] = interpolate_native(Hxslice, i,j,k, dx,dy,dz, sx,sy,sz, 0,1,1)
+                    if isHy:
+                        Hysnap[i,j,k] = interpolate_native(Hyslice, i,j,k, dx,dy,dz, sx,sy,sz, 1,0,1)
+                    if isHz:
+                        Hzsnap[i,j,k] = interpolate_native(Hzslice, i,j,k, dx,dy,dz, sx,sy,sz, 1,1,0)
+                    continue
+                # Keep the original stride-one arithmetic order exactly.
                 # The electric field component value at a point comes from the
                 # average of the 4 electric field component values in that cell.
                 if isEx:

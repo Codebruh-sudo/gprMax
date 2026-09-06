@@ -29,7 +29,9 @@ from gprMax.sources import (
     dtoh_transmission_line_outputs,
     transmission_line_host_arrays,
 )
+from gprMax.updates.cuda_updates import CUDAUpdates
 from gprMax.updates.metal_updates import MetalUpdates
+from gprMax.updates.opencl_updates import OpenCLUpdates
 
 
 def _line(polarisation="z", coord=(2, 3, 4)):
@@ -157,9 +159,7 @@ def test_metal_transmission_line_dispatch_preserves_kernel_contract(
 ):
     calls = []
     updates = MetalUpdates.__new__(MetalUpdates)
-    updates._dispatch_1d = lambda pipeline, scalars, buffers, count: calls.append(
-        (pipeline, scalars, buffers, count)
-    )
+    updates._dispatch_1d = lambda pipeline, scalars, buffers, count: calls.append((pipeline, scalars, buffers, count))
     updates.pso_transmission_line_magnetic = "magnetic_pipeline"
     updates.pso_transmission_line_electric = "electric_pipeline"
     updates.tl_line_coefficient = np.float64(0.25)
@@ -196,6 +196,8 @@ def test_metal_transmission_line_dispatch_preserves_kernel_contract(
     )
 
     updates.update_magnetic_sources(iteration=3)
+    assert calls == []
+    updates.update_magnetic_edge_devices(iteration=3)
     updates.update_electric_sources(iteration=3)
 
     assert [call[0] for call in calls] == [
@@ -229,3 +231,67 @@ def test_metal_transmission_line_dispatch_preserves_kernel_contract(
         "Ez",
     )
     assert calls[0][3] == calls[1][3] == 1
+
+
+@pytest.mark.parametrize("updates_cls", [CUDAUpdates, OpenCLUpdates])
+def test_transmission_line_dispatch_follows_magnetic_writers(float64_config, updates_cls):
+    calls = []
+    updates = updates_cls.__new__(updates_cls)
+    updates.update_transmission_line_magnetic_dev = lambda *args, **kwargs: calls.append(
+        ("transmission_line", args, kwargs)
+    )
+    updates.update_magnetic_dipole_dev = lambda *args, **kwargs: calls.append(("magnetic_dipole", args, kwargs))
+
+    def buffer(name):
+        return SimpleNamespace(gpudata=name) if updates_cls is CUDAUpdates else name
+
+    updates.tl_line_coefficient = np.float64(0.25)
+    updates.tl_tpb = (32, 1, 1)
+    updates.tl_bpg = (1, 1, 1)
+    for name in ("info", "resistance", "waveform_half", "voltage", "current", "Vtotal", "Itotal"):
+        setattr(updates, f"tl_{name}_dev", buffer(name))
+    for name in ("srcinfo1", "srcinfo2", "srcwaves"):
+        setattr(updates, f"{name}_magnetic_dev", buffer(name))
+    updates.grid = SimpleNamespace(
+        transmissionlines=[object(), object()],
+        magneticdipoles=[object()],
+        magneticfrillsources=[],
+        dx=0.001,
+        dy=0.002,
+        dz=0.003,
+        ID_dev=buffer("ID"),
+        Hx_dev=buffer("Hx"),
+        Hy_dev=buffer("Hy"),
+        Hz_dev=buffer("Hz"),
+    )
+
+    updates.update_magnetic_sources(iteration=3)
+    assert [call[0] for call in calls] == ["magnetic_dipole"]
+    updates.update_magnetic_edge_devices(iteration=3)
+    assert [call[0] for call in calls] == ["magnetic_dipole", "transmission_line"]
+    _, args, kwargs = calls[1]
+    assert args[:6] == (2, 3, 0.001, 0.002, 0.003, 0.25)
+    assert all(isinstance(value, np.int32) for value in args[:2])
+    assert all(isinstance(value, np.float64) for value in args[2:6])
+    assert args[6:] == (
+        "info",
+        "resistance",
+        "waveform_half",
+        "voltage",
+        "current",
+        "Vtotal",
+        "Itotal",
+        "Hx",
+        "Hy",
+        "Hz",
+    )
+    expected_kwargs = {"block": (32, 1, 1), "grid": (1, 1, 1)} if updates_cls is CUDAUpdates else {"range": slice(0, 2)}
+    assert kwargs == expected_kwargs
+
+
+@pytest.mark.parametrize("updates_cls", [CUDAUpdates, OpenCLUpdates, MetalUpdates])
+def test_transmission_line_magnetic_stage_is_noop_without_lines(updates_cls):
+    updates = updates_cls.__new__(updates_cls)
+    updates.grid = SimpleNamespace(transmissionlines=[])
+
+    updates.update_magnetic_edge_devices(iteration=3)

@@ -117,7 +117,9 @@ class NetworkPort(OutputUserObject):
                 "significant spatial-dispersion error."
             )
         if config.sim_config.mpi:
-            _reserve_mpi_port_output_id(grid, self.terminal_id, self)
+            from gprMax.user_objects.cmds_multiuse import _reserve_port_output_id
+
+            _reserve_port_output_id(grid, self.terminal_id, self)
         elif any(monitor.output_id == self.terminal_id for monitor in grid.port_monitors):
             raise ValueError(f"{self.params_str()} output ID is already in use.")
         terminal = next((item for item in grid.networkterminals if item.ID == self.terminal_id), None)
@@ -513,65 +515,11 @@ class Snapshot(OutputUserObject):
             discretised_upper_bound[axis] = live + 1
         discretised_dl = uip.discretise_static_point(self.dl)
 
-        snapshot_size = discretised_upper_bound - discretised_lower_bound
-
-        # If p2 does not line up with the set discretisation, the actual
-        # maximum element accessed in the grid will be this upper bound.
-        upper_bound = self._calculate_upper_bound(discretised_lower_bound, discretised_dl, snapshot_size)
-
-        # Each coordinate may need a different method to correct p2.
-        # Therefore, this check needs to be repeated after each
-        # correction has been applied.
-        while any(discretised_upper_bound < upper_bound):
-            try:
-                grid.within_bounds(upper_bound)
-                upper_bound_within_grid = True
-            except ValueError:
-                upper_bound_within_grid = False
-
-            # Ideally extend p2 up to the correct upper bound. This will
-            # not change the snapshot output.
-            if upper_bound_within_grid:
-                discretised_upper_bound = upper_bound
-                upper_bound_continuous = discretised_upper_bound * grid.dl
-                logger.warning(
-                    f"{self.params_str()} upper bound not aligned with discretisation. Updating 'p2'"
-                    f" to {upper_bound_continuous}"
-                )
-            # If the snapshot size cannot be increased, the
-            # discretisation may need reducing. E.g. for snapshots of 2D
-            # models.
-            elif any(discretised_dl > snapshot_size):
-                discretised_dl = np.where(discretised_dl > snapshot_size, snapshot_size, discretised_dl)
-                upper_bound = self._calculate_upper_bound(discretised_lower_bound, discretised_dl, snapshot_size)
-                dl_continuous = discretised_dl * grid.dl
-                logger.warning(
-                    f"{self.params_str()} current bounds and discretisation would go outside"
-                    f" domain. As discretisation is larger than the snapshot size in at least one"
-                    f" dimension, limiting 'dl' to {dl_continuous}"
-                )
-            # Otherwise, limit p2 to the discretisation step below the
-            # current snapshot size. This will reduce the size of the
-            # snapshot by 1 in the effected dimension(s), but avoid out
-            # of memory access.
-            else:
-                discretised_upper_bound = np.where(
-                    discretised_upper_bound < upper_bound,
-                    upper_bound - discretised_dl,
-                    discretised_upper_bound,
-                )
-                snapshot_size = discretised_upper_bound - discretised_lower_bound
-                upper_bound = self._calculate_upper_bound(discretised_lower_bound, discretised_dl, snapshot_size)
-                upper_bound_continuous = discretised_upper_bound * grid.dl
-                logger.warning(
-                    f"{self.params_str()} current bounds and discretisation would go outside"
-                    f" domain. Limiting 'p2' to {upper_bound_continuous}"
-                )
-
-                # Raise error to prevent an infinite loop. This is here
-                # as a precaution, it shouldn't be needed.
-                if any(discretised_upper_bound < upper_bound):
-                    raise ValueError(f"{self.params_str()} invalid snapshot.")
+        # Reduced models export one physical plane regardless of the requested
+        # invariant-axis spacing. Live-axis ROI/counts stay as requested; the
+        # Snapshot constructor validates native Yee support without clipping.
+        if geometry is not None:
+            discretised_dl[geometry.invariant_axis] = 1
 
         if any(discretised_dl < 0):
             raise ValueError(f"{self.params_str()} the step size should not be less than zero.")

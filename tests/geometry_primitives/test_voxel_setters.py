@@ -342,7 +342,9 @@ class TestBuildVoxelHard:
         assert np.all(g.rigidE[:, 1, 1, 1] == 1)
         assert np.all(g.rigidH[:, 1, 1, 1] == 1)
         assert np.count_nonzero(g.rigidE) == 12
-        assert np.count_nonzero(g.rigidH) == 12
+        # A volume owns its two H-face claims inside this cell, not through
+        # redundant flags in neighbouring cells that survive its removal.
+        assert np.count_nonzero(g.rigidH) == 6
 
         # Hard voxel stamps ID entries across all six components (upstream
         # now writes 18 slots: 3 corners per component, not the previous 24).

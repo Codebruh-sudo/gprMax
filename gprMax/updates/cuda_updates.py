@@ -69,10 +69,7 @@ from gprMax.utilities.utilities import round32
 
 logger = logging.getLogger(__name__)
 
-CUDA_THREAD_INDEX = (
-    "size_t i = (size_t)blockIdx.x * (size_t)blockDim.x + "
-    "(size_t)threadIdx.x;"
-)
+CUDA_THREAD_INDEX = "size_t i = (size_t)blockIdx.x * (size_t)blockDim.x + " "(size_t)threadIdx.x;"
 
 
 class CUDAUpdates(Updates[CUDAGrid]):
@@ -100,6 +97,17 @@ class CUDAUpdates(Updates[CUDAGrid]):
             self.dev = shared.dev
             self.ctx = shared.ctx
 
+        try:
+            self._initialise()
+        except BaseException:
+            try:
+                self.cleanup()
+            except Exception:
+                logger.exception("CUDA cleanup failed after an initialisation error")
+            raise
+
+    def _initialise(self):
+        """Initialise resources while the owning constructor guards the context."""
         # Set common substitutions for use in kernels
         # Substitutions in function arguments
         self.subs_name_args = {
@@ -231,9 +239,9 @@ class CUDAUpdates(Updates[CUDAGrid]):
             # the stride mismatch compounds per source (source i's data
             # starts 1*i elements early).
             NY_SRCWAVES=self.grid.iterations + 1,
-            NX_SNAPS=Snapshot.nx_max,
-            NY_SNAPS=Snapshot.ny_max,
-            NZ_SNAPS=Snapshot.nz_max,
+            NX_SNAPS=self.snapshot_shape[0],
+            NY_SNAPS=self.snapshot_shape[1],
+            NZ_SNAPS=self.snapshot_shape[2],
         )
 
     def _set_field_knls(self):
@@ -401,6 +409,9 @@ class CUDAUpdates(Updates[CUDAGrid]):
     def _set_src_knls(self):
         """Sources - initialises arrays on GPU, prepares kernel and gets kernel
         function.
+
+        Each source family is compiled into a separate CUDA module, with its
+        own material constants. Populate every module, not just the last one.
         """
         self.subs_func.update({"NY_SRCINFO": 4, "NY_SRCWAVES": self.grid.iterations + 1})
 
@@ -415,6 +426,7 @@ class CUDAUpdates(Updates[CUDAGrid]):
             )
             knl = self.source_module(bld, options=config.sim_config.devices["nvcc_opts"])
             self.update_hertzian_dipole_dev = knl.get_function("update_hertzian_dipole")
+            self._copy_mat_coeffs(knl, knl)
         if self.grid.magneticdipoles:
             (
                 self.srcinfo1_magnetic_dev,
@@ -426,6 +438,7 @@ class CUDAUpdates(Updates[CUDAGrid]):
             )
             knl = self.source_module(bld, options=config.sim_config.devices["nvcc_opts"])
             self.update_magnetic_dipole_dev = knl.get_function("update_magnetic_dipole")
+            self._copy_mat_coeffs(knl, knl)
         if self.grid.voltagesources:
             (
                 self.srcinfo1_voltage_dev,
@@ -437,8 +450,7 @@ class CUDAUpdates(Updates[CUDAGrid]):
             )
             knl = self.source_module(bld, options=config.sim_config.devices["nvcc_opts"])
             self.update_voltage_source_dev = knl.get_function("update_voltage_source")
-
-        self._copy_mat_coeffs(knl, knl)
+            self._copy_mat_coeffs(knl, knl)
 
     def _set_transmission_line_knls(self):
         """Initialise device-resident transmission lines and their kernels."""
@@ -646,9 +658,9 @@ class CUDAUpdates(Updates[CUDAGrid]):
         self.subs_func.update(
             {
                 "REAL": config.sim_config.dtypes["C_float_or_double"],
-                "NX_SNAPS": Snapshot.nx_max,
-                "NY_SNAPS": Snapshot.ny_max,
-                "NZ_SNAPS": Snapshot.nz_max,
+                "NX_SNAPS": self.snapshot_shape[0],
+                "NY_SNAPS": self.snapshot_shape[1],
+                "NZ_SNAPS": self.snapshot_shape[2],
             }
         )
 
@@ -1355,7 +1367,12 @@ class CUDAUpdates(Updates[CUDAGrid]):
                     self.snapHy_dev.gpudata,
                     self.snapHz_dev.gpudata,
                     block=Snapshot.tpb,
-                    grid=Snapshot.bpg,
+                    grid=(
+                        (int(np.prod(self.snapshot_shape)) + Snapshot.tpb[0] - 1)
+                        // Snapshot.tpb[0],
+                        1,
+                        1,
+                    ),
                 )
                 if config.get_model_config().device["snapsgpu2cpu"]:
                     dtoh_snapshot_array(
@@ -1469,8 +1486,8 @@ class CUDAUpdates(Updates[CUDAGrid]):
         for pml in self.grid.pmls["slabs"]:
             pml.update_magnetic()
 
-    def update_magnetic_sources(self, iteration):
-        """Updates magnetic field components from sources."""
+    def update_magnetic_edge_devices(self, iteration):
+        """Sample corrected magnetic fields for transmission-line devices."""
         if self.grid.transmissionlines:
             self.update_transmission_line_magnetic_dev(
                 np.int32(len(self.grid.transmissionlines)),
@@ -1493,6 +1510,8 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 grid=self.tl_bpg,
             )
 
+    def update_magnetic_sources(self, iteration):
+        """Updates magnetic field components from sources."""
         if self.grid.magneticdipoles:
             self.update_magnetic_dipole_dev(
                 np.int32(len(self.grid.magneticdipoles)),
@@ -1770,10 +1789,7 @@ class CUDAUpdates(Updates[CUDAGrid]):
 
     def update_symmetry_boundaries_electric_b(self):
         """Complete the dispersive PMC ADE update on CUDA."""
-        if (
-            "pmc" not in self.grid.symmetry_boundaries.values()
-            or self.grid.maxpoles == 0
-        ):
+        if "pmc" not in self.grid.symmetry_boundaries.values() or self.grid.maxpoles == 0:
             return
         self.update_electric_pmc_dispersive_b_dev(
             np.int32(self.grid.nx),
@@ -3052,21 +3068,19 @@ class CUDAUpdates(Updates[CUDAGrid]):
 
         # Copy data from any snapshots back to correct snapshot objects
         if self.grid.snapshots and not config.get_model_config().device["snapsgpu2cpu"]:
+            fields = tuple(
+                getattr(self, f"snap{component}_dev").get()
+                for component in ("Ex", "Ey", "Ez", "Hx", "Hy", "Hz")
+            )
             for i, snap in enumerate(self.grid.snapshots):
-                dtoh_snapshot_array(
-                    self.snapEx_dev.get(),
-                    self.snapEy_dev.get(),
-                    self.snapEz_dev.get(),
-                    self.snapHx_dev.get(),
-                    self.snapHy_dev.get(),
-                    self.snapHz_dev.get(),
-                    i,
-                    snap,
-                )
+                dtoh_snapshot_array(*fields, i, snap)
 
     def cleanup(self):
         """Cleanup GPU context."""
         # Remove context from top of stack and clear
-        if self._owns_context:
-            self.ctx.pop()
-            self.ctx = None
+        if self._owns_context and self.ctx is not None:
+            context, self.ctx = self.ctx, None
+            try:
+                context.pop()
+            finally:
+                context.detach()

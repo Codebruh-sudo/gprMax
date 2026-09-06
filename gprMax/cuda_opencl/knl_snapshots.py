@@ -146,7 +146,10 @@ store_snapshot = {
     // Convert the linear index to subscripts for 4D SNAPS array
     size_t snapshot_plane = (size_t)$NY_SNAPS * (size_t)$NZ_SNAPS;
     size_t snapshot_volume = (size_t)$NX_SNAPS * snapshot_plane;
-    size_t rem_snaps = (size_t)i % snapshot_volume;
+    // Rounded launches must not wrap onto another work-item's output cell.
+    // A block guard, not a return, also preserves OpenCL elementwise loops.
+    if ((size_t)i < snapshot_volume) {
+    size_t rem_snaps = (size_t)i;
     int x = (int)(rem_snaps / snapshot_plane);
     size_t yz_snaps = rem_snaps % snapshot_plane;
     int y = (int)(yz_snaps / (size_t)$NZ_SNAPS);
@@ -162,10 +165,67 @@ store_snapshot = {
         yy = ys + y * dy;
         zz = zs + z * dz;
 
-        // The electric field component value at a point comes from an average of
-        // the 4 electric field component values at the corners of the sampled
-        // snapshot cell. For a strided snapshot, those corners are separated by
-        // dx/dy/dz full-grid cells, matching the CPU's strided GridView.
+        // Native Yee interpolation at the declared coarse-cell centre.
+        // q/2 is the native anchor; odd q adds a half-cell interpolation.
+        // The stride-one branch below retains its original arithmetic order.
+        if (dx != 1 || dy != 1 || dz != 1) {
+        {
+            int qx = sx * (dx - 1), qy = sy * (dy - 0), qz = sz * (dz - 0);
+            $REAL value = ($REAL)0;
+            for (int a = 0; a <= qx % 2; ++a)
+                for (int b = 0; b <= qy % 2; ++b)
+                    for (int c = 0; c <= qz % 2; ++c)
+                        value = value + Ex[IDX3D_FIELDS(xx+qx/2+a,yy+qy/2+b,zz+qz/2+c)];
+            snapEx[IDX4D_SNAPS(p,x,y,z)] = value / ($REAL)((1+qx%2)*(1+qy%2)*(1+qz%2));
+        }
+        {
+            int qx = sx * (dx - 0), qy = sy * (dy - 1), qz = sz * (dz - 0);
+            $REAL value = ($REAL)0;
+            for (int a = 0; a <= qx % 2; ++a)
+                for (int b = 0; b <= qy % 2; ++b)
+                    for (int c = 0; c <= qz % 2; ++c)
+                        value = value + Ey[IDX3D_FIELDS(xx+qx/2+a,yy+qy/2+b,zz+qz/2+c)];
+            snapEy[IDX4D_SNAPS(p,x,y,z)] = value / ($REAL)((1+qx%2)*(1+qy%2)*(1+qz%2));
+        }
+        {
+            int qx = sx * (dx - 0), qy = sy * (dy - 0), qz = sz * (dz - 1);
+            $REAL value = ($REAL)0;
+            for (int a = 0; a <= qx % 2; ++a)
+                for (int b = 0; b <= qy % 2; ++b)
+                    for (int c = 0; c <= qz % 2; ++c)
+                        value = value + Ez[IDX3D_FIELDS(xx+qx/2+a,yy+qy/2+b,zz+qz/2+c)];
+            snapEz[IDX4D_SNAPS(p,x,y,z)] = value / ($REAL)((1+qx%2)*(1+qy%2)*(1+qz%2));
+        }
+        {
+            int qx = sx * (dx - 0), qy = sy * (dy - 1), qz = sz * (dz - 1);
+            $REAL value = ($REAL)0;
+            for (int a = 0; a <= qx % 2; ++a)
+                for (int b = 0; b <= qy % 2; ++b)
+                    for (int c = 0; c <= qz % 2; ++c)
+                        value = value + Hx[IDX3D_FIELDS(xx+qx/2+a,yy+qy/2+b,zz+qz/2+c)];
+            snapHx[IDX4D_SNAPS(p,x,y,z)] = value / ($REAL)((1+qx%2)*(1+qy%2)*(1+qz%2));
+        }
+        {
+            int qx = sx * (dx - 1), qy = sy * (dy - 0), qz = sz * (dz - 1);
+            $REAL value = ($REAL)0;
+            for (int a = 0; a <= qx % 2; ++a)
+                for (int b = 0; b <= qy % 2; ++b)
+                    for (int c = 0; c <= qz % 2; ++c)
+                        value = value + Hy[IDX3D_FIELDS(xx+qx/2+a,yy+qy/2+b,zz+qz/2+c)];
+            snapHy[IDX4D_SNAPS(p,x,y,z)] = value / ($REAL)((1+qx%2)*(1+qy%2)*(1+qz%2));
+        }
+        {
+            int qx = sx * (dx - 1), qy = sy * (dy - 1), qz = sz * (dz - 0);
+            $REAL value = ($REAL)0;
+            for (int a = 0; a <= qx % 2; ++a)
+                for (int b = 0; b <= qy % 2; ++b)
+                    for (int c = 0; c <= qz % 2; ++c)
+                        value = value + Hz[IDX3D_FIELDS(xx+qx/2+a,yy+qy/2+b,zz+qz/2+c)];
+            snapHz[IDX4D_SNAPS(p,x,y,z)] = value / ($REAL)((1+qx%2)*(1+qy%2)*(1+qz%2));
+        }
+        } else {
+
+        // Stride-one Yee cell-centre collocation.
         snapEx[IDX4D_SNAPS(p,x,y,z)] = (Ex[IDX3D_FIELDS(xx,yy,zz)] +
                                         Ex[IDX3D_FIELDS(xx,yy+sy*dy,zz)] +
                                         Ex[IDX3D_FIELDS(xx,yy,zz+sz*dz)] +
@@ -187,7 +247,8 @@ store_snapshot = {
                                         Hy[IDX3D_FIELDS(xx,yy+sy*dy,zz)]) * ($REAL)0.5;
         snapHz[IDX4D_SNAPS(p,x,y,z)] = (Hz[IDX3D_FIELDS(xx,yy,zz)] +
                                         Hz[IDX3D_FIELDS(xx,yy,zz+sz*dz)]) * ($REAL)0.5;
-
+        }
+    }
     }
 """
     ),

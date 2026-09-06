@@ -251,6 +251,7 @@ def test_common_plot_reports_impedance_s11_fdfd_and_fdtd(tmp_path, monkeypatch):
 
 
 @pytest.mark.integration
+@pytest.mark.slow
 def test_copper_wall_waveguide_fdfd_and_fdtd_outputs(tmp_path):
     summary = run_validation(tmp_path, threads=4)
     metrics = summary["metrics"]

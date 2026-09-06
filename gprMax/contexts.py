@@ -238,7 +238,7 @@ class MPIContext(Context):
             return result
         except:
             logger.exception(f"Rank {self.rank} encountered an error. Aborting...")
-            self.comm.Abort()
+            self.comm.Abort(1)
 
     def _run_model(self, model_num: int) -> None:
         """Process for running a single model.
@@ -372,11 +372,12 @@ class TaskfarmContext(Context):
         jobs = [{"i": i} for i in self.model_range]
         # Send the workers to their work loop
         executor.start()
-        if executor.is_master():
-            results = executor.submit(jobs)
-
-        # Make the workers exit their work loop and join the main loop again
-        executor.join()
+        try:
+            if executor.is_master():
+                results = executor.submit(jobs)
+        finally:
+            # Failed jobs must still release workers waiting for more work.
+            executor.join()
 
         if executor.is_master():
             self._end_simulation()

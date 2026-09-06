@@ -225,33 +225,13 @@ class MPIModel(Model):
             snapshot: The new snapshot or None if no snapshot was
                 created.
         """
-        if grid.local_bounds_overlap_grid(start, stop):
-            snapshot = MPISnapshot(
-                start[0],
-                start[1],
-                start[2],
-                stop[0],
-                stop[1],
-                stop[2],
-                dl[0],
-                dl[1],
-                dl[2],
-                iteration,
-                filename,
-                fileext,
-                outputs,
-                grid,
-            )
-            self._warn_snapshot_filename_collision(snapshot)
-            # TODO: Move snapshots into the Model
-            grid.snapshots.append(snapshot)
-            return snapshot
-        else:
-            # The MPIGridView created by MPISnapshot will create a new
-            # communicator using MPI_Split. Calling this here prevents
-            # deadlock if not all ranks create the new MPISnapshot.
-            grid.comm.Split(MPI.UNDEFINED)
-            return None
+        # Every rank may own native samples for a coarse snapshot centre,
+        # even if it owns no output cells. Exchange occurs only at its requested
+        # iteration; the output view still assigns each cell exactly once.
+        snapshot = MPISnapshot(*start, *stop, *dl, iteration, filename, fileext, outputs, grid)
+        self._warn_snapshot_filename_collision(snapshot)
+        grid.snapshots.append(snapshot)
+        return snapshot
 
     def write_output_data(self):
         """Writes output data, i.e. field data for receivers and snapshots to

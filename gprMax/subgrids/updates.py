@@ -121,6 +121,8 @@ class SubgridUpdater(CPUUpdates[SubGridBaseGrid]):
     def update_magnetic_sources(self):
         super().update_magnetic_sources(self.iteration)
         super().update_eigenmode_sources_magnetic(self.iteration)
+        # Sample the completed fine-grid H level once, after every H writer.
+        super().update_magnetic_edge_devices(self.iteration)
         super().observe_eigenmode_ports(self.iteration)
 
     def update_network_terminals(self):

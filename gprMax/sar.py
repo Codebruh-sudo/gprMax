@@ -891,6 +891,22 @@ class SARMonitor:
 
         if not payloads:
             raise ValueError("cannot merge an empty collection of MPI SAR payloads")
+        if payloads[0].absorbed_power_density.ndim != 2:
+            raise RuntimeError("MPI SAR payloads contain inconsistent cell metadata shapes")
+        frequency_count = payloads[0].absorbed_power_density.shape[0]
+        has_density = any(payload.density.size for payload in payloads)
+        for payload in payloads:
+            if payload.cell_indices.ndim != 2:
+                raise RuntimeError("MPI SAR payloads contain inconsistent cell metadata shapes")
+            count = payload.cell_indices.shape[0]
+            if (
+                payload.cell_indices.shape != (count, 3)
+                or payload.tag_id.shape != (count,)
+                or payload.material_id.shape != (count,)
+                or payload.density.shape != ((count,) if has_density else (0,))
+                or payload.absorbed_power_density.shape != (frequency_count, count)
+            ):
+                raise RuntimeError("MPI SAR payloads contain inconsistent cell metadata shapes")
         cell_indices = np.concatenate([payload.cell_indices for payload in payloads], axis=0)
         tag_id = np.concatenate([payload.tag_id for payload in payloads])
         material_id = np.concatenate([payload.material_id for payload in payloads])
@@ -907,14 +923,37 @@ class SARMonitor:
         sorted_density = density[order] if density.size else density
         merged_edge_coordinates = None
         merged_edge_dft = None
-        if any(payload.edge_coordinates is not None for payload in payloads):
+        if any(
+            payload.edge_coordinates is not None or payload.edge_dft is not None
+            for payload in payloads
+        ):
             if any(
                 payload.edge_coordinates is None or payload.edge_dft is None for payload in payloads
             ):
                 raise RuntimeError("MPI SAR payloads contain inconsistent edge DFT data")
+            components = set(payloads[0].edge_coordinates)
+            if not components or not components.issubset(EDGE_OFFSETS):
+                raise RuntimeError("MPI SAR payloads contain invalid electric components")
+            for payload in payloads:
+                if (
+                    set(payload.edge_coordinates) != components
+                    or set(payload.edge_dft) != components
+                ):
+                    raise RuntimeError("MPI SAR payloads contain inconsistent electric components")
+                for component in components:
+                    coordinates = payload.edge_coordinates[component]
+                    if (
+                        coordinates.ndim != 2
+                        or coordinates.shape[1] != 3
+                        or payload.edge_dft[component].shape
+                        != (frequency_count, coordinates.shape[0])
+                    ):
+                        raise RuntimeError("MPI SAR payloads contain inconsistent edge DFT shapes")
             merged_edge_coordinates = {}
             merged_edge_dft = {}
-            for component in EDGE_OFFSETS:
+            # Reduced modes carry only their validated active electric fields:
+            # one component for TM, two for TE, and all three in 3-D.
+            for component in (name for name in EDGE_OFFSETS if name in components):
                 coordinates = np.concatenate(
                     [payload.edge_coordinates[component] for payload in payloads], axis=0
                 )
@@ -945,6 +984,13 @@ class SARMonitor:
 
         if payload.edge_coordinates is None or payload.edge_dft is None:
             raise RuntimeError("MPI SAR payload does not contain electric-edge DFTs")
+        components = set(getattr(self, "edge_offsets", EDGE_OFFSETS))
+        if set(payload.edge_coordinates) != components or set(payload.edge_dft) != components:
+            raise RuntimeError("MPI SAR payload electric components do not match the monitor mode")
+        if getattr(self, "require_density", False) and payload.density.shape != (
+            len(payload.cell_indices),
+        ):
+            raise RuntimeError("MPI SAR payload is missing selected-cell mass density")
         field_shape = tuple(int(value) + 1 for value in global_shape)
         material_loss = _material_loss_conductivity(
             self.grid, payload.material_id, self.frequencies
@@ -981,6 +1027,37 @@ class SARMonitor:
             density=payload.density,
             absorbed_power_density=absorbed,
             excluded_pml_cell_count=payload.excluded_pml_cell_count,
+        )
+
+    def mpi_signature(self):
+        """Identify the complete shared output contract before MPI gathering."""
+
+        return (
+            type(self).__name__,
+            self.output_id,
+            tuple(float(value) for value in self.frequencies),
+            self.model_mode,
+            str(self.real_dtype),
+            tuple(
+                (name, tuple(map(tuple, offsets))) for name, offsets in self.edge_offsets.items()
+            ),
+            self.tag_names,
+            tuple(int(value) for value in self.tag_ids),
+            self.require_density,
+            self.averaging_masses,
+            self.normalisation,
+            self.waveform_id,
+            self.port_id,
+            self.target_amplitude,
+            self.target_power,
+            self.target_flux,
+            self.window_name,
+            self.source_floor_db,
+            self.spectrum_limit_mode,
+            self.minimum_wavelength_cells,
+            self.grid_iterations,
+            self.grid_dt,
+            tuple(float(value) for value in self.grid_spacing),
         )
 
     def _normalisation_data(self):

@@ -342,32 +342,49 @@ class DispersiveMaterial(Material):
         # conductivity supplied by the user and must neither be overwritten
         # nor accumulated if coefficients are calculated more than once.
         effective_se = self.se
+        coefficient_type = np.result_type(G.dispersivedtype, np.float64).type
+        unresolved_decay = False
 
         for x in range(self.poles):
             if self.inclusive_w:
-                self.w[x] = self.inclusive_w[x]
-                self.q[x] = self.inclusive_q[x]
+                w = self.inclusive_w[x]
+                q = self.inclusive_q[x]
             elif "debye" in self.type:
-                self.w[x] = self.deltaer[x] / self.tau[x]
-                self.q[x] = -1 / self.tau[x]
+                w = self.deltaer[x] / self.tau[x]
+                q = -1 / self.tau[x]
             elif "lorentz" in self.type:
                 # tau for Lorentz materials are pole frequencies
                 # alpha for Lorentz materials are the damping coefficients
                 wp2 = (2 * np.pi * self.tau[x]) ** 2
-                self.w[x] = -1j * ((wp2 * self.deltaer[x]) / np.sqrt(wp2 - self.alpha[x] ** 2))
-                self.q[x] = -self.alpha[x] + (1j * np.sqrt(wp2 - self.alpha[x] ** 2))
+                w = -1j * ((wp2 * self.deltaer[x]) / np.sqrt(wp2 - self.alpha[x] ** 2))
+                q = -self.alpha[x] + (1j * np.sqrt(wp2 - self.alpha[x] ** 2))
             elif "drude" in self.type:
                 # tau for Drude materials are pole frequencies
                 # alpha for Drude materials are the inverse of relaxation times
                 wp2 = (2 * np.pi * self.tau[x]) ** 2
                 effective_se += config.sim_config.em_consts["e0"] * wp2 / self.alpha[x]
-                self.w[x] = -(wp2 / self.alpha[x])
-                self.q[x] = -self.alpha[x]
+                w = -(wp2 / self.alpha[x])
+                q = -self.alpha[x]
+            else:
+                raise ValueError(f"Unknown dispersive material type {self.type!r}")
 
-            self.eqt[x] = np.exp(self.q[x] * G.dt)
-            self.eqt2[x] = np.exp(self.q[x] * (G.dt / 2))
-            self.zt[x] = (self.w[x] / self.q[x]) * (1 - self.eqt[x]) / G.dt
-            self.zt2[x] = (self.w[x] / self.q[x]) * (1 - self.eqt2[x])
+            # Form exponential differences before rounding to field precision.
+            # 1 - exp(q*dt) can otherwise vanish for a valid, slow pole.
+            w, q = coefficient_type(w), coefficient_type(q)
+            self.w[x], self.q[x] = w, q
+            increment = q * G.dt
+            self.eqt[x] = np.exp(increment)
+            self.eqt2[x] = np.exp(increment / 2)
+            self.zt[x] = -(w / q) * np.expm1(increment) / G.dt
+            self.zt2[x] = -(w / q) * np.expm1(increment / 2)
+            unresolved_decay |= bool(w != 0 and q.real < 0 and self.eqt[x] == 1)
+
+        if unresolved_decay:
+            logger.warning(
+                f"Material {self.ID!r}: a pole decay multiplier rounds to one at the selected "
+                "precision. Pole coupling is retained, but long-time decay may be inaccurate; "
+                "use double precision or check convergence for these relaxation times."
+            )
 
         effective_se += self.inclusive_conductivity
         EA = (

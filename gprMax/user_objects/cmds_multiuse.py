@@ -77,10 +77,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_PORT_SPECTRUM_LIMIT = 10.0
 
 
-def _reserve_voltage_port_output_id(
-    grid: FDTDGrid, requested: Optional[str], owner: GridUserObject
-) -> str:
-    """Reserve a voltage-port ID, including consistently on every MPI rank."""
+def _reserve_port_output_id(grid: FDTDGrid, requested: Optional[str], owner: GridUserObject) -> str:
+    """Reserve a port ID, including consistently on every MPI rank."""
 
     mpi_registry = bool(getattr(config.sim_config, "mpi", None)) or not hasattr(
         grid, "port_monitors"
@@ -97,7 +95,7 @@ def _reserve_voltage_port_output_id(
     else:
         from gprMax.ntff.interface import validate_identifier
 
-        validate_identifier("voltage-source port ID", requested)
+        validate_identifier("port output ID", requested)
         output_id = requested
     if output_id in used:
         raise ValueError(f"port output ID {output_id!r} is already in use.")
@@ -1279,7 +1277,7 @@ class VoltageSource(GridUserObject):
             self.polarisation, self.resistance, global_discretised_point
         )
         if config.sim_config.mpi and config.get_model_config().mode == "3D" and mpi_port_supported:
-            self._port_output_id = _reserve_voltage_port_output_id(grid, self.id, self)
+            self._port_output_id = _reserve_port_output_id(grid, self.id, self)
 
         if point_within_grid:
             self._validate_parameters(grid, discretised_point)
@@ -1303,7 +1301,7 @@ class VoltageSource(GridUserObject):
                     )
                 else:
                     if not config.sim_config.mpi:
-                        self._port_output_id = _reserve_voltage_port_output_id(grid, self.id, self)
+                        self._port_output_id = _reserve_port_output_id(grid, self.id, self)
                         voltage_source.port_id = self._port_output_id
                     self._create_port_monitor(
                         grid,

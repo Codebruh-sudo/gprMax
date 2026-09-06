@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import logging
+import itertools
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Generic, List
@@ -43,6 +44,47 @@ from .mode2d import mode2d_geometry
 from .utilities.utilities import get_terminal_width
 
 logger = logging.getLogger(__name__)
+
+# Native Yee locations, in half-cell units.
+YEE_OFFSETS = {
+    "Ex": (1, 0, 0),
+    "Ey": (0, 1, 0),
+    "Ez": (0, 0, 1),
+    "Hx": (0, 1, 1),
+    "Hy": (1, 0, 1),
+    "Hz": (1, 1, 0),
+}
+
+
+def validate_snapshot_sampling(grid, start, stop, step):
+    """Reject regular output centres requiring samples outside the native grid.
+
+    A non-dividing interior ROI keeps its final regular cell. Its centre may
+    extend beyond the requested ROI, but its interpolation stencil must remain
+    within physical Yee support; padded half-cell components are not samples.
+    """
+    start, stop, step = (np.asarray(value, dtype=np.int64) for value in (start, stop, step))
+    if np.any(step < 1) or np.any(stop <= start):
+        raise ValueError("Snapshot requires positive extents and sampling steps.")
+    if hasattr(grid, "global_size"):
+        start = grid.local_to_global_coordinate(start)
+        stop = grid.local_to_global_coordinate(stop)
+        shape = np.asarray(grid.global_size)
+    else:
+        shape = np.asarray(grid.size)
+    count = (stop - start + step - 1) // step
+    last = start + (count - 1) * step
+    geometry = mode2d_geometry(config.get_model_config().mode)
+    axes = [axis for axis in range(3) if geometry is None or axis != geometry.invariant_axis]
+    for component, offsets in YEE_OFFSETS.items():
+        offsets = np.asarray(offsets)
+        lower = start + (step - offsets) // 2
+        upper = last + (step - offsets + 1) // 2
+        if np.any(lower[axes] < 0) or np.any(upper[axes] > (shape - offsets)[axes]):
+            raise ValueError(
+                f"Snapshot coarse-cell centre requires {component} samples outside native Yee "
+                "support. Reduce the extent or sampling step; partial final cells are not clipped."
+            )
 
 
 def save_snapshots(snapshots: List["Snapshot"]):
@@ -186,6 +228,7 @@ class Snapshot(Generic[GridType]):
             self.filename = self.filename.with_name(self.filename.name + fileext)
         self.iteration = int(iteration)
         self.outputs = outputs
+        validate_snapshot_sampling(grid, (xs, ys, zs), (xf, yf, zf), (dx, dy, dz))
         self.grid_view = self.GRID_VIEW_TYPE(grid, xs, ys, zs, xf, yf, zf, dx, dy, dz)
 
         self.nbytes = 0
@@ -279,22 +322,26 @@ class Snapshot(Generic[GridType]):
         Args:
             G: FDTDGrid class describing a grid in a model.
         """
+        self._store_native(self.grid_view.size)
 
-        # Memory views of field arrays to dimensions required for the snapshot
-        Exslice = self.grid_view.get_Ex()
-        Eyslice = self.grid_view.get_Ey()
-        Ezslice = self.grid_view.get_Ez()
-        Hxslice = self.grid_view.get_Hx()
-        Hyslice = self.grid_view.get_Hy()
-        Hzslice = self.grid_view.get_Hz()
+    def _store_native(self, size):
+        """Collocate a safe prefix directly into the allocated output buffers."""
+
+        # Interpolate native samples, not already-strided coarse corners.
+        end = self.grid_view.start + (size - 1) * self.grid_view.step
+        end += (self.grid_view.step + 1) // 2 + 1
+        native_slice = tuple(slice(int(a), int(b)) for a, b in zip(self.grid_view.start, end))
+        Exslice, Eyslice, Ezslice, Hxslice, Hyslice, Hzslice = (
+            getattr(self.grid, name)[native_slice] for name in YEE_OFFSETS
+        )
 
         # Spatially collocate field components in snapshot cells. The E(n)
         # and H(n-1/2) time levels are stored without temporal averaging.
         sx, sy, sz = _snapshot_axis_strides()
         calculate_snapshot_fields(
-            self.nx,
-            self.ny,
-            self.nz,
+            int(size[0]),
+            int(size[1]),
+            int(size[2]),
             config.get_model_config().ompthreads,
             self.outputs["Ex"],
             self.outputs["Ey"],
@@ -317,6 +364,9 @@ class Snapshot(Generic[GridType]):
             sx,
             sy,
             sz,
+            self.dx,
+            self.dy,
+            self.dz,
         )
 
     def write_file(self, pbar: tqdm):
@@ -390,7 +440,37 @@ class Snapshot(Generic[GridType]):
         return origin
 
 
+class SnapshotMPIGridView(MPIGridView):
+    """Output-only decomposition with all ranks available for sparse samples.
+
+    Coarse lower corners retain ownership of output cells. A rank with no
+    output cells can still own native samples needed by another rank. This
+    does not change the general geometry-view decomposition or file format.
+    """
+
+    def __init__(self, grid, xs, ys, zs, xf, yf, zf, dx=1, dy=1, dz=1):
+        GridView.__init__(self, grid, xs, ys, zs, xf, yf, zf, dx, dy, dz)
+        self.comm = grid.comm
+        self.global_start = grid.local_to_global_coordinate(self.start)
+        self.global_stop = grid.local_to_global_coordinate(self.stop)
+        self.global_size = self.size.copy()
+        owned_lower = grid.lower_extent + grid.negative_halo_offset
+        owned_upper = grid.upper_extent
+        self.offset = np.clip(
+            (owned_lower - self.global_start + self.step - 1) // self.step, 0, self.global_size
+        ).astype(np.int32)
+        end = np.clip(
+            (owned_upper - self.global_start + self.step - 1) // self.step, 0, self.global_size
+        ).astype(np.int32)
+        self.size = np.maximum(end - self.offset, 0)
+        self.start = grid.global_to_local_coordinate(self.global_start + self.offset * self.step)
+        self.stop = self.start + self.size * self.step
+        self.has_positive_neighbour = end < self.global_size
+        self.has_negative_neighbour = self.offset > 0
+
+
 class MPISnapshot(Snapshot["MPIGrid"]):
+    _SAMPLE_BATCH_SIZE = 65536
     H_TAG = 0
     EX_TAG = 1
     EY_TAG = 2
@@ -398,7 +478,7 @@ class MPISnapshot(Snapshot["MPIGrid"]):
 
     @property
     def GRID_VIEW_TYPE(self) -> type[MPIGridView]:
-        return MPIGridView
+        return SnapshotMPIGridView
 
     def __init__(
         self,
@@ -434,188 +514,124 @@ class MPISnapshot(Snapshot["MPIGrid"]):
         return self.neighbours[dimension][direction] >= 0
 
     def store(self):
-        """Store (in memory) electric and magnetic field values for snapshot.
-
-        Args:
-            G: FDTDGrid class describing a grid in a model.
-        """
-
+        """Fetch only native samples needed at this snapshot's current time level."""
         logger.debug(f"Saving snapshot for iteration: {self.iteration}")
-
-        # Memory views of field arrays to dimensions required for the snapshot
-        Exslice = self.grid_view.get_Ex()
-        Eyslice = self.grid_view.get_Ey()
-        Ezslice = self.grid_view.get_Ez()
-        Hxslice = self.grid_view.get_Hx()
-        Hyslice = self.grid_view.get_Hy()
-        Hzslice = self.grid_view.get_Hz()
-
-        """
-        Halos required by each field to average field components:
-
-        Exslice - y + z halo
-        Eyslice - x + z halo
-        Ezslice - x + y halo
-        Hxslice - x halo
-        Hyslice - y halo
-        Hzslice - z halo
-        """
-
-        # Shape and dtype should be the same for all field array slices
-        shape = Hxslice.shape
-        dtype = Hxslice.dtype
-
-        Hxhalo = np.empty((1, shape[Dim.Y], shape[Dim.Z]), dtype=dtype)
-        Hyhalo = np.empty((shape[Dim.X], 1, shape[Dim.Z]), dtype=dtype)
-        Hzhalo = np.empty((shape[Dim.X], shape[Dim.Y], 1), dtype=dtype)
-
-        Exyhalo = np.empty((shape[Dim.X], 1, shape[Dim.Z]), dtype=dtype)
-        Eyzhalo = np.empty((shape[Dim.X], shape[Dim.Y], 1), dtype=dtype)
-        Ezxhalo = np.empty((1, shape[Dim.Y], shape[Dim.Z]), dtype=dtype)
-
-        x_offset = self.has_neighbour(Dim.X, Dir.POS)
-        y_offset = self.has_neighbour(Dim.Y, Dir.POS)
-        z_offset = self.has_neighbour(Dim.Z, Dir.POS)
-        Exzhalo = np.empty((shape[Dim.X], shape[Dim.Y] + y_offset, 1), dtype=dtype)
-        Eyxhalo = np.empty((1, shape[Dim.Y], shape[Dim.Z] + z_offset), dtype=dtype)
-        Ezyhalo = np.empty((shape[Dim.X] + x_offset, 1, shape[Dim.Z]), dtype=dtype)
-
-        blocking_requests: List[MPI.Request] = []
-        requests: List[MPI.Request] = []
-
-        if self.has_neighbour(Dim.X, Dir.NEG):
-            requests += [
-                self.comm.Isend(Hxslice[0, :, :], self.neighbours[Dim.X][Dir.NEG], self.H_TAG),
-                self.comm.Isend(Ezslice[0, :, :], self.neighbours[Dim.X][Dir.NEG], self.EZ_TAG),
-            ]
-        if self.has_neighbour(Dim.X, Dir.POS):
-            blocking_requests.append(
-                self.comm.Irecv(Ezxhalo, self.neighbours[Dim.X][Dir.POS], self.EZ_TAG),
-            )
-            requests += [
-                self.comm.Irecv(Hxhalo, self.neighbours[Dim.X][Dir.POS], self.H_TAG),
-                self.comm.Irecv(Eyxhalo, self.neighbours[Dim.X][Dir.POS], self.EY_TAG),
-            ]
-        if self.has_neighbour(Dim.Y, Dir.NEG):
-            requests += [
-                self.comm.Isend(
-                    np.ascontiguousarray(Hyslice[:, 0, :]),
-                    self.neighbours[Dim.Y][Dir.NEG],
-                    self.H_TAG,
-                ),
-                self.comm.Isend(
-                    np.ascontiguousarray(Exslice[:, 0, :]),
-                    self.neighbours[Dim.Y][Dir.NEG],
-                    self.EX_TAG,
-                ),
-            ]
-        if self.has_neighbour(Dim.Y, Dir.POS):
-            blocking_requests.append(
-                self.comm.Irecv(Exyhalo, self.neighbours[Dim.Y][Dir.POS], self.EX_TAG),
-            )
-            requests += [
-                self.comm.Irecv(Hyhalo, self.neighbours[Dim.Y][Dir.POS], self.H_TAG),
-                self.comm.Irecv(Ezyhalo, self.neighbours[Dim.Y][Dir.POS], self.EZ_TAG),
-            ]
-        if self.has_neighbour(Dim.Z, Dir.NEG):
-            requests += [
-                self.comm.Isend(
-                    np.ascontiguousarray(Hzslice[:, :, 0]),
-                    self.neighbours[Dim.Z][Dir.NEG],
-                    self.H_TAG,
-                ),
-                self.comm.Isend(
-                    np.ascontiguousarray(Eyslice[:, :, 0]),
-                    self.neighbours[Dim.Z][Dir.NEG],
-                    self.EY_TAG,
-                ),
-            ]
-        if self.has_neighbour(Dim.Z, Dir.POS):
-            blocking_requests.append(
-                self.comm.Irecv(Eyzhalo, self.neighbours[Dim.Z][Dir.POS], self.EY_TAG),
-            )
-            requests += [
-                self.comm.Irecv(Hzhalo, self.neighbours[Dim.Z][Dir.POS], self.H_TAG),
-                self.comm.Irecv(Exzhalo, self.neighbours[Dim.Z][Dir.POS], self.EX_TAG),
-            ]
-
-        if len(blocking_requests) > 0:
-            blocking_requests[0].Waitall(blocking_requests)
-
-        logger.debug(f"Initial halo exchanges complete")
-
-        if self.has_neighbour(Dim.X, Dir.POS):
-            Ezslice = np.concatenate((Ezslice, Ezxhalo), axis=Dim.X)
-        if self.has_neighbour(Dim.Y, Dir.POS):
-            Exslice = np.concatenate((Exslice, Exyhalo), axis=Dim.Y)
-        if self.has_neighbour(Dim.Z, Dir.POS):
-            Eyslice = np.concatenate((Eyslice, Eyzhalo), axis=Dim.Z)
-
-        if self.has_neighbour(Dim.X, Dir.NEG):
-            requests.append(
-                self.comm.Isend(Eyslice[0, :, :], self.neighbours[Dim.X][Dir.NEG], self.EY_TAG),
-            )
-        if self.has_neighbour(Dim.Y, Dir.NEG):
-            requests.append(
-                self.comm.Isend(
-                    np.ascontiguousarray(Ezslice[:, 0, :]),
-                    self.neighbours[Dim.Y][Dir.NEG],
-                    self.EZ_TAG,
-                ),
-            )
-        if self.has_neighbour(Dim.Z, Dir.NEG):
-            requests.append(
-                self.comm.Isend(
-                    np.ascontiguousarray(Exslice[:, :, 0]),
-                    self.neighbours[Dim.Z][Dir.NEG],
-                    self.EX_TAG,
-                ),
-            )
-
-        if len(requests) > 0:
-            requests[0].Waitall(requests)
-
-        logger.debug(f"All halo exchanges complete")
-
-        if self.has_neighbour(Dim.X, Dir.POS):
-            Eyslice = np.concatenate((Eyslice, Eyxhalo), axis=Dim.X)
-            Hxslice = np.concatenate((Hxslice, Hxhalo), axis=Dim.X)
-        if self.has_neighbour(Dim.Y, Dir.POS):
-            Ezslice = np.concatenate((Ezslice, Ezyhalo), axis=Dim.Y)
-            Hyslice = np.concatenate((Hyslice, Hyhalo), axis=Dim.Y)
-        if self.has_neighbour(Dim.Z, Dir.POS):
-            Exslice = np.concatenate((Exslice, Exzhalo), axis=Dim.Z)
-            Hzslice = np.concatenate((Hzslice, Hzhalo), axis=Dim.Z)
-
-        # Spatially collocate field components in snapshot cells without
-        # temporal averaging. No axis-stride arguments are needed here
-        # (unlike the non-MPI Snapshot.store() above): MPI only ever runs 3D
-        # models, never 2D TE mode, so the function's default strides
-        # (1, 1, 1, i.e. the original formula) are exactly correct.
-        calculate_snapshot_fields(
-            self.nx,
-            self.ny,
-            self.nz,
-            config.get_model_config().ompthreads,
-            self.outputs["Ex"],
-            self.outputs["Ey"],
-            self.outputs["Ez"],
-            self.outputs["Hx"],
-            self.outputs["Hy"],
-            self.outputs["Hz"],
-            Exslice,
-            Eyslice,
-            Ezslice,
-            Hxslice,
-            Hyslice,
-            Hzslice,
-            self.snapfields["Ex"],
-            self.snapfields["Ey"],
-            self.snapfields["Ez"],
-            self.snapfields["Hx"],
-            self.snapfields["Hy"],
-            self.snapfields["Hz"],
+        view = self.grid_view
+        shape = tuple(int(value) for value in view.size)
+        local_count = int(np.prod(view.size))
+        selected_indices = None
+        strides = np.asarray(_snapshot_axis_strides(), dtype=np.int32)
+        # Collocate the largest rectangular prefix whose entire requested
+        # native stencil is uniquely owned here. Positive halos/corners are
+        # deliberately excluded, even when allocated, because they may be stale.
+        # The full output buffers remain contiguous; Cython's loop sizes can be
+        # smaller than their allocated shape without copying or changing strides.
+        shifts = [
+            (strides * (view.step - np.asarray(offsets, dtype=np.int32)) + 1) // 2
+            for name, offsets in YEE_OFFSETS.items()
+            if self.outputs[name]
+        ]
+        max_shift = np.max(shifts, axis=0) if shifts else np.zeros(3, dtype=np.int32)
+        owned_last = self.grid.size - (self.grid.neighbours[:, Dir.POS] >= 0)
+        for name in YEE_OFFSETS:
+            if self.outputs[name]:
+                owned_last = np.minimum(owned_last, np.asarray(getattr(self.grid, name).shape) - 1)
+        prefix = np.minimum(
+            view.size, np.maximum(0, (owned_last - view.start - max_shift) // view.step + 1)
         )
+        if local_count and np.all(view.start >= 0) and np.all(prefix > 0):
+            self._store_native(prefix)
+            complement = []
+            # Disjoint slabs form the complement of the prefix. Each later
+            # slab restricts earlier axes to the prefix, avoiding duplicates.
+            for axis in range(3):
+                if prefix[axis] < view.size[axis]:
+                    slab_shape = view.size.copy()
+                    slab_shape[:axis] = prefix[:axis]
+                    slab_shape[axis] -= prefix[axis]
+                    slab = np.indices(tuple(slab_shape), dtype=np.int32).reshape(3, -1)
+                    slab[axis] += prefix[axis]
+                    complement.append(np.ravel_multi_index(tuple(slab), shape))
+            selected_indices = (
+                np.concatenate(complement) if complement else np.empty(0, dtype=np.intp)
+            )
+            local_count = len(selected_indices)
+        largest_count = max(self.comm.allgather(local_count))
+        rank_lookup = np.empty(tuple(self.grid.mpi_tasks), dtype=np.int32)
+        for rank_coordinates in np.ndindex(rank_lookup.shape):
+            rank_lookup[rank_coordinates] = self.comm.Get_cart_rank(rank_coordinates)
+        # Bound coordinate/ownership scratch space independently of output size.
+        # All ranks execute the same batch count, including empty-output ranks.
+        for first in range(0, largest_count, self._SAMPLE_BATCH_SIZE):
+            last = min(first + self._SAMPLE_BATCH_SIZE, local_count)
+            first_local = min(first, local_count)
+            output_indices = (
+                np.arange(first_local, last)
+                if selected_indices is None
+                else selected_indices[first_local:last]
+            )
+            indices = (
+                np.asarray(np.unravel_index(output_indices, shape), dtype=np.int32).T
+                if last > first_local
+                else np.empty((0, 3), dtype=np.int32)
+            )
+            anchors = view.global_start + (indices + view.offset) * view.step
+            for component, offsets in YEE_OFFSETS.items():
+                if not self.outputs[component]:
+                    continue
+                q = strides * (view.step - np.asarray(offsets, dtype=np.int32))
+                if np.all(view.step == 1):
+                    # Match the original Cython arithmetic order, including TE's
+                    # duplicate invariant-plane terms, exactly.
+                    legacy = {
+                        "Ex": ((0, 0, 0), (0, 1, 0), (0, 0, 1), (0, 1, 1)),
+                        "Ey": ((0, 0, 0), (1, 0, 0), (0, 0, 1), (1, 0, 1)),
+                        "Ez": ((0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0)),
+                        "Hx": ((0, 0, 0), (1, 0, 0)),
+                        "Hy": ((0, 0, 0), (0, 1, 0)),
+                        "Hz": ((0, 0, 0), (0, 0, 1)),
+                    }
+                    stencil = np.asarray(legacy[component], dtype=np.int32) * strides
+                else:
+                    stencil = np.asarray(
+                        list(itertools.product(*(range(1 + int(v % 2)) for v in q))), dtype=np.int32
+                    )
+                    stencil += q // 2
+                # Process one component at a time: numeric coordinate blocks only,
+                # no Python object per sample and no communication for local data.
+                coordinates = (anchors[:, None, :] + stencil[None, :, :]).reshape(-1, 3)
+                rank_coordinates = self.grid.get_grid_coord_from_coordinate(coordinates)
+                owners = rank_lookup[tuple(rank_coordinates.T)]
+                field = getattr(self.grid, component)
+                samples = np.empty(len(coordinates), dtype=field.dtype)
+                local = owners == self.comm.rank
+                local_coordinates = coordinates[local] - self.grid.lower_extent
+                samples[local] = field[tuple(local_coordinates.T)]
+                requests = []
+                slots = []
+                for rank in range(self.comm.size):
+                    selected = (
+                        np.flatnonzero(owners == rank)
+                        if rank != self.comm.rank
+                        else np.empty(0, dtype=np.intp)
+                    )
+                    slots.append(selected)
+                    requests.append(np.ascontiguousarray(coordinates[selected], dtype=np.int32))
+                incoming = self.comm.alltoall(requests)
+                replies = [
+                    np.ascontiguousarray(field[tuple((block - self.grid.lower_extent).T)])
+                    for block in incoming
+                ]
+                received = self.comm.alltoall(replies)
+                for selected, values in zip(slots, received):
+                    samples[selected] = values
+                values = samples.reshape(len(anchors), len(stencil))
+                # Left-associated additions match both native CPU/GPU paths.
+                result = values[:, 0].copy()
+                for column in range(1, values.shape[1]):
+                    result += values[:, column]
+                result /= values.shape[1]
+                self.snapfields[component].flat[output_indices] = result
 
     def write_vtk(self, pbar: tqdm):
         """Writes snapshot file in VTK ImageData (.vtkhdf) format.
@@ -625,7 +641,7 @@ class MPISnapshot(Snapshot["MPIGrid"]):
         """
         assert isinstance(self.grid_view, self.GRID_VIEW_TYPE)
 
-        origin = self.grid_view.global_start * self.grid.dl
+        origin = self._physical_origin()
         spacing = self.grid_view.step * self.grid.dl
 
         with VtkImageData(
@@ -650,7 +666,7 @@ class MPISnapshot(Snapshot["MPIGrid"]):
             # f.attrs["Title"] = G.title
             f.attrs["nx_ny_nz"] = self.grid_view.global_size
             f.attrs["dx_dy_dz"] = self.grid_view.step * self.grid.dl
-            f.attrs["origin"] = self.grid_view.global_start * self.grid.dl
+            f.attrs["origin"] = self._physical_origin()
             f.attrs["iteration"] = self.iteration
             # ``time`` remains the electric-field time for backwards
             # compatibility with existing snapshot readers.
@@ -661,38 +677,31 @@ class MPISnapshot(Snapshot["MPIGrid"]):
 
             for key in ["Ex", "Ey", "Ez", "Hx", "Hy", "Hz"]:
                 if self.outputs[key]:
-                    dset = f.create_dataset(key, self.grid_view.global_size)
+                    dset = f.create_dataset(
+                        key, self.grid_view.global_size, dtype=self.snapfields[key].dtype
+                    )
                     dset[dset_slice] = self.snapfields[key]
                     pbar.update(n=self.snapfields[key].nbytes)
 
+    def _physical_origin(self):
+        origin = np.asarray(self.grid_view.global_start * self.grid.dl, dtype=np.float64)
+        geometry = mode2d_geometry(config.get_model_config().mode)
+        if geometry is not None and geometry.polarisation == "TE":
+            origin[geometry.invariant_axis] -= 0.5 * self.grid.dl[geometry.invariant_axis]
+        return origin
+
 
 def update_snapshot_max_dims(snapshots: List["Snapshot"]):
-    """Updates Snapshot.nx_max/ny_max/nz_max (the dimensions of the largest
-    requested snapshot) from the given list.
+    """Replace allocation maxima with those of this model, never earlier models.
 
-    Must be called before _set_macros() bakes NX_SNAPS/NY_SNAPS/NZ_SNAPS
-    into the shared GPU kernel preamble (IDX4D_SNAPS's Jinja-rendered
-    macro definition) - calling it only later, inside htod_snapshot_array()
-    (which _set_snapshot_knl() does, after _set_macros() has already run),
-    left that macro baked with stale dimensions (0, 0, 0 for the first
-    model in any process, since Snapshot.nx_max/ny_max/nz_max default to
-    0) - collapsing IDX4D_SNAPS's indexing arithmetic
-    (p*NX_SNAPS*NY_SNAPS*NZ_SNAPS + ...) down to effectively just the z
-    index, so every thread wrote to one of only a handful of memory
-    locations, racing non-deterministically, regardless of the snapshot's
-    real size or position. This is idempotent - calling it again later
-    (as htod_snapshot_array() still does) is harmless.
-
-    Args:
-        snapshots: list of Snapshot instances to consider.
+    Kernel dimensions must agree with these allocation dimensions. Updaters
+    retain their own shape so another grid cannot change their dispatch.
     """
-    for snap in snapshots:
-        if snap.nx > Snapshot.nx_max:
-            Snapshot.nx_max = snap.nx
-        if snap.ny > Snapshot.ny_max:
-            Snapshot.ny_max = snap.ny
-        if snap.nz > Snapshot.nz_max:
-            Snapshot.nz_max = snap.nz
+    shape = tuple(
+        max((getattr(snap, axis) for snap in snapshots), default=0) for axis in ("nx", "ny", "nz")
+    )
+    Snapshot.nx_max, Snapshot.ny_max, Snapshot.nz_max = shape
+    return shape
 
 
 def htod_snapshot_array(snapshots: List[Snapshot], queue=None):
@@ -707,7 +716,7 @@ def htod_snapshot_array(snapshots: List[Snapshot], queue=None):
     """
 
     # Get dimensions of largest requested snapshot
-    update_snapshot_max_dims(snapshots)
+    shape = update_snapshot_max_dims(snapshots)
 
     if config.sim_config.general["solver"] == "cuda":
         # Blocks per grid - according to largest requested snapshot
@@ -733,27 +742,27 @@ def htod_snapshot_array(snapshots: List[Snapshot], queue=None):
     # they are copied back to the host after each iteration, hence numsnaps = 1
     numsnaps = 1 if config.get_model_config().device["snapsgpu2cpu"] else len(snapshots)
     snapEx = np.zeros(
-        (numsnaps, Snapshot.nx_max, Snapshot.ny_max, Snapshot.nz_max),
+        (numsnaps, *shape),
         dtype=config.sim_config.dtypes["float_or_double"],
     )
     snapEy = np.zeros(
-        (numsnaps, Snapshot.nx_max, Snapshot.ny_max, Snapshot.nz_max),
+        (numsnaps, *shape),
         dtype=config.sim_config.dtypes["float_or_double"],
     )
     snapEz = np.zeros(
-        (numsnaps, Snapshot.nx_max, Snapshot.ny_max, Snapshot.nz_max),
+        (numsnaps, *shape),
         dtype=config.sim_config.dtypes["float_or_double"],
     )
     snapHx = np.zeros(
-        (numsnaps, Snapshot.nx_max, Snapshot.ny_max, Snapshot.nz_max),
+        (numsnaps, *shape),
         dtype=config.sim_config.dtypes["float_or_double"],
     )
     snapHy = np.zeros(
-        (numsnaps, Snapshot.nx_max, Snapshot.ny_max, Snapshot.nz_max),
+        (numsnaps, *shape),
         dtype=config.sim_config.dtypes["float_or_double"],
     )
     snapHz = np.zeros(
-        (numsnaps, Snapshot.nx_max, Snapshot.ny_max, Snapshot.nz_max),
+        (numsnaps, *shape),
         dtype=config.sim_config.dtypes["float_or_double"],
     )
 

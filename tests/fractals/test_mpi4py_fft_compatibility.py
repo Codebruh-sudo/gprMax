@@ -22,7 +22,9 @@ import pytest
 
 
 @pytest.mark.unit
-def test_mpi4py_fft_fftw_round_trip():
+@pytest.mark.parametrize("shape", [(8, 8), (20, 20, 20), (20, 20, 22)])
+@pytest.mark.parametrize("dtype", [np.float64, np.complex128])
+def test_mpi4py_fft_fftw_round_trip(shape, dtype):
     """A one-rank FFTW transform exercises the compiled mpi4py-fft modules."""
 
     MPI = pytest.importorskip("mpi4py.MPI")
@@ -30,17 +32,20 @@ def test_mpi4py_fft_fftw_round_trip():
 
     fft = mpi4py_fft.PFFT(
         MPI.COMM_SELF,
-        (8, 8),
-        axes=(0, 1),
-        dtype=float,
+        shape,
+        axes=tuple(range(len(shape))),
+        dtype=dtype,
         backend="fftw",
+        collapse=False,
     )
     values = mpi4py_fft.newDistArray(fft, False)
     transformed = mpi4py_fft.newDistArray(fft, True)
     values[...] = np.arange(values.size).reshape(values.shape)
-    expected = values.copy()
+    expected = np.asarray(values).copy()
 
-    fft.forward(values, transformed)
-    fft.backward(transformed, values)
-
-    assert np.allclose(values, expected)
+    try:
+        fft.forward(values, transformed)
+        fft.backward(transformed, values)
+        np.testing.assert_allclose(np.asarray(values), expected, rtol=1e-12, atol=1e-10)
+    finally:
+        fft.destroy()

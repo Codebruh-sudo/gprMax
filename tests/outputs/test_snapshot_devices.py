@@ -143,15 +143,16 @@ class TestMaximumDimensions:
         htod_snapshot_array(make_snapshots([(3, 5, 7)]))
         assert (Snapshot.nx_max, Snapshot.ny_max, Snapshot.nz_max) == (3, 5, 7)
 
-    def test_the_maxima_only_grow(self, make_snapshots, metal_solver):
-        """Expects a second call with smaller snapshots to leave the maxima
-        alone — the comparison is one-sided.
-
-        This is exactly why the suite resets these between tests: without the
-        reset, the values would ratchet upward across the whole session."""
+    def test_each_model_replaces_the_maxima(self, make_snapshots, metal_solver):
+        """A new model must not inherit a previous model's allocation."""
         htod_snapshot_array(make_snapshots([(8, 8, 8)]))
         htod_snapshot_array(make_snapshots([(2, 2, 2)]))
-        assert (Snapshot.nx_max, Snapshot.ny_max, Snapshot.nz_max) == (8, 8, 8)
+        assert (Snapshot.nx_max, Snapshot.ny_max, Snapshot.nz_max) == (2, 2, 2)
+
+    def test_rotated_models_do_not_accumulate_a_large_volume(self, make_snapshots, metal_solver):
+        for shape in ((8, 2, 2), (2, 8, 2), (2, 2, 8)):
+            htod_snapshot_array(make_snapshots([shape]))
+            assert metal_solver.buffers[-1][0] == (1, *shape)
 
     def test_they_are_class_level_not_instance_level(self, make_snapshots, metal_solver):
         """Expects the sizing to be visible on the class itself, and therefore
@@ -315,8 +316,8 @@ class TestDtohSnapshotArray:
 
 
 @pytest.fixture
-def make_mpi_snapshot(make_mpi_grid, tmp_path):
-    """An ``MPISnapshot`` over a faked MPI grid with real field arrays."""
+def make_mpi_snapshot(tmp_path):
+    """An ``MPISnapshot`` over a real one-rank Cartesian grid."""
 
     def _make(
         start=(0, 0, 0),
@@ -334,7 +335,14 @@ def make_mpi_snapshot(make_mpi_grid, tmp_path):
         }
         for field, array in arrays.items():
             array[...] = 2.0
-        grid = make_mpi_grid(size=size, negative_halo_offset=negative_halo_offset, arrays=arrays)
+        from gprMax.grid.mpi_grid import MPIGrid
+        grid = MPIGrid(MPI.COMM_SELF.Create_cart((1, 1, 1)))
+        grid.global_size = np.asarray(size, dtype=np.int32)
+        grid.calculate_local_extents()
+        grid.dl = np.full(3, DL)
+        grid.dt = DT
+        for field, array in arrays.items():
+            setattr(grid, field, array)
         return MPISnapshot(
             *start,
             *stop,
@@ -477,6 +485,19 @@ class TestMpiSnapshotWriting:
         snap.store()
         snap.write_hdf5(_NullBar())
         assert snap.filename.exists()
+
+    @needs_parallel_hdf5
+    @pytest.mark.parametrize("dtype", [np.float32, np.float64])
+    def test_hdf5_write_preserves_field_precision(self, make_mpi_snapshot, dtype):
+        snap = make_mpi_snapshot(fileext=".h5")
+        snap.initialise_snapfields()
+        for key in FIELDS:
+            snap.snapfields[key] = np.full((4, 4, 4), np.pi, dtype=dtype)
+        snap.write_hdf5(_NullBar())
+        with h5py.File(snap.filename) as f:
+            for key in FIELDS:
+                assert f[key].dtype == np.dtype(dtype)
+                np.testing.assert_array_equal(f[key][...], snap.snapfields[key])
 
     def test_the_mpio_driver_is_genuinely_unavailable_here(self):
         """Expects ``h5py.get_config().mpi`` to be the thing gating the three

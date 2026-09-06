@@ -17,6 +17,7 @@
 
 import logging
 import math
+from bisect import bisect_left, bisect_right
 from copy import copy, deepcopy
 
 import numpy as np
@@ -71,6 +72,42 @@ class Source:
         self.waveformvalues_wholedt = None
         # Waveform values for sources that need to be calculated on half timesteps
         self.waveformvalues_halfdt = None
+
+    def _waveform_cache_key(self, G):
+        """Identify the sampled drive, including its window and grid timing."""
+        waveform = next(w for w in G.waveforms if w.ID == self.waveformID)
+        return (
+            id(waveform),
+            self.waveformID,
+            tuple(getattr(waveform, name, None) for name in ("type", "amp", "freq", "userfunc")),
+            self.start,
+            self.stop,
+            G.dt,
+            G.iterations,
+            np.dtype(config.sim_config.dtypes["float_or_double"]),
+        )
+
+    def _reuse_waveform_values(self, G, sources, names):
+        """Reuse only an unchanged donor sampled with this exact configuration."""
+        key = self._waveform_cache_key(G)
+        for source in sources:
+            cache = getattr(source, "_waveform_cache", None)
+            if source is self or cache is None or cache[0] != key or cache[1] != names:
+                continue
+            # Study resampling replaces arrays; those scaled/case-specific
+            # histories must not become construction-time cache donors.
+            if not all(getattr(source, name) is values for name, values in zip(names, cache[2])):
+                continue
+            for name, values in zip(names, cache[2]):
+                setattr(self, name, values)
+            self._waveform_cache = cache
+            return True
+        return False
+
+    def _cache_waveform_values(self, G, names):
+        self._waveform_cache = (
+            self._waveform_cache_key(G), names, tuple(getattr(self, name) for name in names)
+        )
 
     @property
     def xcoord(self) -> int:
@@ -2862,17 +2899,8 @@ class VoltageSource(Source):
             G: FDTDGrid class describing a grid in a model.
         """
 
-        # Check if a source matches existing source in terms of waveform and
-        # does not have a customised start/stop time. If so, use its
-        # pre-calculated waveform values, otherwise calculate them.
-        src_match = False
-
-        if self.start == 0 and self.stop == G.timewindow:
-            for src in G.voltagesources:
-                if src.waveformID == self.waveformID:
-                    src_match = True
-                    self.waveformvalues_halfdt = src.waveformvalues_halfdt
-                    self.waveformvalues_wholedt = src.waveformvalues_wholedt
+        names = ("waveformvalues_halfdt", "waveformvalues_wholedt")
+        src_match = self._reuse_waveform_values(G, G.voltagesources, names)
 
         if not src_match:
             waveform = next(x for x in G.waveforms if x.ID == self.waveformID)
@@ -2893,6 +2921,8 @@ class VoltageSource(Source):
                         time + 0.5 * G.dt, G.dt
                     )
                     self.waveformvalues_wholedt[iteration] = waveform.calculate_value(time, G.dt)
+
+        self._cache_waveform_values(G, names)
 
     def update_electric(self, iteration, updatecoeffsE, ID, Ex, Ey, Ez, G):
         """Updates electric field values for a voltage source.
@@ -3001,16 +3031,8 @@ class HertzianDipole(Source):
             G: FDTDGrid class describing a grid in a model.
         """
 
-        # Check if a source matches existing source in terms of waveform and
-        # does not have a customised start/stop time. If so, use its
-        # pre-calculated waveform values, otherwise calculate them.
-        src_match = False
-
-        if self.start == 0 and self.stop == G.timewindow:
-            for src in G.hertziandipoles:
-                if src.waveformID == self.waveformID:
-                    src_match = True
-                    self.waveformvalues_halfdt = src.waveformvalues_halfdt
+        names = ("waveformvalues_halfdt",)
+        src_match = self._reuse_waveform_values(G, G.hertziandipoles, names)
 
         if not src_match:
             waveform = next(x for x in G.waveforms if x.ID == self.waveformID)
@@ -3027,6 +3049,8 @@ class HertzianDipole(Source):
                     self.waveformvalues_halfdt[iteration] = waveform.calculate_value(
                         time + 0.5 * G.dt, G.dt
                     )
+
+        self._cache_waveform_values(G, names)
 
     def update_electric(self, iteration, updatecoeffsE, ID, Ex, Ey, Ez, G):
         """Updates electric field values for a Hertzian dipole.
@@ -3081,16 +3105,8 @@ class MagneticDipole(Source):
             G: FDTDGrid class describing a grid in a model.
         """
 
-        # Check if a source matches existing source in terms of waveform and
-        # does not have a customised start/stop time. If so, use its
-        # pre-calculated waveform values, otherwise calculate them.
-        src_match = False
-
-        if self.start == 0 and self.stop == G.timewindow:
-            for src in G.magneticdipoles:
-                if src.waveformID == self.waveformID:
-                    src_match = True
-                    self.waveformvalues_wholedt = src.waveformvalues_wholedt
+        names = ("waveformvalues_wholedt",)
+        src_match = self._reuse_waveform_values(G, G.magneticdipoles, names)
 
         if not src_match:
             waveform = next(x for x in G.waveforms if x.ID == self.waveformID)
@@ -3105,6 +3121,8 @@ class MagneticDipole(Source):
                     # delay in the start
                     time -= self.start
                     self.waveformvalues_wholedt[iteration] = waveform.calculate_value(time, G.dt)
+
+        self._cache_waveform_values(G, names)
 
     def update_magnetic(self, iteration, updatecoeffsH, ID, Hx, Hy, Hz, G):
         """Updates magnetic field values for a magnetic dipole.
@@ -3157,8 +3175,9 @@ def htod_src_arrays(sources, G, queue=None):
         queue: pyopencl queue.
 
     Returns:
-        srcinfo1_dev: int array of source cell coordinates and polarisation
-                        information.
+        srcinfo1_dev: int array of four-column source coordinates/polarisation.
+                        Voltage sources append a two-column inclusive activity
+                        interval after all coordinate rows (not within rows).
         srcinfo2_dev: float array of other source information, e.g. length,
                         resistance etc...
         srcwaves_dev: float array of source waveform values.
@@ -3193,6 +3212,25 @@ def htod_src_arrays(sources, G, queue=None):
                 srcwaves[i, :] = src.waveformvalues_wholedt
         elif src.__class__.__name__ == "MagneticDipole":
             srcwaves[i, :] = src.waveformvalues_wholedt
+
+    if sources and sources[0].__class__.__name__ == "VoltageSource":
+        # Keep the existing four-int coordinate stride and all float layouts.
+        # The shared voltage kernel reads this compact tail using NVOLTSRC.
+        # Search exact host n*dt values, matching the CPU's inclusive predicate
+        # without device-precision rounding or a per-timestep activity buffer.
+        iterations = range(G.iterations + 1)
+        sample_time = lambda iteration: iteration * G.dt
+        activity = np.asarray(
+            [
+                (
+                    bisect_left(iterations, src.start, key=sample_time),
+                    bisect_right(iterations, src.stop, key=sample_time) - 1,
+                )
+                for src in sources
+            ],
+            dtype=np.int32,
+        )
+        srcinfo1 = np.concatenate((srcinfo1.ravel(), activity.ravel()))
 
     # Copy arrays to compute device
     if config.sim_config.general["solver"] == "cuda":
@@ -3446,18 +3484,8 @@ class TransmissionLine(Source):
             G: FDTDGrid class describing a grid in a model.
         """
 
-        # Check if a source matches existing source in terms of waveform and
-        # does not have a customised start/stop time. If so, use its
-        # pre-calculated waveform values, otherwise calculate them.
-        src_match = False
-
-        if reuse_existing and self.start == 0 and self.stop == G.timewindow:
-            for src in G.transmissionlines:
-                if src is not self and src.waveformID == self.waveformID:
-                    src_match = True
-                    self.waveformvalues_wholedt = src.waveformvalues_wholedt
-                    self.waveformvalues_halfdt = src.waveformvalues_halfdt
-                    break
+        names = ("waveformvalues_wholedt", "waveformvalues_halfdt")
+        src_match = reuse_existing and self._reuse_waveform_values(G, G.transmissionlines, names)
 
         if not src_match:
             waveform = next(x for x in G.waveforms if x.ID == self.waveformID)
@@ -3478,6 +3506,8 @@ class TransmissionLine(Source):
                     self.waveformvalues_halfdt[iteration] = waveform.calculate_value(
                         time + 0.5 * G.dt, G.dt
                     )
+
+        self._cache_waveform_values(G, names)
 
     def calculate_incident_V_I(self, G):
         """Calculates the incident voltage and current with a long length
@@ -3529,6 +3559,7 @@ class TransmissionLine(Source):
         self.start = start
         self.stop = stop
         self.calculate_waveform_values(G, reuse_existing=False)
+        self._waveform_cache = None
         self.waveformvalues_wholedt *= scale
         self.waveformvalues_halfdt *= scale
         self.calculate_incident_V_I(G)

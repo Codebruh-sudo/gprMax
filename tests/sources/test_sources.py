@@ -185,13 +185,11 @@ class TestVoltageSourceCalculateWaveformValues:
         w = make_constant_waveform(value=3.0)
         existing = _make_voltage_source(polarisation="x", resistance=50.0)
         existing.start = 0
-        sentinel_half = np.full(11, 99.0)
-        sentinel_whole = np.full(11, 77.0)
-        existing.waveformvalues_halfdt = sentinel_half
-        existing.waveformvalues_wholedt = sentinel_whole
-
         G = fake_grid(iterations=10, dt=1.0, waveforms=[w], voltagesources=[existing])
         existing.stop = G.timewindow
+        existing.calculate_waveform_values(G)
+        sentinel_half = existing.waveformvalues_halfdt
+        sentinel_whole = existing.waveformvalues_wholedt
 
         new = _make_voltage_source(polarisation="y", resistance=10.0)
         new.start = 0

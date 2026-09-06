@@ -99,7 +99,19 @@ Here is an example of a job script for running models, e.g. A-scans to make a B-
 
 In this example, 10 models will be distributed as independent tasks in an HPC environment using MPI.
 
-The ``--taskfarm`` argument is passed to gprMax which takes the number of MPI tasks to run. This should be the number of models (worker tasks) plus one extra for the master task.
+``--taskfarm`` is a boolean switch; it does not take a task count. The MPI
+launcher sets the number of ranks, while ``-n`` sets the number of models.
+One rank coordinates the farm and the remaining ranks execute complete models.
+Workers can each process several models, so a worker per model is not required.
+For example, ``mpiexec -n 3 python -m gprMax model.in -n 10 --taskfarm`` runs
+ten models using two workers and one coordinator.
+
+If a worker's model raises an exception, other submitted models are still
+processed. After all jobs finish, the coordinator raises ``TaskfarmError``
+and the command exits unsuccessfully; successful output files are retained.
+The exception's ``results`` and ``failures`` attributes expose the outcomes
+to Python callers. Distributed-domain failures likewise use a nonzero MPI
+abort status rather than reporting a successful run.
 
 The ``NSLOTS`` variable which is required to set the total number of slots/cores for the parallel environment ``-pe mpi`` is usually the number of MPI tasks multiplied by the number of OpenMP threads per task. In this example the number of MPI tasks is 11 and the number of OpenMP threads per task is 16, so 176 slots are required.
 

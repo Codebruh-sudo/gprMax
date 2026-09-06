@@ -16,6 +16,7 @@
 # along with gprMax. If not, see <https://www.gnu.org/licenses/>.
 
 from abc import ABC, abstractmethod
+from functools import cached_property
 from typing import Generic, TypeVar
 
 from gprMax.grid.fdtd_grid import FDTDGrid
@@ -35,6 +36,14 @@ class Updates(Generic[GridType], ABC):
         """
 
         self.grid = G
+
+    @cached_property
+    def snapshot_shape(self):
+        """Per-grid dimensions shared by snapshot allocation and kernel indexing."""
+        return tuple(
+            max((getattr(snap, axis) for snap in self.grid.snapshots), default=0)
+            for axis in ("nx", "ny", "nz")
+        )
 
     @abstractmethod
     def store_outputs(self, iteration: int) -> None:
@@ -86,6 +95,17 @@ class Updates(Generic[GridType], ABC):
 
     def update_plane_waves_magnetic(self, iteration: int) -> None:
         """Advance auxiliary plane waves and apply magnetic TFSF corrections."""
+
+        pass
+
+    def update_magnetic_edge_devices(self, iteration: int) -> None:
+        """Advance devices that sample the completed magnetic half-step.
+
+        Called after magnetic sources/TFSF corrections and, for distributed
+        grids, after the H halo exchange. Transmission lines sample their
+        Ampere contour here before their electric-stage voltage update.
+        Backends without such devices retain this no-op.
+        """
 
         pass
 

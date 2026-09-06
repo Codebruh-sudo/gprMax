@@ -93,6 +93,8 @@ class GeometryObject(Generic[GridType]):
     def _material_keys(materials):
         """Generate unique schema-safe keys while retaining original IDs."""
 
+        if len(materials) > np.iinfo(np.int16).max + 1:
+            raise ValueError("Geometry-object export supports at most 32768 distinct materials")
         keys = []
         for index, material in enumerate(materials):
             slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", material.ID).strip("_.-") or "material"
@@ -128,10 +130,11 @@ class GeometryObject(Generic[GridType]):
             pbar: Progress bar class instance.
         """
 
-        self.grid_view.initialise_materials()
+        self.grid_view.initialise_materials(include_solid=True)
+        material_keys = self._material_keys(self.grid_view.materials)
 
         ID = self.grid_view.get_ID()
-        data = self.grid_view.get_solid().astype(np.int16)
+        data = self.grid_view.get_solid()
         rigidE = self.grid_view.get_rigidE()
         rigidH = self.grid_view.get_rigidH()
         tag_data = (
@@ -141,8 +144,7 @@ class GeometryObject(Generic[GridType]):
         )
 
         ID = self.grid_view.map_to_view_materials(ID)
-        data = self.grid_view.map_to_view_materials(data)
-        material_keys = self._material_keys(self.grid_view.materials)
+        data = self.grid_view.map_to_view_materials(data).astype(np.int16)
 
         with h5py.File(self.filename_hdf5, "w") as fdata:
             self.write_metadata(fdata, title)
@@ -225,10 +227,23 @@ class MPIGeometryObject(GeometryObject["MPIGrid"]):
         """
         assert isinstance(self.grid_view, self.GRID_VIEW_TYPE)
 
-        self.grid_view.initialise_materials()
+        self.grid_view.initialise_materials(include_solid=True)
+        # The full catalogue is coordinator-owned. Every collective writer
+        # needs the same compact keys, not a duplicate catalogue of objects.
+        material_count = self.grid_view.comm.bcast(
+            len(self.grid_view.materials) if self.grid_view.comm.rank == 0 else None, root=0
+        )
+        if material_count > np.iinfo(np.int16).max + 1:
+            raise ValueError("Geometry-object export supports at most 32768 distinct materials")
+        material_keys = self.grid_view.comm.bcast(
+            self._material_keys(self.grid_view.materials)
+            if self.grid_view.comm.rank == 0
+            else None,
+            root=0,
+        )
 
         ID = self.grid_view.get_ID()
-        data = self.grid_view.get_solid().astype(np.int16)
+        data = self.grid_view.get_solid()
         rigidE = self.grid_view.get_rigidE()
         rigidH = self.grid_view.get_rigidH()
         tag_data = (
@@ -241,8 +256,7 @@ class MPIGeometryObject(GeometryObject["MPIGrid"]):
         rigidH = self._merge_negative_rigid_halos(rigidH, self.grid.rigidH, 4200)
 
         ID = self.grid_view.map_to_view_materials(ID)
-        data = self.grid_view.map_to_view_materials(data)
-        material_keys = self._material_keys(self.grid_view.materials)
+        data = self.grid_view.map_to_view_materials(data).astype(np.int16)
 
         with h5py.File(self.filename_hdf5, "w", driver="mpio", comm=self.grid_view.comm) as fdata:
             self.write_metadata(fdata, title)
@@ -289,8 +303,5 @@ class MPIGeometryObject(GeometryObject["MPIGrid"]):
             fdata.attrs["MaterialDatabase"] = self.filename_materials.stem
             fdata.attrs["MaterialDatabaseSchemaVersion"] = 1
 
-        # Every rank has the same compact material catalogue after
-        # initialise_materials(); only rank zero writes the companion JSON.
-        if self.grid_view.materials is not None:
-            if self.grid_view.comm.rank == 0:
-                write_database(self.filename_materials, self._material_document(material_keys))
+        if self.grid_view.comm.rank == 0:
+            write_database(self.filename_materials, self._material_document(material_keys))
