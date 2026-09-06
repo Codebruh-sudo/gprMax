@@ -81,18 +81,18 @@ def test_update_snapshot_max_dims_tracks_the_largest_requested_snapshot(monkeypa
     assert Snapshot.nz_max == 30
 
 
-def test_update_snapshot_max_dims_is_a_noop_on_empty_list(monkeypatch):
+def test_update_snapshot_max_dims_resets_an_empty_model(monkeypatch):
     monkeypatch.setattr(Snapshot, "nx_max", 7)
     monkeypatch.setattr(Snapshot, "ny_max", 8)
     monkeypatch.setattr(Snapshot, "nz_max", 9)
 
     update_snapshot_max_dims([])
 
-    assert (Snapshot.nx_max, Snapshot.ny_max, Snapshot.nz_max) == (7, 8, 9)
+    assert (Snapshot.nx_max, Snapshot.ny_max, Snapshot.nz_max) == (0, 0, 0)
 
 
-def test_gpu_snapshot_collocation_uses_the_snapshot_cell_stride():
-    """GPU collocation must match the CPU's strided ``GridView`` corners."""
+def test_gpu_snapshot_collocation_uses_native_samples_at_the_coarse_centre():
+    """Coarse output cells need native interpolation, not strided corners."""
 
     body = knl_snapshots.store_snapshot["func"].substitute(
         {
@@ -104,9 +104,11 @@ def test_gpu_snapshot_collocation_uses_the_snapshot_cell_stride():
         }
     )
 
-    assert "xx+sx*dx" in body
-    assert "yy+sy*dy" in body
-    assert "zz+sz*dz" in body
+    assert "if (dx != 1 || dy != 1 || dz != 1)" in body
+    assert "sx * (dx - 1)" in body
+    assert "sy * (dy - 1)" in body
+    assert "sz * (dz - 1)" in body
+    assert "xx+qx/2+a,yy+qy/2+b,zz+qz/2+c" in body
 
 
 # ---------------------------------------------------------------------------
@@ -138,9 +140,7 @@ def _make_cuda_updates(monkeypatch, snapshots):
     monkeypatch.setattr(
         config,
         "get_model_config",
-        lambda: type(
-            "_MC", (), {"device": {"snapsgpu2cpu": False}, "mode": "3D"}
-        )(),
+        lambda: type("_MC", (), {"device": {"snapsgpu2cpu": False}, "mode": "3D"})(),
     )
 
     updates = CUDAUpdates.__new__(CUDAUpdates)
@@ -181,7 +181,8 @@ def test_cuda_store_snapshots_passes_local_sample_counts_not_absolute_finish(mon
     assert args[19] == "gpudata:snapEx"
     assert args[24] == "gpudata:snapHz"
     assert kwargs["block"] is Snapshot.tpb
-    assert kwargs["grid"] is Snapshot.bpg
+    expected_blocks = (snap.nx * snap.ny * snap.nz + Snapshot.tpb[0] - 1) // Snapshot.tpb[0]
+    assert kwargs["grid"] == (expected_blocks, 1, 1)
 
 
 def test_cuda_store_snapshots_skips_untriggered_snapshot(monkeypatch):
@@ -205,9 +206,7 @@ def _make_opencl_updates(monkeypatch, snapshots):
     monkeypatch.setattr(
         config,
         "get_model_config",
-        lambda: type(
-            "_MC", (), {"device": {"snapsgpu2cpu": False}, "mode": "3D"}
-        )(),
+        lambda: type("_MC", (), {"device": {"snapsgpu2cpu": False}, "mode": "3D"})(),
     )
 
     updates = OpenCLUpdates.__new__(OpenCLUpdates)
@@ -269,7 +268,7 @@ def test_opencl_snapshot_kernel_substitutes_real_type(monkeypatch):
 
     captured = {}
     updates = OpenCLUpdates.__new__(OpenCLUpdates)
-    updates.grid = SimpleNamespace(snapshots=[object()])
+    updates.grid = SimpleNamespace(snapshots=[_FakeSnapshot(2, 3, 4)])
     updates.queue = object()
     updates.ctx = object()
     updates.knl_common = ""

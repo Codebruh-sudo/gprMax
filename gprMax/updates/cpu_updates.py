@@ -119,9 +119,20 @@ class CPUUpdates(Updates[GridType]):
 
     def update_magnetic_sources(self, iteration):
         """Updates magnetic field components from sources."""
-        for source in (
-            self.grid.transmissionlines + self.grid.magneticdipoles + self.grid.magneticfrillsources
-        ):
+        for source in self.grid.magneticdipoles + self.grid.magneticfrillsources:
+            source.update_magnetic(
+                iteration,
+                self.grid.updatecoeffsH,
+                self.grid.ID,
+                self.grid.Hx,
+                self.grid.Hy,
+                self.grid.Hz,
+                self.grid,
+            )
+
+    def update_magnetic_edge_devices(self, iteration):
+        """Sample corrected H contours and advance transmission-line currents."""
+        for source in self.grid.transmissionlines:
             source.update_magnetic(
                 iteration,
                 self.grid.updatecoeffsH,

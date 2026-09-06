@@ -68,9 +68,11 @@ requirements and run the usual CPU selection from the repository root:
 The MPI extra is needed for the complete developer test suite. Core serial
 users do not need it.
 
-This is also the selection run by the GitHub Actions workflow for pull
-requests and pushes to ``devel``. Run the complete locally available suite
-with:
+CI splits this coverage: ``tests.yml`` runs ``-m unit`` on multiple platforms;
+``pytest.yml`` runs ``-m "not unit and not gpu and not slow"``. Slow and real
+device tests require separate runs. Distributed fractal tests use Python 3.12
+with FFTW and ``mpi4py-fft``; real parallel geometry/snapshot tests also require
+MPI-enabled HDF5/h5py. Run the complete locally available suite with:
 
 .. code-block:: console
 
@@ -78,13 +80,17 @@ with:
 
 The markers registered in ``pyproject.toml`` are:
 
+``unit``
+    Focused tests without a full production solve; compiled dependencies may
+    still be required.
+
 ``integration``
     Exercises multiple gprMax components together or runs a complete compact
     model. The automated Hertzian-dipole and PEC-sphere comparisons are
     examples.
 
 ``gpu``
-    Executes on a real CUDA device. Tests that inspect generated GPU source or
+    Executes on a real CUDA, OpenCL, or Metal device. Tests that inspect generated GPU source or
     use mocks do not receive this marker because they remain ordinary CPU
     tests.
 
@@ -98,6 +104,7 @@ Markers may overlap. Useful selections include:
     $ python -m pytest -m integration
     $ python -m pytest -m slow
     $ python -m pytest -m gpu --gpu-device 0
+    $ python -m pytest -m gpu -k opencl --opencl-device 0
     $ python -m pytest --durations=25
 
 The CUDA index can alternatively be supplied through ``GPRMAX_TEST_GPU``.

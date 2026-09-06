@@ -330,6 +330,32 @@ class TestDispersiveDrude:
 
 
 class TestDispersiveUpdateCoeffsE:
+    def test_unresolvable_decay_warns_but_keeps_pole_coupling(
+        self, make_dispersive, fake_grid, caplog
+    ):
+        material = make_dispersive(model="debye", er=2, poles=[(10, 1e-4, 0)])
+        material.calculate_update_coeffsE(
+            fake_grid(dt=1e-12, maxpoles=1, dispersivedtype=np.float32)
+        )
+        assert material.eqt[0] == 1
+        # Independent small-increment limit: zt -> -delta_er/tau.
+        assert material.zt[0] == pytest.approx(-1e5, rel=1e-7)
+        assert "long-time decay may be inaccurate" in caplog.text
+
+    @pytest.mark.parametrize("dtype", [np.float32, np.float64, np.complex64, np.complex128])
+    @pytest.mark.parametrize("ratio", np.logspace(-12, -1, 12))
+    def test_small_pole_increments_do_not_cancel(self, make_dispersive, fake_grid, dtype, ratio):
+        dt = 1e-12
+        material = make_dispersive(model="debye", er=2, poles=[(10, dt / ratio, 0)])
+        grid = fake_grid(dt=dt, maxpoles=1, dispersivedtype=dtype)
+        material.calculate_update_coeffsE(grid)
+        expected = 10 * np.expm1(-ratio)
+        tolerance = 4 * np.finfo(dtype).eps
+        np.testing.assert_allclose(material.zt[0], expected / dt, rtol=tolerance, atol=0)
+        np.testing.assert_allclose(
+            material.zt2[0], 10 * np.expm1(-ratio / 2), rtol=tolerance, atol=0
+        )
+
     def test_debye_single_pole_assigns_finite_CA(self, make_dispersive, fake_grid):
         m = make_dispersive(model="debye", er=4.9, se=0.0, poles=[(73.2, 9.231e-12, 0.0)])
         G = fake_grid()

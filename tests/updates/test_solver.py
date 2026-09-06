@@ -60,6 +60,7 @@ CPU_ITERATION_ORDER = [
     "update_magnetic_sources",
     "update_eigenmode_sources_magnetic",
     "update_plane_waves_magnetic",
+    "update_magnetic_edge_devices",
     "observe_eigenmode_ports",
     "observe_ntff_magnetic",
     "update_electric_a",
@@ -112,6 +113,9 @@ class RecordingUpdates(CPUUpdates):
 
     def update_plane_waves_magnetic(self, iteration):
         self._record("update_plane_waves_magnetic")
+
+    def update_magnetic_edge_devices(self, iteration):
+        self._record("update_magnetic_edge_devices")
 
     def update_electric_a(self):
         self._record("update_electric_a")
@@ -322,6 +326,30 @@ class TestIterationOrder:
 
         assert calls.index("store_snapshots") < calls.index("update_magnetic")
 
+    @pytest.mark.parametrize("stage", ["time_start", "update_magnetic", "finalise", "calculate_solve_time"])
+    def test_failure_always_cleans_up(self, recording_updates, monkeypatch, stage):
+        def fail(*args):
+            raise RuntimeError("controlled failure")
+
+        monkeypatch.setattr(recording_updates, stage, fail)
+        with pytest.raises(RuntimeError, match="controlled failure"):
+            Solver(recording_updates).solve(range(1))
+        assert recording_updates.calls[-1] == "cleanup"
+        assert recording_updates.calls.count("cleanup") == 1
+
+    def test_cleanup_failure_does_not_hide_original_error(self, recording_updates, monkeypatch, caplog):
+        def fail_solve():
+            raise ValueError("original solver failure")
+
+        def fail_cleanup():
+            raise RuntimeError("secondary cleanup failure")
+
+        monkeypatch.setattr(recording_updates, "time_start", fail_solve)
+        monkeypatch.setattr(recording_updates, "cleanup", fail_cleanup)
+        with pytest.raises(ValueError, match="original solver failure"):
+            Solver(recording_updates).solve(range(1))
+        assert "secondary cleanup failure" in caplog.text
+
     def test_snapshots_see_electric_n_and_magnetic_n_minus_half(self):
         """Pin the Yee time levels present at the snapshot hook."""
 
@@ -411,11 +439,39 @@ class TestIterationOrder:
         assert calls.index("update_magnetic_sources") < calls.index("update_plane_waves_magnetic")
         assert calls.index("update_electric_sources") < calls.index("update_plane_waves_electric")
 
-    def test_there_are_twenty_one_steps_in_an_iteration(self, recording_updates):
+    def test_there_are_twenty_two_steps_in_an_iteration(self, recording_updates):
         Solver(recording_updates).solve(range(1))
 
         body = [c for c in recording_updates.calls if c not in PROLOGUE + EPILOGUE]
-        assert len(body) == 21
+        assert len(body) == 22
+
+    @pytest.mark.parametrize("distributed", [False, True])
+    def test_contour_devices_follow_all_h_corrections_and_optional_halos(self, distributed):
+        """Same iteration and exactly one current update, before E advances."""
+        seen_iterations = []
+
+        class ContourRecorder(RecordingUpdates):
+            is_distributed = distributed
+
+            def halo_swap_magnetic(self):
+                self._record("halo_swap_magnetic")
+
+            def halo_swap_electric(self):
+                self._record("halo_swap_electric")
+
+            def update_magnetic_edge_devices(self, iteration):
+                super().update_magnetic_edge_devices(iteration)
+                seen_iterations.append(iteration)
+
+        updates = ContourRecorder()
+        Solver(updates).solve([0, 1, 2])
+        expected = list(CPU_ITERATION_ORDER)
+        if distributed:
+            expected.insert(expected.index("update_magnetic_edge_devices"), "halo_swap_magnetic")
+            expected.append("halo_swap_electric")
+        body = [name for name in updates.calls if name not in PROLOGUE + EPILOGUE]
+        assert body == expected * 3
+        assert seen_iterations == [0, 1, 2]
 
 
 class TestLoopBracketing:
@@ -529,13 +585,12 @@ class TestOptionalAndBackendSpecificSteps:
         inherited_noops = {
             "update_plane_waves",
             "update_eigenmode_sources",
+            "update_magnetic_edge_devices",
             "observe_eigenmode_ports",
         }
         body = [c for c in updates.calls if c not in PROLOGUE + EPILOGUE]
         assert body == [
-            step
-            for step in CPU_ITERATION_ORDER
-            if not any(step.startswith(prefix) for prefix in inherited_noops)
+            step for step in CPU_ITERATION_ORDER if not any(step.startswith(prefix) for prefix in inherited_noops)
         ]
 
     def test_a_non_cpu_backend_is_still_bracketed(self):

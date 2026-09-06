@@ -158,12 +158,9 @@ class TestConstruction:
         """Expects no arrays until explicitly initialised."""
         assert make_snapshot(initialise=False).snapfields == {}
 
-    def test_no_validation_is_performed(self, make_snapshot):
-        """Expects construction to accept an inverted extent without
-        complaint — all geometry checking lives in the user-object layer, which
-        PR 6 covers, not here."""
-        snap = make_snapshot(start=(4, 4, 4), stop=(2, 2, 2), initialise=False)
-        assert snap.grid_view.size.tolist() == [-2, -2, -2]
+    def test_invalid_extent_is_rejected_before_allocating_or_sampling(self, make_snapshot):
+        with pytest.raises(ValueError, match="positive extents"):
+            make_snapshot(start=(4, 4, 4), stop=(2, 2, 2), initialise=False)
 
     def test_grid_is_reached_through_the_view(self, make_snapshot, make_view_grid):
         """Expects ``snap.grid`` to be a property forwarding to

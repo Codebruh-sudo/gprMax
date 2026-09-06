@@ -41,6 +41,7 @@ def test_solver_calls_ntff_observers_at_completed_e_and_h_time_levels():
         "update_magnetic_sources",
         "update_eigenmode_sources_magnetic",
         "update_plane_waves_magnetic",
+        "update_magnetic_edge_devices",
         "observe_ntff_magnetic",
         "update_electric_a",
         "update_symmetry_boundaries_electric",
@@ -67,7 +68,8 @@ def test_solver_calls_ntff_observers_at_completed_e_and_h_time_levels():
     assert calls.index("update_eigenmode_sources_magnetic") < calls.index(
         "update_plane_waves_magnetic"
     )
-    assert calls.index("observe_ntff_magnetic") > calls.index("update_plane_waves_magnetic")
+    assert calls.index("update_magnetic_edge_devices") > calls.index("update_plane_waves_magnetic")
+    assert calls.index("observe_ntff_magnetic") > calls.index("update_magnetic_edge_devices")
     assert calls.index("observe_ntff_magnetic") < calls.index("update_electric_a")
     assert calls.index("update_electric_sources") < calls.index(
         "update_eigenmode_sources_electric"

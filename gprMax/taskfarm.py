@@ -17,6 +17,7 @@
 
 import logging
 import time
+from dataclasses import dataclass
 from enum import IntEnum
 
 from mpi4py import MPI
@@ -37,6 +38,29 @@ EXIT
     send back to master to signal shutdown has completed.
 """
 Tags = IntEnum("Tags", "READY START DONE EXIT")
+
+
+@dataclass(frozen=True)
+class TaskFailure:
+    """Pickle-safe worker failure; successful jobs may legitimately return None."""
+
+    exception_type: str
+    message: str
+
+
+class TaskfarmError(RuntimeError):
+    """One or more jobs failed; completed results remain available for inspection."""
+
+    def __init__(self, results):
+        self.results = results
+        self.failures = {
+            index: value for index, value in enumerate(results) if isinstance(value, TaskFailure)
+        }
+        details = "; ".join(
+            f"job {index + 1}: {failure.exception_type}: {failure.message}"
+            for index, failure in self.failures.items()
+        )
+        super().__init__(f"{len(self.failures)} task-farm job(s) failed: {details}")
 
 
 class TaskfarmExecutor(object):
@@ -97,8 +121,9 @@ class TaskfarmExecutor(object):
     `submit()` returns.
     In particular, it is not possible to handle exceptions that occur on workers
     in the main loop. Instead all exceptions that occur on workers are caught and
-    logged and the worker returns None instead of the actual result of the worker
-    function. A second limitation is that it is not possible to terminate workers.
+    logged. Once all jobs finish, submit raises TaskfarmError on the master,
+    retaining both successful results and failure details. A second limitation
+    is that it is not possible to interrupt workers executing a job.
     If you need an MPI executor that supports custom exception handling, you should
     use a multi-threading implementation such as the `MPICommExecutor` in
     `mpi4py.futures`. Below is a brief example of how to use it with the example
@@ -177,14 +202,10 @@ class TaskfarmExecutor(object):
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
+        self.join()
         if exc_type is not None:
             logger.exception(exc_val)
-            return False
-
-        # No exception handling necessary since we catch everything
-        # in __guarded_work exc_type should always be None
-        self.join()
-        return True
+        return False
 
     def is_idle(self):
         """Returns a bool indicating whether the executor is idle. The executor
@@ -291,6 +312,8 @@ class TaskfarmExecutor(object):
 
         logger.debug(f"({self.comm.name}) - Finished all jobs.")
 
+        if any(isinstance(result, TaskFailure) for result in results):
+            raise TaskfarmError(results)
         return results
 
     def __wait(self):
@@ -328,11 +351,10 @@ class TaskfarmExecutor(object):
     def __guarded_work(self, work):
         """Executes work safely on the workers.
             N.B. All exceptions that occur in the work function `func` are caught
-            and logged. The worker returns `None` to the master in that case
-            instead of the actual result.
+            and logged. The worker returns a pickle-safe failure record.
 
         Args:
-            work: dict ofeyword arguments that are unpacked and given to the
+            work: dict of keyword arguments that are unpacked and given to the
                     work function.
         """
         assert self.is_worker()
@@ -340,4 +362,4 @@ class TaskfarmExecutor(object):
             return self.func(**work)
         except Exception as e:
             logger.exception(str(e))
-            return None
+            return TaskFailure(type(e).__name__, str(e))

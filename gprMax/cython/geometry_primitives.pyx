@@ -39,6 +39,11 @@ from gprMax.cython.yee_cell_setget_rigid cimport (
 from gprMax.utilities.utilities import round_value
 
 
+ctypedef fused voxel_material_id_t:
+    np.int16_t
+    np.int32_t
+
+
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef inline void set_geometry_tag(
@@ -456,19 +461,19 @@ cpdef void build_voxel(
         solid[i, j, k] = numID
         set_rigid_E(i, j, k, rigidE)
 
-        # set_rigid_Hx/Hy/Hz are self-consistent single-position markers
-        # (mirroring set_rigid_Ex/Ey/Ez's shape) - a solid cell has 2 true
-        # H faces per component, so each is called twice, once per face,
-        # matching the two ID writes below exactly.
+        # A volume owns its rigidity through this cell, just as for E.
+        # The single-position H setters also mark neighbouring cells and
+        # would leave stale claims there when this volume is overwritten.
+        # Each pair below protects the same two H positions written to ID.
         if not pec_x:
-            set_rigid_Hx(i, j, k, rigidH)
-            set_rigid_Hx(i + 1, j, k, rigidH)
+            rigidH[0, i, j, k] = True
+            rigidH[1, i, j, k] = True
         if not pec_y:
-            set_rigid_Hy(i, j, k, rigidH)
-            set_rigid_Hy(i, j + 1, k, rigidH)
+            rigidH[2, i, j, k] = True
+            rigidH[3, i, j, k] = True
         if not pec_z:
-            set_rigid_Hz(i, j, k, rigidH)
-            set_rigid_Hz(i, j, k + 1, rigidH)
+            rigidH[4, i, j, k] = True
+            rigidH[5, i, j, k] = True
 
         ID[0, i, j, k] = numIDx
         ID[0, i, j + 1, k + 1] = numIDx
@@ -934,6 +939,17 @@ cpdef Py_ssize_t build_box(
                         set_geometry_tag(tag_bytes, tag_itemsize, solid.shape[1], solid.shape[2],
                                          i, j, k, tag_id)
                     set_rigid_E(i, j, k, rigidE)
+                    # Cell-owned H claims, matching build_voxel(). Keep
+                    # neighbouring volumes' claims independent of ours.
+                    if not pec_x:
+                        rigidH[0, i, j, k] = True
+                        rigidH[1, i, j, k] = True
+                    if not pec_y:
+                        rigidH[2, i, j, k] = True
+                        rigidH[3, i, j, k] = True
+                    if not pec_z:
+                        rigidH[4, i, j, k] = True
+                        rigidH[5, i, j, k] = True
 
         # Each E/H component gets its own full-range loop. Ex/Ey/Ez are
         # node-based on their two tangential axes, so those need the full
@@ -961,30 +977,22 @@ cpdef Py_ssize_t build_box(
         # PEC has no well-defined magnetic properties, so a PEC axis's H is
         # left completely untouched (background ID/rigid state kept as-is)
         # rather than set - see build_voxel()'s docstring for the rationale.
-        # set_rigid_Hx/Hy/Hz are self-consistent single-position markers,
-        # so calling them once per position in these full-range loops
-        # (rather than once per cell in the loop above) correctly marks
-        # every position exactly once, with no redundant double-calls at
-        # shared interior boundaries.
         if not pec_x:
             for i in range(xs, xf + 1):
                 for j in range(ys, yf):
                     for k in range(zs, zf):
-                        set_rigid_Hx(i, j, k, rigidH)
                         ID[3, i, j, k] = numIDx
 
         if not pec_y:
             for i in range(xs, xf):
                 for j in range(ys, yf + 1):
                     for k in range(zs, zf):
-                        set_rigid_Hy(i, j, k, rigidH)
                         ID[4, i, j, k] = numIDy
 
         if not pec_z:
             for i in range(xs, xf):
                 for j in range(ys, yf):
                     for k in range(zs, zf + 1):
-                        set_rigid_Hz(i, j, k, rigidH)
                         ID[5, i, j, k] = numIDz
 
     return <Py_ssize_t>(xf - xs) * (yf - ys) * (zf - zs)
@@ -1373,7 +1381,7 @@ cpdef void build_voxels_from_array(
     bint averaging,
     np.uint8_t[::1] is_pec_lookup,
     np.uint8_t[::1] is_averagable_lookup,
-    np.int16_t[:, :, ::1] data,
+    voxel_material_id_t[:, :, ::1] data,
     np.uint32_t[:, :, ::1] solid,
     np.int8_t[:, :, :, ::1] rigidE,
     np.int8_t[:, :, :, ::1] rigidH,
@@ -1401,7 +1409,9 @@ cpdef void build_voxels_from_array(
                     PEC (or PEC-equivalent) - see build_voxel().
         is_averagable_lookup: memoryview indexed by numID, True where that
                     material permits dielectric smoothing (Material.averagable).
-        data: memoryview to access array containing numeric IDs of voxels to create.
+        data: int16 or int32 memoryview containing numeric IDs of voxels to
+                    create. File-local compact indices may be int16, but
+                    remapped global material IDs must not be narrowed to it.
         solid, rigidE, rigidH, ID: memoryviews to access solid, rigid and ID arrays.
     """
 

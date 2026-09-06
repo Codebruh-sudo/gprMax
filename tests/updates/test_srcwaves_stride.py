@@ -72,6 +72,7 @@ class _FakeGrid:
     dispersiveCdtype = None
     iterations = ITERATIONS
     rxs = []
+    snapshots = []
     updatecoeffsE = np.zeros((3, 5))
     updatecoeffsH = np.zeros((3, 5))
     ID = np.zeros((6, 5, 5, 5))

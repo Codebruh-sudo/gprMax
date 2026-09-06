@@ -1,0 +1,1505 @@
+{
+  "completed_driver_cases": 20,
+  "main_driver_cases": 18,
+  "main_cpu_driver_cases": 8,
+  "main_cuda_driver_cases": 10,
+  "mpi_driver_cases": 2,
+  "gated_driver_cases": 18,
+  "report_only_driver_cases": 2,
+  "counting_definition": "Driver-named checks or separate threshold predicates per evaluated case; a named source-and-mesh conjunction counts once. Aggregate passed flags, repeated nested summaries, I/O/dt consistency checks and sampled values under a max gate are not additional gates. No pytest identities are added.",
+  "total_gates": 178,
+  "gates_passed": 178,
+  "gates_failed": 0,
+  "validity_gates": 8,
+  "numerical_error_or_consistency_gates": 170,
+  "gate_purposes": {
+    "numerical_vs_physical_reference": 161,
+    "stability": 1,
+    "validity": 8,
+    "implementation_identity": 2,
+    "reference_consistency": 6
+  },
+  "main_gates": 154,
+  "additional_mpi_gates": 24,
+  "caveats": [
+    "Only the stated meshes/bands/windows/normalizations are covered.",
+    "Multilayer/core-shell zero exit is completed quantitative reporting, not accuracy acceptance.",
+    "No numerical-accuracy improvement over the historical audit is asserted."
+  ],
+  "tokens": {
+    "${OUT}": "Fresh analytical evidence root; main artifacts are ${OUT}/analytical/<name>, MPI artifacts ${OUT}/mpi_<name>.",
+    "${PYTHON}": "Python 3.13 interpreter in gprMax-devel-mpi; run from repository root.",
+    "${MPIEXEC}": "Sibling MPICH launcher; actual two-rank MPI, not mocked."
+  },
+  "definitions": {
+    "d1": "100*|neff_fdfd-neff_exact|/|neff_exact|; one maximum gate per geometry, not per reported eigenvalue. Theory supplies the eigensolver shift guess, so this checks a theory-assisted branch, not blind mode identification.",
+    "d2": "Reflection: RMSE of |Gamma|, norm(Gamma_fdtd-Gamma_exact)/norm(Gamma_exact), wrapped phase RMSE in degrees; separate incident calibration, predefined interface and axial Yee de-embedding, retained frequency/signal mask.",
+    "d3": "Five exact TEM sheet impedances; reflection magnitude/phase RMSE after separate Tukey incident/reflected time gates and axial Yee de-embedding. Long lossless-inductor check is stability, not a separate reflection-accuracy reference.",
+    "d4": "Two maximum relative-error identities for 4 W / 1 W scaling and accepted-versus-incident normalization, each <=5e-12. These are implementation consistency, not an independent electromagnetic reference. Raw powers are reported in W.",
+    "d5": "Primary gated SAR reference is the continuous halfspace cell-average. Two gates on worst errors across 14 frequencies and 16 points/frequency; Yee-collocated and continuous-centre references are report-only.",
+    "d6": "Short-circuited slab impedance reflection; independent incident run and predefined-front-face axial Yee de-embedding; magnitude max error, phase max degrees, complex relative L2.",
+    "d7": "Five independent continuous-medium recursive Fresnel stacks, same requested first interface, averaged/staircased. 150 FDTD frequencies/mode; 2001 dense analytical plot points are not additional simulations. Phase retains |Gamma_exact|>=0.02. No numerical acceptance gate.",
+    "d8": "Far-field directivity RMS and peak-directivity absolute error; near-field L2 only where analytical |Ez| is at least 1% of peak. Prescribed excitation is shared with the independent electromagnetic reference; no fitted trace shift/scale.",
+    "d9": "10*log10(FDTD RCS / independent Mie RCS), 34 sampled frequencies, incident-plane-wave normalization; includes voxelization and NTFF error.",
+    "d10": "Independent Mie absorption cross-section and absorbed power, both relative errors <=8%. 1g/10g mass-averaged SAR peaks in W/kg are report-only; no mass-average analytical gate or fresh 0.5-mm refinement is present.",
+    "d11": "Independent exact cylindrical series, two polarizations; interior local SAR excludes the two-cell interface band and retains analytical SAR >=5% peak. Local L2 and maximum pointwise relative error; power W/m and cross-section m are gated as relative errors. All-cell metrics are report-only. TE and fat/skin extend rather than reproduce the literature muscle TM case.",
+    "d12": "Independent Capoglu echo propagation driven by saved sampled source differentiated by finite differences; fixed common predelay and source-edge location. Max/RMS of waveform difference divided by analytical peak over reduced time 0–100 ps.",
+    "d13": "Bare PEC image theory / independently coded coated-slab impedance. One complex least-squares scale per source/frequency across both cuts removes common amplitude/phase; field/power peak-normalized errors and directivity remain gated, absolute source calibration does not.",
+    "d14": "Independent Aden–Kerker Debye-core/Lorentz-shell Mie RCS; norm(RCS_fdtd-RCS_exact)/norm(RCS_exact)*100 and 10*log10 RCS ratio. Coarse 4-mm/160^3 baseline, 87 sampled frequencies; dense analytical curve is plot-only. No numerical acceptance gate."
+  },
+  "purpose_codes": {
+    "reference": "numerical_vs_physical_reference",
+    "residual": "reference_consistency",
+    "identity": "implementation_identity",
+    "stability": "stability",
+    "validity": "validity"
+  },
+  "gate_group_columns": [
+    "metric",
+    "checks_passed",
+    "worst_value",
+    "comparison",
+    "limit",
+    "units",
+    "worst_case",
+    "purpose"
+  ],
+  "gate_group_note": "Each row summarizes like-named checks by their largest value; checks_passed retains the exact count. Values/limits are fractions unless units say percent/degrees/dB. Null limit means the validity boolean must be true.",
+  "command_environment": "OMP_NUM_THREADS=OPENBLAS_NUM_THREADS=MKL_NUM_THREADS=1; actual hardware/MPI access, fresh output/cache directories. Hardware numbers identify this host, not a portable device choice.",
+  "drivers": [
+    {
+      "case": 1,
+      "name": "fdfd",
+      "backend": "cpu",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.validate_fdfd_eigenmodes",
+        "--output-dir",
+        "${OUT}/analytical/fdfd"
+      ],
+      "summary": "${OUT}/analytical/fdfd/summary.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 4,
+        "validity": 0,
+        "total": 4
+      },
+      "configuration": {
+        "spacing_m": {
+          "parallel_plate": 0.00025,
+          "dielectric_slab": 0.00025,
+          "rectangular": 0.001,
+          "circular": 0.001
+        },
+        "solver_calls": 24,
+        "reported_eigenvalues": 30
+      },
+      "gate_groups": [
+        [
+          "pec_parallel_plate_1d",
+          1,
+          0.002058781331523283,
+          "<=",
+          0.1,
+          "percent",
+          null,
+          "reference"
+        ],
+        [
+          "dielectric_slab_1d",
+          1,
+          0.01005261540633815,
+          "<=",
+          0.1,
+          "percent",
+          null,
+          "reference"
+        ],
+        [
+          "pec_rectangular_waveguide_2d",
+          1,
+          0.03292907061778573,
+          "<=",
+          0.1,
+          "percent",
+          null,
+          "reference"
+        ],
+        [
+          "pec_cylindrical_waveguide_2d",
+          1,
+          1.0430500668810772,
+          "<=",
+          1.5,
+          "percent",
+          null,
+          "reference"
+        ]
+      ],
+      "definition_ref": "d1"
+    },
+    {
+      "case": 2,
+      "name": "fresnel_cpu",
+      "backend": "cpu",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.validate_plane_wave_dispersive_halfspace",
+        "--output-dir",
+        "${OUT}/analytical/fresnel_cpu",
+        "--threads",
+        "1",
+        "--cache-dir",
+        "${OUT}/analytical/fresnel_cpu/cache"
+      ],
+      "summary": "${OUT}/analytical/fresnel_cpu/summary.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 18,
+        "validity": 0,
+        "total": 18
+      },
+      "configuration": {
+        "dl_metres": 0.0005,
+        "time_window_seconds": 4e-8,
+        "frequency_band_hz": [
+          250000000,
+          8000000000
+        ],
+        "precision": "double"
+      },
+      "gate_groups": [
+        [
+          "magnitude_rmse",
+          6,
+          0.0012041694270087213,
+          "<=",
+          0.005,
+          "dimensionless",
+          "drude_2pole",
+          "reference"
+        ],
+        [
+          "complex_relative_l2_error",
+          6,
+          0.002442431167963991,
+          "<=",
+          0.01,
+          "dimensionless",
+          "drude_2pole",
+          "reference"
+        ],
+        [
+          "phase_rmse_degrees",
+          6,
+          0.020335494733572795,
+          "<=",
+          0.1,
+          "degrees",
+          "debye_3pole",
+          "reference"
+        ]
+      ],
+      "definition_ref": "d2"
+    },
+    {
+      "case": 3,
+      "name": "realistic_cpu",
+      "backend": "cpu",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.validate_plane_wave_realistic_materials",
+        "--output-dir",
+        "${OUT}/analytical/realistic_cpu",
+        "--threads",
+        "1",
+        "--cache-dir",
+        "${OUT}/analytical/realistic_cpu/cache"
+      ],
+      "summary": "${OUT}/analytical/realistic_cpu/summary.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 6,
+        "validity": 0,
+        "total": 6
+      },
+      "configuration": {
+        "precision": "double",
+        "dl_m": {
+          "puerto_rico_clay_10pct": 0.0005,
+          "fresh_water_25c": 0.00005
+        }
+      },
+      "gate_groups": [
+        [
+          "magnitude_rmse",
+          2,
+          0.0023056076096311905,
+          "<=",
+          0.01,
+          "dimensionless",
+          "fresh_water_25c",
+          "reference"
+        ],
+        [
+          "complex_relative_l2_error",
+          2,
+          0.0036248778838523024,
+          "<=",
+          0.02,
+          "dimensionless",
+          "fresh_water_25c",
+          "reference"
+        ],
+        [
+          "phase_rmse_degrees",
+          2,
+          0.11274221927237339,
+          "<=",
+          0.5,
+          "degrees",
+          "fresh_water_25c",
+          "reference"
+        ]
+      ],
+      "definition_ref": "d2"
+    },
+    {
+      "case": 4,
+      "name": "network_tem_cpu",
+      "backend": "cpu",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.validate_rational_network_literature",
+        "--output-dir",
+        "${OUT}/analytical/network_tem_cpu"
+      ],
+      "summary": "${OUT}/analytical/network_tem_cpu/metrics.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 11,
+        "validity": 1,
+        "total": 12
+      },
+      "configuration": {
+        "dl_m": 0.001,
+        "frequency_range_hz": [
+          1000000000,
+          30000000000
+        ],
+        "frequency_samples": 291
+      },
+      "gate_groups": [
+        [
+          "magnitude_rmse",
+          5,
+          0.006104305537635701,
+          "<",
+          0.02,
+          "dimensionless",
+          "inductor",
+          "reference"
+        ],
+        [
+          "phase_rmse_deg",
+          5,
+          0.39509490098421907,
+          "<",
+          2,
+          "degrees",
+          "inductor",
+          "reference"
+        ],
+        [
+          "late_peak_ratio",
+          1,
+          0.004994929846855627,
+          "<",
+          0.02,
+          "dimensionless",
+          "inductor",
+          "stability"
+        ],
+        [
+          "trace_finite",
+          1,
+          true,
+          "<=",
+          null,
+          "boolean",
+          "inductor",
+          "validity"
+        ]
+      ],
+      "definition_ref": "d3"
+    },
+    {
+      "case": 5,
+      "name": "power_normalisation_cpu",
+      "backend": "cpu",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.validate_sar_power_normalisation",
+        "--output-dir",
+        "${OUT}/analytical/power_normalisation_cpu"
+      ],
+      "summary": "${OUT}/analytical/power_normalisation_cpu/sar_power_normalisation_metrics.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 2,
+        "validity": 0,
+        "total": 2
+      },
+      "configuration": {
+        "dl_m": 0.002,
+        "domain_m": [
+          0.024,
+          0.024,
+          0.024
+        ],
+        "time_window_s": 8e-9,
+        "precision": "double",
+        "frequencies_hz": [
+          750000000,
+          1000000000,
+          1250000000
+        ]
+      },
+      "gate_groups": [
+        [
+          "maximum_relative_error_4W_over_1W",
+          1,
+          0,
+          "<=",
+          5e-12,
+          "dimensionless",
+          null,
+          "identity"
+        ],
+        [
+          "maximum_relative_error_accepted_vs_incident_identity",
+          1,
+          6.661338147750939e-16,
+          "<=",
+          5e-12,
+          "dimensionless",
+          null,
+          "identity"
+        ]
+      ],
+      "definition_ref": "d4"
+    },
+    {
+      "case": 6,
+      "name": "sar_halfspace_cpu",
+      "backend": "cpu",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.validate_sar_lossy_halfspace",
+        "--output-dir",
+        "${OUT}/analytical/sar_halfspace_cpu",
+        "--sweep"
+      ],
+      "summary": "${OUT}/analytical/sar_halfspace_cpu/lossy_halfspace_sar_sweep_metrics.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 2,
+        "validity": 1,
+        "total": 3
+      },
+      "configuration": {
+        "dl_m": 0.002,
+        "precision": "double",
+        "frequency_count": 14,
+        "frequency_range_hz": [
+          500000000,
+          7000000000
+        ],
+        "comparison_points_per_frequency": 16
+      },
+      "gate_groups": [
+        [
+          "maximum_relative_l2_error",
+          1,
+          0.05685648545998376,
+          "<=",
+          0.065,
+          "dimensionless",
+          null,
+          "reference"
+        ],
+        [
+          "maximum_pointwise_relative_error",
+          1,
+          0.06997535746959381,
+          "<=",
+          0.08,
+          "dimensionless",
+          null,
+          "reference"
+        ],
+        [
+          "source_and_mesh_valid_all_frequencies",
+          1,
+          true,
+          "<=",
+          null,
+          "boolean",
+          null,
+          "validity"
+        ]
+      ],
+      "definition_ref": "d5",
+      "ungated_yee_collocated_metrics": {
+        "yee_collocated_relative_l2_error": {
+          "case": "7000000000.0",
+          "value": 0.030598611916900817
+        },
+        "yee_collocated_maximum_pointwise_relative_error": {
+          "case": "7000000000.0",
+          "value": 0.03945346982830605
+        }
+      }
+    },
+    {
+      "case": 7,
+      "name": "grounded_reflection_cpu",
+      "backend": "cpu",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.planar_layered_ntff.validate_grounded_slab_reflection",
+        "--output-directory",
+        "${OUT}/analytical/grounded_reflection_cpu"
+      ],
+      "summary": "${OUT}/analytical/grounded_reflection_cpu/summary.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 3,
+        "validity": 0,
+        "total": 3
+      },
+      "configuration": {
+        "dl_metres": 0.00025,
+        "slab_thickness_metres": 0.011999999999999997,
+        "frequency_band_hz": [
+          400000000,
+          7000000000
+        ],
+        "frequency_samples": 132
+      },
+      "gate_groups": [
+        [
+          "magnitude_maximum_error",
+          1,
+          2.1015472029262128e-8,
+          "<=",
+          0.000001,
+          "dimensionless",
+          null,
+          "reference"
+        ],
+        [
+          "phase_maximum_error_degrees",
+          1,
+          0.05525325926824931,
+          "<=",
+          0.1,
+          "degrees",
+          null,
+          "reference"
+        ],
+        [
+          "complex_relative_l2_error",
+          1,
+          0.0003092802151035444,
+          "<=",
+          0.001,
+          "dimensionless",
+          null,
+          "reference"
+        ]
+      ],
+      "definition_ref": "d6"
+    },
+    {
+      "case": 8,
+      "name": "multilayer_cpu",
+      "backend": "cpu",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.dispersive_averaging.validate_multilayer_fdtd",
+        "--output-dir",
+        "${OUT}/analytical/multilayer_cpu",
+        "--threads",
+        "1",
+        "--cache-dir",
+        "${OUT}/analytical/multilayer_cpu/cache"
+      ],
+      "summary": "${OUT}/analytical/multilayer_cpu/summary.json",
+      "status": "report_only_completed",
+      "gate_counts": {
+        "numerical": 0,
+        "validity": 0,
+        "total": 0
+      },
+      "configuration": {
+        "dl_metres": 0.0005,
+        "time_window_seconds": 4e-8,
+        "frequency_band_hz": [
+          250000000,
+          4000000000
+        ],
+        "precision": "double"
+      },
+      "gate_groups": [],
+      "definition_ref": "d7",
+      "ungated_worst_metrics_by_mode": {
+        "averaged": {
+          "magnitude_rmse": {
+            "case": "lorentz_drude",
+            "value": 0.0003742812559671943
+          },
+          "complex_relative_l2_error": {
+            "case": "lorentz_drude",
+            "value": 0.0008125964143644319
+          },
+          "phase_rmse_degrees": {
+            "case": "lorentz_drude",
+            "value": 0.02620662652771155
+          }
+        },
+        "staircased": {
+          "magnitude_rmse": {
+            "case": "dielectric_slab",
+            "value": 0.014200079108567335
+          },
+          "complex_relative_l2_error": {
+            "case": "lorentz_drude",
+            "value": 0.03699794521242779
+          },
+          "phase_rmse_degrees": {
+            "case": "lorentz_drude",
+            "value": 2.342882300152358
+          }
+        }
+      }
+    },
+    {
+      "case": 9,
+      "name": "hertzian_cuda",
+      "backend": "cuda:0",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.validate_hertzian_dipole",
+        "--output-dir",
+        "${OUT}/analytical/hertzian_cuda",
+        "--threads",
+        "1",
+        "--gpu",
+        "0",
+        "--cache-dir",
+        "${OUT}/analytical/hertzian_cuda/cache"
+      ],
+      "summary": "${OUT}/analytical/hertzian_cuda/summary.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 6,
+        "validity": 0,
+        "total": 6
+      },
+      "configuration": {
+        "dl_metres": 0.001,
+        "far_frequency_hz": 3000000000,
+        "precision": "double"
+      },
+      "gate_groups": [
+        [
+          "ksir_directivity_rms",
+          1,
+          0.000098263466469787,
+          "<=",
+          0.001,
+          "dimensionless",
+          null,
+          "reference"
+        ],
+        [
+          "ksir_maximum_directivity_error",
+          1,
+          0.00015823445354135046,
+          "<=",
+          0.001,
+          "dimensionless",
+          null,
+          "reference"
+        ],
+        [
+          "equivalent_current_directivity_rms",
+          1,
+          0.000024405809916569023,
+          "<=",
+          0.001,
+          "dimensionless",
+          null,
+          "reference"
+        ],
+        [
+          "equivalent_current_maximum_directivity_error",
+          1,
+          0.000058516369412231484,
+          "<=",
+          0.001,
+          "dimensionless",
+          null,
+          "reference"
+        ],
+        [
+          "direct_near_field_relative_l2",
+          1,
+          0.00033532735071984635,
+          "<=",
+          0.001,
+          "dimensionless",
+          null,
+          "reference"
+        ],
+        [
+          "ksir_near_field_relative_l2",
+          1,
+          0.00016669214066604565,
+          "<=",
+          0.001,
+          "dimensionless",
+          null,
+          "reference"
+        ]
+      ],
+      "definition_ref": "d8",
+      "ungated_full_history_near_relative_l2": 0.006011759898546066
+    },
+    {
+      "case": 10,
+      "name": "pec_mie_cuda",
+      "backend": "cuda:0",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.validate_pec_sphere_rcs",
+        "--output-dir",
+        "${OUT}/analytical/pec_mie_cuda",
+        "--threads",
+        "1",
+        "--gpu",
+        "0",
+        "--cache-dir",
+        "${OUT}/analytical/pec_mie_cuda/cache"
+      ],
+      "summary": "${OUT}/analytical/pec_mie_cuda/summary.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 2,
+        "validity": 0,
+        "total": 2
+      },
+      "configuration": {
+        "dl_metres": 0.0005,
+        "radius_metres": 0.016,
+        "time_window_seconds": 1.2e-8,
+        "precision": "single"
+      },
+      "gate_groups": [
+        [
+          "rms_error_db",
+          1,
+          0.4416889517239331,
+          "<=",
+          0.75,
+          "dB",
+          null,
+          "reference"
+        ],
+        [
+          "maximum_absolute_error_db",
+          1,
+          0.9539464005654406,
+          "<=",
+          1.25,
+          "dB",
+          null,
+          "reference"
+        ]
+      ],
+      "definition_ref": "d9"
+    },
+    {
+      "case": 11,
+      "name": "dielectric_mie_cuda",
+      "backend": "cuda:0",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.validate_dielectric_sphere_rcs",
+        "--output-dir",
+        "${OUT}/analytical/dielectric_mie_cuda",
+        "--threads",
+        "1",
+        "--gpu",
+        "0",
+        "--cache-dir",
+        "${OUT}/analytical/dielectric_mie_cuda/cache"
+      ],
+      "summary": "${OUT}/analytical/dielectric_mie_cuda/summary.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 2,
+        "validity": 0,
+        "total": 2
+      },
+      "configuration": {
+        "dl_metres": 0.0005,
+        "radius_metres": 0.016,
+        "time_window_seconds": 1.2e-8,
+        "precision": "single"
+      },
+      "gate_groups": [
+        [
+          "rms_error_db",
+          1,
+          0.27068732194818074,
+          "<=",
+          0.75,
+          "dB",
+          null,
+          "reference"
+        ],
+        [
+          "maximum_absolute_error_db",
+          1,
+          0.7243501866545372,
+          "<=",
+          1.25,
+          "dB",
+          null,
+          "reference"
+        ]
+      ],
+      "definition_ref": "d9"
+    },
+    {
+      "case": 12,
+      "name": "sar_sphere_cuda",
+      "backend": "cuda:0",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.validate_sar_lossy_sphere",
+        "--output-dir",
+        "${OUT}/analytical/sar_sphere_cuda",
+        "--backend",
+        "cuda"
+      ],
+      "summary": "${OUT}/analytical/sar_sphere_cuda/lossy_sphere_sar_metrics.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 2,
+        "validity": 0,
+        "total": 2
+      },
+      "configuration": {
+        "dl_m": 0.00075,
+        "radius_m": 0.018,
+        "radius_cells": 23.999999999999996,
+        "frequency_hz": 1000000000,
+        "precision": "double"
+      },
+      "gate_groups": [
+        [
+          "relative_absorbed_power_error",
+          1,
+          0.06367481760595717,
+          "<=",
+          0.08,
+          "dimensionless",
+          null,
+          "reference"
+        ],
+        [
+          "relative_radiometry_cross_section_error",
+          1,
+          0.06367481760595672,
+          "<=",
+          0.08,
+          "dimensionless",
+          null,
+          "reference"
+        ]
+      ],
+      "definition_ref": "d10",
+      "ungated_peak_sar_W_per_kg": {
+        "1g": 0.00003777445107026746,
+        "10g": 0.000031619615804861595
+      }
+    },
+    {
+      "case": 13,
+      "name": "sar_cylinder_muscle_cuda",
+      "backend": "cuda:0",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.validate_sar_2d_cylinder",
+        "--output-dir",
+        "${OUT}/analytical/sar_cylinder_muscle_cuda",
+        "--backend",
+        "cuda",
+        "--material",
+        "muscle"
+      ],
+      "summary": "${OUT}/analytical/sar_cylinder_muscle_cuda/sar_2d_cylinder_muscle_cuda_summary.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 10,
+        "validity": 2,
+        "total": 12
+      },
+      "configuration": {
+        "dl_m": 0.0004,
+        "radius_m": 0.06,
+        "radius_cells": 150,
+        "frequency_hz": 5500000000,
+        "precision": "double"
+      },
+      "gate_groups": [
+        [
+          "source_and_mesh_valid",
+          2,
+          true,
+          "<=",
+          null,
+          "boolean",
+          "TM",
+          "validity"
+        ],
+        [
+          "mie_boundary_residual",
+          2,
+          4.0441603891094325e-16,
+          "<=",
+          1e-12,
+          "dimensionless",
+          "TE",
+          "residual"
+        ],
+        [
+          "interior_local_relative_l2",
+          2,
+          0.03457749069611192,
+          "<=",
+          0.05,
+          "dimensionless",
+          "TM",
+          "reference"
+        ],
+        [
+          "interior_local_maximum_relative",
+          2,
+          0.1540354303958313,
+          "<=",
+          0.2,
+          "dimensionless",
+          "TE",
+          "reference"
+        ],
+        [
+          "absorbed_power_per_length",
+          2,
+          0.009489487881946257,
+          "<=",
+          0.02,
+          "dimensionless",
+          "TM",
+          "reference"
+        ],
+        [
+          "radiometry_cross_section_per_length",
+          2,
+          0.009489487881946257,
+          "<=",
+          0.02,
+          "dimensionless",
+          "TM",
+          "reference"
+        ]
+      ],
+      "definition_ref": "d11",
+      "ungated_all_cell_metrics": {
+        "relative_l2_error": {
+          "case": "TE",
+          "value": 0.12333535231139155
+        },
+        "maximum_pointwise_relative_error": {
+          "case": "TE",
+          "value": 0.7455243489695063
+        }
+      }
+    },
+    {
+      "case": 14,
+      "name": "sar_cylinder_fat_cuda",
+      "backend": "cuda:0",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.validate_sar_2d_cylinder",
+        "--output-dir",
+        "${OUT}/analytical/sar_cylinder_fat_cuda",
+        "--backend",
+        "cuda",
+        "--material",
+        "fat"
+      ],
+      "summary": "${OUT}/analytical/sar_cylinder_fat_cuda/sar_2d_cylinder_fat_cuda_summary.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 10,
+        "validity": 2,
+        "total": 12
+      },
+      "configuration": {
+        "dl_m": 0.0004,
+        "radius_m": 0.06,
+        "radius_cells": 150,
+        "frequency_hz": 5500000000,
+        "precision": "double"
+      },
+      "gate_groups": [
+        [
+          "source_and_mesh_valid",
+          2,
+          true,
+          "<=",
+          null,
+          "boolean",
+          "TM",
+          "validity"
+        ],
+        [
+          "mie_boundary_residual",
+          2,
+          3.9131283891107595e-16,
+          "<=",
+          1e-12,
+          "dimensionless",
+          "TE",
+          "residual"
+        ],
+        [
+          "interior_local_relative_l2",
+          2,
+          0.0071746318965571765,
+          "<=",
+          0.05,
+          "dimensionless",
+          "TE",
+          "reference"
+        ],
+        [
+          "interior_local_maximum_relative",
+          2,
+          0.11522519526652425,
+          "<=",
+          0.2,
+          "dimensionless",
+          "TE",
+          "reference"
+        ],
+        [
+          "absorbed_power_per_length",
+          2,
+          0.0018854932321615836,
+          "<=",
+          0.02,
+          "dimensionless",
+          "TM",
+          "reference"
+        ],
+        [
+          "radiometry_cross_section_per_length",
+          2,
+          0.0018854932321620277,
+          "<=",
+          0.02,
+          "dimensionless",
+          "TM",
+          "reference"
+        ]
+      ],
+      "definition_ref": "d11",
+      "ungated_all_cell_metrics": {
+        "relative_l2_error": {
+          "case": "TE",
+          "value": 0.034257027199156555
+        },
+        "maximum_pointwise_relative_error": {
+          "case": "TE",
+          "value": 0.5748765804152834
+        }
+      }
+    },
+    {
+      "case": 15,
+      "name": "sar_cylinder_skin_cuda",
+      "backend": "cuda:0",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.validate_sar_2d_cylinder",
+        "--output-dir",
+        "${OUT}/analytical/sar_cylinder_skin_cuda",
+        "--backend",
+        "cuda",
+        "--material",
+        "skin"
+      ],
+      "summary": "${OUT}/analytical/sar_cylinder_skin_cuda/sar_2d_cylinder_skin_cuda_summary.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 10,
+        "validity": 2,
+        "total": 12
+      },
+      "configuration": {
+        "dl_m": 0.0004,
+        "radius_m": 0.06,
+        "radius_cells": 150,
+        "frequency_hz": 5500000000,
+        "precision": "double"
+      },
+      "gate_groups": [
+        [
+          "source_and_mesh_valid",
+          2,
+          true,
+          "<=",
+          null,
+          "boolean",
+          "TM",
+          "validity"
+        ],
+        [
+          "mie_boundary_residual",
+          2,
+          6.07143319294807e-16,
+          "<=",
+          1e-12,
+          "dimensionless",
+          "TE",
+          "residual"
+        ],
+        [
+          "interior_local_relative_l2",
+          2,
+          0.02800325577197157,
+          "<=",
+          0.05,
+          "dimensionless",
+          "TM",
+          "reference"
+        ],
+        [
+          "interior_local_maximum_relative",
+          2,
+          0.14977660003112198,
+          "<=",
+          0.2,
+          "dimensionless",
+          "TE",
+          "reference"
+        ],
+        [
+          "absorbed_power_per_length",
+          2,
+          0.007329081092567691,
+          "<=",
+          0.02,
+          "dimensionless",
+          "TM",
+          "reference"
+        ],
+        [
+          "radiometry_cross_section_per_length",
+          2,
+          0.007329081092567691,
+          "<=",
+          0.02,
+          "dimensionless",
+          "TM",
+          "reference"
+        ]
+      ],
+      "definition_ref": "d11",
+      "ungated_all_cell_metrics": {
+        "relative_l2_error": {
+          "case": "TE",
+          "value": 0.1143028853822409
+        },
+        "maximum_pointwise_relative_error": {
+          "case": "TE",
+          "value": 0.7542544794141433
+        }
+      }
+    },
+    {
+      "case": 16,
+      "name": "grounded_time_cuda",
+      "backend": "cuda:0",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.planar_layered_ntff.validate_capoglu_grounded_time",
+        "--output",
+        "${OUT}/analytical/grounded_time_cuda",
+        "--gpu",
+        "0"
+      ],
+      "summary": "${OUT}/analytical/grounded_time_cuda/summary.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 4,
+        "validity": 0,
+        "total": 4
+      },
+      "configuration": {
+        "dl_m": 0.0001,
+        "slab_thickness_m": 0.002,
+        "reduced_time_window_s": [
+          0,
+          1e-10
+        ]
+      },
+      "gate_groups": [
+        [
+          "maximum_error_normalised_to_analytical_peak",
+          2,
+          0.009147635188220102,
+          "<",
+          0.08,
+          "dimensionless",
+          "VED",
+          "reference"
+        ],
+        [
+          "rms_error_normalised_to_analytical_peak",
+          2,
+          0.0028728949273525966,
+          "<",
+          0.03,
+          "dimensionless",
+          "VED",
+          "reference"
+        ]
+      ],
+      "definition_ref": "d12"
+    },
+    {
+      "case": 17,
+      "name": "grounded_patterns_cuda",
+      "backend": "cuda:0",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.planar_layered_ntff.validate_grounded_dipoles",
+        "--output-directory",
+        "${OUT}/analytical/grounded_patterns_cuda",
+        "--gpu",
+        "0"
+      ],
+      "summary": "${OUT}/analytical/grounded_patterns_cuda/summary.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 54,
+        "validity": 0,
+        "total": 54
+      },
+      "configuration": {
+        "dl_metres": 0.0015,
+        "frequencies_hz": [
+          1500000000,
+          2000000000,
+          2500000000
+        ]
+      },
+      "gate_groups": [
+        [
+          "vector_field_maximum_error_peak_normalised",
+          18,
+          0.03832885366733691,
+          "<=",
+          0.04,
+          "dimensionless",
+          "magnetic_tangential_bare:2.5_GHz",
+          "reference"
+        ],
+        [
+          "power_maximum_error_peak_normalised",
+          18,
+          0.05069129253307223,
+          "<=",
+          0.055,
+          "dimensionless",
+          "magnetic_tangential_bare:2.5_GHz",
+          "reference"
+        ],
+        [
+          "maximum_directivity_relative_error",
+          18,
+          0.03187746875495017,
+          "<=",
+          0.04,
+          "dimensionless",
+          "magnetic_tangential_bare:2.5_GHz",
+          "reference"
+        ]
+      ],
+      "definition_ref": "d13"
+    },
+    {
+      "case": 18,
+      "name": "core_shell_cuda",
+      "backend": "cuda:0",
+      "command": [
+        "${PYTHON}",
+        "-m",
+        "testing.validation.dispersive_averaging.validate_core_shell_fdtd",
+        "--output-dir",
+        "${OUT}/analytical/core_shell_cuda",
+        "--threads",
+        "1",
+        "--gpu",
+        "0"
+      ],
+      "summary": "${OUT}/analytical/core_shell_cuda/core_shell_metrics.json",
+      "status": "report_only_completed",
+      "gate_counts": {
+        "numerical": 0,
+        "validity": 0,
+        "total": 0
+      },
+      "configuration": {
+        "dl_m": 0.004,
+        "domain_cells": 160,
+        "core_radius_m": 0.06,
+        "outer_radius_m": 0.1,
+        "time_window_s": 6e-8,
+        "frequency_sampling": {
+          "fdtd_samples": 87,
+          "fdtd_spacing_hz": 25000000,
+          "analytical_plot_samples": 2001,
+          "analytical_plot_spacing_hz": 1075000
+        }
+      },
+      "gate_groups": [],
+      "definition_ref": "d14",
+      "ungated_metrics_by_mode": {
+        "averaged": {
+          "rms_error_db": 0.8970086193481762,
+          "median_absolute_error_db": 0.3340653297513886,
+          "maximum_absolute_error_db": 3.3364120171568272,
+          "relative_l2_error_percent": 10.118685175196575
+        },
+        "staircased": {
+          "rms_error_db": 1.10408067472225,
+          "median_absolute_error_db": 0.524846954674676,
+          "maximum_absolute_error_db": 3.061865187407147,
+          "relative_l2_error_percent": 15.106856406329923
+        }
+      }
+    },
+    {
+      "case": 19,
+      "name": "mpi_hertzian",
+      "backend": "mpi:2,1,1",
+      "command": [
+        "${MPIEXEC}",
+        "-n",
+        "2",
+        "${PYTHON}",
+        "docs/reports/support/cross_backend_analytical.py",
+        "hertzian",
+        "${OUT}/mpi_hertzian",
+        "--mpi",
+        "2",
+        "1",
+        "1",
+        "--precision",
+        "double"
+      ],
+      "summary": "${OUT}/mpi_hertzian/summary.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 6,
+        "validity": 0,
+        "total": 6
+      },
+      "configuration": {
+        "dl_metres": 0.001,
+        "far_frequency_hz": 3000000000,
+        "precision": "double",
+        "mpi_partition": [
+          2,
+          1,
+          1
+        ]
+      },
+      "gate_groups": [
+        [
+          "ksir_directivity_rms",
+          1,
+          0.00009826346654413016,
+          "<=",
+          0.001,
+          "dimensionless",
+          null,
+          "reference"
+        ],
+        [
+          "ksir_maximum_directivity_error",
+          1,
+          0.0001582344537227609,
+          "<=",
+          0.001,
+          "dimensionless",
+          null,
+          "reference"
+        ],
+        [
+          "equivalent_current_directivity_rms",
+          1,
+          0.00002440580988419313,
+          "<=",
+          0.001,
+          "dimensionless",
+          null,
+          "reference"
+        ],
+        [
+          "equivalent_current_maximum_directivity_error",
+          1,
+          0.00005851636940912286,
+          "<=",
+          0.001,
+          "dimensionless",
+          null,
+          "reference"
+        ],
+        [
+          "direct_near_field_relative_l2",
+          1,
+          0.0003353270846229351,
+          "<=",
+          0.001,
+          "dimensionless",
+          null,
+          "reference"
+        ],
+        [
+          "ksir_near_field_relative_l2",
+          1,
+          0.00016669214067167225,
+          "<=",
+          0.001,
+          "dimensionless",
+          null,
+          "reference"
+        ]
+      ],
+      "definition_ref": "d8",
+      "command_provenance": "Reconstructed from completed wrapper invocation and backend_options; outer taskset/environment excluded.",
+      "ungated_full_history_near_relative_l2": 0.006011746308522775
+    },
+    {
+      "case": 20,
+      "name": "mpi_fresnel",
+      "backend": "mpi:2,1,1",
+      "command": [
+        "${MPIEXEC}",
+        "-n",
+        "2",
+        "${PYTHON}",
+        "docs/reports/support/cross_backend_analytical.py",
+        "fresnel",
+        "${OUT}/mpi_fresnel",
+        "--mpi",
+        "2",
+        "1",
+        "1",
+        "--precision",
+        "double"
+      ],
+      "summary": "${OUT}/mpi_fresnel/summary.json",
+      "status": "gated_pass",
+      "gate_counts": {
+        "numerical": 18,
+        "validity": 0,
+        "total": 18
+      },
+      "configuration": {
+        "dl_metres": 0.0005,
+        "time_window_seconds": 4e-8,
+        "frequency_band_hz": [
+          250000000,
+          8000000000
+        ],
+        "precision": "double",
+        "mpi_partition": [
+          2,
+          1,
+          1
+        ]
+      },
+      "gate_groups": [
+        [
+          "magnitude_rmse",
+          6,
+          0.0012041694270087213,
+          "<=",
+          0.005,
+          "dimensionless",
+          "drude_2pole",
+          "reference"
+        ],
+        [
+          "complex_relative_l2_error",
+          6,
+          0.002442431167963991,
+          "<=",
+          0.01,
+          "dimensionless",
+          "drude_2pole",
+          "reference"
+        ],
+        [
+          "phase_rmse_degrees",
+          6,
+          0.020335494733572795,
+          "<=",
+          0.1,
+          "degrees",
+          "debye_3pole",
+          "reference"
+        ]
+      ],
+      "definition_ref": "d2",
+      "command_provenance": "Reconstructed from completed wrapper invocation and backend_options; outer taskset/environment excluded."
+    }
+  ]
+}

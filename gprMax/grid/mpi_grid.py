@@ -467,22 +467,24 @@ class MPIGrid(FDTDGrid):
         output state has been gathered.
         """
 
-        if not self.sar_monitors:
-            return None
-
-        signatures = tuple(
-            (
-                monitor.output_id,
-                tuple(float(value) for value in monitor.frequencies),
-                monitor.tag_names,
-            )
-            for monitor in self.sar_monitors
-        )
+        # Even an empty rank must join this check: otherwise a missing monitor
+        # on one rank would leave its peers waiting in the gather below.
+        signatures = tuple(monitor.mpi_signature() for monitor in self.sar_monitors)
         all_signatures = self.comm.allgather(signatures)
         if any(value != signatures for value in all_signatures):
             raise RuntimeError("MPI ranks constructed inconsistent SAR monitors.")
+        if not self.sar_monitors:
+            return None
 
-        local_payloads = [monitor.local_payload() for monitor in self.sar_monitors]
+        error = None
+        local_payloads = None
+        try:
+            local_payloads = [monitor.local_payload() for monitor in self.sar_monitors]
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+        errors = self.comm.allgather(error)
+        if any(message is not None for message in errors):
+            raise RuntimeError(f"MPI SAR payload preparation failed: {errors}")
         gathered = self.comm.gather(local_payloads, root=self.COORDINATOR_RANK)
         if gathered is None:
             return None
@@ -1132,14 +1134,16 @@ class MPIGrid(FDTDGrid):
         # Map items being sent to the global coordinate space
         for item in items_to_send:
             item.coord = self.local_to_global_coordinate(item.coord)
+            item.coordorigin = self.local_to_global_coordinate(item.coordorigin)
 
         send_count_by_rank = np.zeros(self.comm.size, dtype=np.int32)
 
         # Send items to correct rank
+        requests = []
         for rank, items in itertools.groupby(
             items_to_send, lambda x: self.get_rank_from_coordinate(x.coord)
         ):
-            self.comm.isend(list(items), rank)
+            requests.append(self.comm.isend(list(items), rank))
             send_count_by_rank[rank] += 1
 
         # Communicate the number of messages sent to each rank
@@ -1160,10 +1164,13 @@ class MPIGrid(FDTDGrid):
             new_items = self.comm.recv(None, MPI.ANY_SOURCE)
             for item in new_items:
                 item.coord = self.global_to_local_coordinate(item.coord)
+                item.coordorigin = self.global_to_local_coordinate(item.coordorigin)
                 if isinstance(item, Rx):
                     self.add_receiver(item)
                 else:
                     self.add_source(item)
+
+        MPI.Request.Waitall(requests)
 
         # If this rank sent any items, remove them from our source and
         # receiver lists
@@ -1171,6 +1178,7 @@ class MPIGrid(FDTDGrid):
             # Map items sent back to the local coordinate space
             for item in items_to_send:
                 item.coord = self.global_to_local_coordinate(item.coord)
+                item.coordorigin = self.global_to_local_coordinate(item.coordorigin)
 
             filter_items = lambda items: list(
                 filter(lambda item: self.within_bounds(item.coord), items)

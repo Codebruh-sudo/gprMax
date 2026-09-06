@@ -278,27 +278,23 @@ class TestReadData:
             data = r.get_data()
         assert data[0, 0, 0] == 0  # identity: file 0 → numID 0
 
-    def test_data_is_converted_to_int16(self, geometry_file, target_grid):
-        """Expects a signed 16-bit result even from an unsigned file.
-
-        ``-1`` means "background, build nothing here", and files exported by
-        other tools (AustinMan/Woman) store ``uint16``. Reading one of those
-        without the conversion would make every background cell material
-        65535."""
+    def test_unsigned_file_is_mapped_to_wide_signed_ids(self, geometry_file, target_grid):
+        """Unsigned file indices remain valid indices, while the returned
+        global IDs have room for large catalogues and the -1 sentinel."""
         g = target_grid()
         with ReadGeometryObject(
             geometry_file(shape=(3, 3, 3), data_dtype=np.uint16), g, np.zeros(3, np.int32), ID_MAP
         ) as r:
             data = r.get_data()
-        assert data.dtype == np.int16
+        assert data.dtype == np.int32
 
-    def test_an_int16_file_is_left_alone(self, geometry_file, target_grid):
-        """Expects no conversion when the file already uses the right type."""
+    def test_compact_file_is_mapped_to_wide_signed_ids(self, geometry_file, target_grid):
+        """Compact on-disk indices must not constrain target global IDs."""
         g = target_grid()
         with ReadGeometryObject(
             geometry_file(shape=(3, 3, 3), data_dtype=np.int16), g, np.zeros(3, np.int32), ID_MAP
         ) as r:
-            assert r.get_data().dtype == np.int16
+            assert r.get_data().dtype == np.int32
 
 
 class TestReadRigidAndId:

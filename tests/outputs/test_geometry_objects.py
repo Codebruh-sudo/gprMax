@@ -46,6 +46,42 @@ from gprMax.materials import DispersiveMaterial
 from .conftest import DL, DL_ANISO
 
 
+def test_export_includes_materials_present_only_in_solid(
+    make_geometry_object, make_view_grid, null_pbar, read_h5
+):
+    grid = make_view_grid(nx=4, ny=4, nz=4, materials=3)
+    grid.ID[:] = 0
+    grid.solid[:] = 2
+    obj = make_geometry_object(grid=grid)
+    obj.write_hdf5("cell-only material", null_pbar)
+    _, data = read_h5(obj.filename_hdf5)
+    assert len(data["material_keys"]) == 2
+    assert set(np.unique(data["data"])) == {1}
+    assert set(np.unique(data["ID"])) == {0}
+
+
+def test_export_compacts_large_global_ids_before_narrowing(
+    make_geometry_object, make_view_grid, null_pbar, read_h5
+):
+    grid = make_view_grid(nx=4, ny=4, nz=4, materials=3)
+    material = grid.materials[0]
+    material.numID = 40000
+    grid.materials = [material] * 40001
+    grid.solid[:] = 40000
+    grid.ID[:] = 40000
+    obj = make_geometry_object(grid=grid)
+    obj.write_hdf5("large global ID, small export", null_pbar)
+    _, data = read_h5(obj.filename_hdf5)
+    assert len(data["material_keys"]) == 1
+    assert np.all(data["data"] == 0)
+    assert np.all(data["ID"] == 0)
+
+
+def test_export_rejects_material_catalogue_that_cannot_fit_int16():
+    with pytest.raises(ValueError, match="32768 distinct materials"):
+        GeometryObject._material_keys([None] * 32769)
+
+
 @pytest.fixture
 def make_geometry_object(make_view_grid):
     """Factory for a ``GeometryObject`` over a real grid."""

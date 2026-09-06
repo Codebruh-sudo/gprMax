@@ -299,6 +299,15 @@ update_voltage_source = {
         polarisation = srcinfo1[IDX2D_SRCINFO(i,3)];
         resistance = srcinfo2[i];
 
+        // Voltage activity follows the four-int coordinate rows. Inactive
+        // hard sources release the edge; zero samples while active still
+        // impose zero E. Soft-source arithmetic and waveform timing are
+        // unchanged.
+        int activity_offset = 4 * NVOLTSRC + 2 * i;
+        int first_active = srcinfo1[activity_offset];
+        int last_active = srcinfo1[activity_offset + 1];
+        int active = iteration >= first_active && iteration <= last_active;
+
         // 'x' polarised source
         if (polarisation == 0) {
             if (resistance != 0) {
@@ -307,7 +316,7 @@ update_voltage_source = {
                 Ex[IDX3D_FIELDS(x,y,z)] = Ex[IDX3D_FIELDS(x,y,z)] - updatecoeffsE[IDX2D_MAT(materialEx,4)] *
                                             srcwaveforms[IDX2D_SRCWAVES(i,iteration)] * area_inv;
             }
-            else {
+            else if (active) {
                 Ex[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(i,iteration)] / dx;
             }
         }
@@ -320,7 +329,7 @@ update_voltage_source = {
                 Ey[IDX3D_FIELDS(x,y,z)] = Ey[IDX3D_FIELDS(x,y,z)] - updatecoeffsE[IDX2D_MAT(materialEy,4)] *
                                             srcwaveforms[IDX2D_SRCWAVES(i,iteration)] * area_inv;
             }
-            else {
+            else if (active) {
                 Ey[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(i,iteration)] / dy;
             }
         }
@@ -333,7 +342,7 @@ update_voltage_source = {
                 Ez[IDX3D_FIELDS(x,y,z)] = Ez[IDX3D_FIELDS(x,y,z)] - updatecoeffsE[IDX2D_MAT(materialEz,4)] *
                                             srcwaveforms[IDX2D_SRCWAVES(i,iteration)] * area_inv;
             }
-            else {
+            else if (active) {
                 Ez[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(i,iteration)] / dz;
             }
         }

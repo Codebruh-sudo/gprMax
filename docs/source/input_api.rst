@@ -1961,6 +1961,16 @@ is interpreted against the owning subgrid's ``dt`` and iteration count.
 In a reduced 2-D model, any requested invariant-axis extent is collapsed to
 the single genuine field plane: index zero for TM or index one for TE.
 
+Snapshot values are evaluated at the regular output-cell centres written to
+the file. Coarse ``dl`` uses linear interpolation of native Yee samples, not
+volume averaging; native-cell spacing preserves the original arithmetic.
+Non-dividing interior ROIs keep ``ceil((p2-p1)/dl)`` output cells. Construction
+rejects a final regular cell whose centre or interpolation stencil requires
+samples outside the physical Yee grid. Unlike older versions, this does not
+silently clip or enlarge ``p2`` or alter live-axis ``dl``. Choose a smaller
+extent or spacing instead. MPI exchanges only the required native samples at
+snapshot iterations; ranks with no output cells still participate.
+
 The snapshot ``time`` is rounded to the nearest full electric-field time
 level :math:`n\Delta t` (halfway values round to the earlier step), while
 ``iterations=n`` selects the same zero-based level directly. Snapshot electric

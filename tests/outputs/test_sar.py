@@ -288,10 +288,15 @@ def test_mpi_sar_edge_ownership_is_unique_and_includes_outer_boundary():
     np.testing.assert_array_equal(_mpi_owned_edge_mask(upper, coordinates), (False, True, True))
 
 
-def test_mpi_sar_gather_adds_no_collective_when_no_monitors():
-    grid = SimpleNamespace(sar_monitors=[])
+def test_mpi_sar_gather_checks_consistency_even_when_no_monitors():
+    calls = []
+    def allgather(value):
+        calls.append(value)
+        return [value, value]
+    grid = SimpleNamespace(sar_monitors=[], comm=SimpleNamespace(allgather=allgather))
 
     assert MPIGrid.gather_sar_payloads(grid) is None
+    assert calls == [()]
 
 
 def test_mpi_sar_internal_pml_mask_is_localised_from_global_coordinates():

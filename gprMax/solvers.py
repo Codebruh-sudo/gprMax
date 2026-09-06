@@ -60,6 +60,19 @@ class Solver:
             iterator: can be range() or tqdm()
         """
 
+        try:
+            self._solve(iterator)
+        except BaseException:
+            try:
+                self.updates.cleanup()
+            except Exception:
+                logger.exception("Resource cleanup failed after a solver error")
+            raise
+        else:
+            self.updates.cleanup()
+
+    def _solve(self, iterator):
+        """Run and finalise only successful simulations; solve owns cleanup."""
         self.updates.time_start()
 
         for iteration in iterator:
@@ -78,12 +91,12 @@ class Solver:
 
             if getattr(self.updates, "is_distributed", False) is True:
                 self.updates.halo_swap_magnetic()
-                self.updates.update_magnetic_edge_devices(iteration)
-                # Modal H projections interpolate across transverse Yee
-                # edges. Observe only after the current H halos are available.
-                self.updates.observe_eigenmode_ports(iteration)
-            else:
-                self.updates.observe_eigenmode_ports(iteration)
+
+            # TLs read H rather than write it. Every backend samples the same
+            # completed half-step, with current halos available on MPI ranks.
+            self.updates.update_magnetic_edge_devices(iteration)
+            # Modal H projections also require the completed magnetic halos.
+            self.updates.observe_eigenmode_ports(iteration)
 
             if isinstance(self.updates, SubgridUpdates):
                 self.updates.hsg_2()
@@ -120,7 +133,6 @@ class Solver:
 
         self.updates.finalise()
         self.solvetime = self.updates.calculate_solve_time()
-        self.updates.cleanup()
 
 
 def create_solver(model: Model) -> Solver:

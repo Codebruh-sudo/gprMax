@@ -368,7 +368,7 @@ class GridView(Generic[GridType]):
             self.setter_slice(2, upper_bound_exclusive),
         ] = value
 
-    def initialise_materials(self, filter_materials: bool = True):
+    def initialise_materials(self, filter_materials: bool = True, *, include_solid: bool = False):
         """Create a new ID map for materials in the grid view.
 
         Rather than using the default material IDs (as per the main grid
@@ -379,11 +379,18 @@ class GridView(Generic[GridType]):
 
         This function should be called before calling the
         map_to_view_materials() function.
+
+        include_solid adds cell materials that may be absent from smoothed
+        Yee edges. Geometry interchange requires both; edge views do not.
         """
         # Get unique materials in the grid view
         if filter_materials:
             ID = self.get_ID(force_refresh=True)
             materials_in_grid_view = np.unique(ID)
+            if include_solid:
+                materials_in_grid_view = np.union1d(
+                    materials_in_grid_view, np.unique(self.get_solid())
+                )
 
             # Get actual Material objects
             self.materials = np.array(self.grid.materials, dtype=Material)[materials_in_grid_view]
@@ -793,7 +800,7 @@ class MPIGridView(GridView["MPIGrid"]):
 
         return slice(offset, offset + size)
 
-    def initialise_materials(self, filter_materials: bool = True):
+    def initialise_materials(self, filter_materials: bool = True, *, include_solid: bool = False):
         """Create a new ID map for materials in the grid view.
 
         Rather than using the default material IDs (as per the main grid
@@ -805,10 +812,15 @@ class MPIGridView(GridView["MPIGrid"]):
         This function should only be called if required as it needs MPI
         communication to construct the new map. It should also be called
         before the map_to_view_materials() function.
+
+        include_solid includes cell-only materials in the distributed
+        catalogue, as required when exporting reusable geometry.
         """
         if filter_materials:
             ID = self.get_ID(force_refresh=True)
             local_material_ids = np.unique(ID)
+            if include_solid:
+                local_material_ids = np.union1d(local_material_ids, np.unique(self.get_solid()))
             local_materials = np.array(self.grid.materials, dtype=Material)[local_material_ids]
         else:
             local_materials = np.array(self.grid.materials, dtype=Material)
