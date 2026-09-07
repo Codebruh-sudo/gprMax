@@ -212,6 +212,97 @@ def test_waveform_energy_limit_reports_out_of_band_fraction():
     assert fraction == pytest.approx(0.5, abs=2e-14)
 
 
+def test_waveform_energy_weights_tone_against_dc():
+    count = 128
+    samples = 1.0 + np.cos(2 * np.pi * 16 * np.arange(count) / count)
+
+    # DC has mean-square value 1; the unit cosine contributes 1/2.
+    assert waveform_energy_above(samples, 1.0, 8 / count) == pytest.approx(1 / 3)
+
+
+def test_waveform_energy_does_not_double_even_length_nyquist():
+    count = 128
+    indices = np.arange(count)
+    samples = np.cos(2 * np.pi * 16 * indices / count) + (-1.0) ** indices
+
+    # The alternating Nyquist samples have mean-square value 1, not 1/2.
+    assert waveform_energy_above(samples, 1.0, 32 / count) == pytest.approx(2 / 3)
+    assert waveform_energy_above(samples, 1.0, 0.5) == 0.0
+
+
+def test_waveform_energy_weights_dc_and_nyquist_equally():
+    count = 128
+    samples = 1.0 + (-1.0) ** np.arange(count)
+
+    assert waveform_energy_above(samples, 1.0, 0.25) == pytest.approx(0.5)
+
+
+def test_waveform_energy_doubles_last_bin_for_odd_sample_count():
+    count = 127
+    samples = 1.0 + np.cos(2 * np.pi * (count // 2) * np.arange(count) / count)
+
+    assert waveform_energy_above(samples, 1.0, 0.25) == pytest.approx(1 / 3)
+
+
+def test_waveform_energy_excludes_the_cutoff_bin():
+    count = 128
+    indices = np.arange(count)
+    samples = (
+        1.0 + np.cos(2 * np.pi * 16 * indices / count) + np.cos(2 * np.pi * 32 * indices / count)
+    )
+
+    assert waveform_energy_above(samples, 1.0, 16 / count) == pytest.approx(0.25)
+
+
+@pytest.mark.parametrize("count", [1, 2, 127, 128])
+def test_waveform_energy_zero_record(count):
+    assert waveform_energy_above(np.zeros(count), 1.0, 0.25) == 0.0
+
+
+@pytest.mark.parametrize("amplitude", [1e-250, -1e-250, 0.25, -3.0, 1e250])
+def test_waveform_energy_is_independent_of_amplitude_scale(amplitude):
+    count = 128
+    samples = amplitude * (1.0 + np.cos(2 * np.pi * 16 * np.arange(count) / count))
+
+    assert waveform_energy_above(samples, 1.0, 8 / count) == pytest.approx(1 / 3)
+
+
+@pytest.mark.parametrize("count", [1, 2, 3, 127, 128])
+def test_waveform_energy_matches_full_fft_and_parseval(count):
+    samples = np.random.default_rng(124).normal(size=count) + 0.4
+    dt = 0.125
+    cutoff = 1.25
+    spectrum = np.fft.fft(samples)
+    above = np.abs(np.fft.fftfreq(count, d=dt)) > cutoff
+    spectral_energy = np.abs(spectrum) ** 2
+    expected = np.sum(spectral_energy[above]) / np.sum(spectral_energy)
+    retained = spectrum.copy()
+    retained[~above] = 0.0
+    above_samples = np.fft.ifft(retained).real
+    parseval_fraction = np.sum(above_samples**2) / np.sum(samples**2)
+
+    assert waveform_energy_above(samples, dt, cutoff) == pytest.approx(expected, abs=1e-14)
+    assert waveform_energy_above(samples, dt, cutoff) == pytest.approx(parseval_fraction, abs=1e-14)
+
+
+@pytest.mark.parametrize("samples", [[], [[1.0, 2.0]], [1.0 + 1.0j], [np.nan], [np.inf]])
+def test_waveform_energy_rejects_invalid_histories(samples):
+    with pytest.raises(ValueError, match="finite real one-dimensional"):
+        waveform_energy_above(samples, 1.0, 0.25)
+
+
+@pytest.mark.parametrize("dt", [0.0, -1.0, np.nan, np.inf])
+def test_waveform_energy_rejects_invalid_sample_interval(dt):
+    with pytest.raises(ValueError, match="sample interval must be finite and positive"):
+        waveform_energy_above([1.0, 2.0], dt, 0.25)
+
+
+@pytest.mark.parametrize("frequency", [0.0, -0.25, 0.6, np.nan, np.inf])
+def test_waveform_energy_rejects_invalid_cutoff(frequency):
+    with pytest.raises(ValueError, match="valid maximum frequency"):
+        waveform_energy_above([1.0, 2.0], 1.0, frequency)
+
+
 def _write_impulse_h5(path: Path, *, second_active_source=False):
     count = 64
     dt = 1e-10
@@ -259,6 +350,73 @@ def test_batch_synthesis_writes_receiver_compatible_hdf5(tmp_path):
         assert file.attrs["Format"] == "gprMax impulse-response waveform synthesis"
         assert file["/rxs/rx1/Ez"].attrs["SynthesisedFromImpulse"]
         assert_allclose(file["/impulse_reference/source_samples"], source.signal.samples)
+
+
+@pytest.fixture
+def separate_impulse_inputs(tmp_path):
+    files = {role: tmp_path / f"{role}.h5" for role in ("source", "receiver")}
+    for role, path in files.items():
+        _write_impulse_h5(path)
+        with h5py.File(path, "r+") as output:
+            del output["rxs" if role == "source" else "srcs"]
+    source = load_source_sampling(files["source"])
+    waveform = sample_builtin_waveform(source, "ricker", 1.0, 300e6, "ricker300")
+    result = synthesise_output(files["receiver"], waveform, source_filename=files["source"])
+    return files, result
+
+
+@pytest.mark.parametrize("input_role", ["source", "receiver"])
+@pytest.mark.parametrize("alias_kind", ["same_path", "relative_path", "symlink", "hardlink"])
+def test_synthesis_output_rejects_input_aliases(
+    tmp_path, monkeypatch, separate_impulse_inputs, input_role, alias_kind
+):
+    files, result = separate_impulse_inputs
+    before = {role: path.read_bytes() for role, path in files.items()}
+    destination = files[input_role]
+    if alias_kind == "relative_path":
+        monkeypatch.chdir(tmp_path)
+        destination = Path(destination.name)
+    elif alias_kind == "symlink":
+        destination = tmp_path / "alias.h5"
+        destination.symlink_to(files[input_role])
+    elif alias_kind == "hardlink":
+        destination = tmp_path / "alias.h5"
+        destination.hardlink_to(files[input_role])
+
+    try:
+        with pytest.raises(ValueError, match="must not overwrite an input"):
+            write_synthesised_output(destination, result)
+    finally:
+        for role, path in files.items():
+            assert path.read_bytes() == before[role]
+
+
+@pytest.mark.parametrize("existing_output", [False, True])
+def test_synthesis_output_with_separate_inputs_preserves_data(
+    tmp_path, separate_impulse_inputs, existing_output
+):
+    files, result = separate_impulse_inputs
+    before = {role: path.read_bytes() for role, path in files.items()}
+    destination = tmp_path / "processed" / "ricker.h5"
+    if existing_output:
+        destination.parent.mkdir()
+        with h5py.File(destination, "w") as output:
+            output.create_dataset("old_output", data=[0.0])
+
+    assert write_synthesised_output(destination, result) == destination
+
+    for role, path in files.items():
+        assert path.read_bytes() == before[role]
+    assert_array_equal(load_source(destination).samples, result.waveform.samples)
+    assert_array_equal(load_receiver(destination).samples, result.receivers[0].samples)
+    with h5py.File(destination, "r") as output:
+        assert output.attrs["InputImpulseFile"] == str(files["receiver"])
+        assert output.attrs["InputSourceFile"] == str(files["source"])
+        assert output.attrs["Format"] == "gprMax impulse-response waveform synthesis"
+        assert "old_output" not in output
+        assert_array_equal(
+            output["impulse_reference/source_samples"], result.impulse_source.signal.samples
+        )
 
 
 def test_batch_synthesis_rejects_another_active_source(tmp_path):

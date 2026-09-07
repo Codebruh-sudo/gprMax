@@ -58,12 +58,25 @@ Package contents
 How to use the package
 ======================
 
-To insert any of the landmine models or metal can into a simulation use the ``#geometry_objects_read`` command.
+These historical HDF5/text pairs must first be converted to the version 4
+HDF5/JSON format. The originals are retained; use ``#geometry_objects_read``
+with the converted pair thereafter.
 
 Example
 -------
 
-The input file for inserting the PMN landmine, with the lower left corner 10mm from the origin of the domain, into an empty domain (free-space) would be:
+From the repository root, convert the 1 mm PMN model once:
+
+.. code-block:: console
+
+    python -m toolboxes.MaterialDatabase convert-geometry \
+        toolboxes/LandmineModels/PMN_1x1x1.h5 \
+        toolboxes/LandmineModels/PMN_materials.txt \
+        --output-geometry PMN_converted.h5 \
+        --output-database PMN_materials.json
+
+Keep the two outputs beside this input file. To insert the model with its
+lower-left corner 10 mm from the domain origin:
 
 .. code-block:: none
 
@@ -71,7 +84,7 @@ The input file for inserting the PMN landmine, with the lower left corner 10mm f
     #domain: 0.136 0.176 0.070
     #dx_dy_dz: 0.001 0.001 0.001
     #time_window: 5e-9
-    #geometry_objects_read: 0.010 0.010 0.010 ../toolboxes/LandmineModels/PMN_1x1x1.h5 ../toolboxes/LandmineModels/PMN_materials.txt
+    #geometry_objects_read: 0.010 0.010 0.010 PMN_converted.h5 PMN_materials
     #geometry_view: 0 0 0 0.136 0.176 0.070 0.001 0.001 0.001 landmine_PMN_fs n
 
 For further information on the ``#geometry_objects_read`` command see the section on :ref:`object contruction commands<object-construction-commands>`.

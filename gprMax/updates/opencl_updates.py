@@ -1858,6 +1858,7 @@ class OpenCLUpdates(Updates[OpenCLGrid]):
                 self.grid.Hx_dev,
                 self.grid.Hy_dev,
                 self.grid.Hz_dev,
+                range=slice(0, 1),
             )
 
         if self.grid.magneticfrillsources:
@@ -2144,6 +2145,9 @@ class OpenCLUpdates(Updates[OpenCLGrid]):
     def update_electric_sources(self, iteration):
         """Updates electric field components from sources -
         update any Hertzian dipole sources last.
+
+        Each list uses one work-item, in CPU list order. The in-order queue
+        also preserves voltage, TL, then Hertzian precedence across launches.
         """
         if self.grid.voltagesources:
             self.update_voltage_source_dev(
@@ -2159,6 +2163,7 @@ class OpenCLUpdates(Updates[OpenCLGrid]):
                 self.grid.Ex_dev,
                 self.grid.Ey_dev,
                 self.grid.Ez_dev,
+                range=slice(0, 1),
             )
 
         if self.grid.transmissionlines:
@@ -2180,7 +2185,7 @@ class OpenCLUpdates(Updates[OpenCLGrid]):
                 self.grid.Ex_dev,
                 self.grid.Ey_dev,
                 self.grid.Ez_dev,
-                range=slice(0, len(self.grid.transmissionlines)),
+                range=slice(0, 1),
             )
 
         if self.grid.hertziandipoles:
@@ -2197,6 +2202,7 @@ class OpenCLUpdates(Updates[OpenCLGrid]):
                 self.grid.Ex_dev,
                 self.grid.Ey_dev,
                 self.grid.Ez_dev,
+                range=slice(0, 1),
             )
 
     def update_electric_b(self):

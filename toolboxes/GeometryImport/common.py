@@ -78,7 +78,13 @@ def write_null_material_database(
     source: str,
     metadata: Sequence[dict] | None = None,
 ) -> tuple[str, ...]:
-    """Create, but never overwrite, an editable imported-material database."""
+    """Create an editable database with null constitutive values.
+
+    Returned keys follow ``material_names`` order, matching the geometry's
+    material indices. An existing file is reused only when its database ID
+    and ordered keys match; this preserves user-entered material properties
+    without silently reassigning indices on a later conversion.
+    """
 
     target = Path(path)
     names = tuple(str(name) for name in material_names)
@@ -97,7 +103,9 @@ def write_null_material_database(
         if existing.get("database", {}).get("id") != database_id or not isinstance(recorded, dict):
             raise ValueError(f"Existing material database {target} is not compatible")
         if tuple(recorded) != keys:
-            raise ValueError(f"Existing material database {target} has keys which do not match this import")
+            raise ValueError(
+                f"Existing material database {target} has keys which do not match this import"
+            )
         return keys
 
     entries = {}
@@ -133,6 +141,7 @@ def build_tag_volume(
 ) -> tuple[np.ndarray | None, tuple[str, ...]]:
     """Map final component IDs to compact geometry-tag IDs.
 
+    ``component_grid`` has shape ``(nx, ny, nz)`` and indexes ``component_tags``.
     Negative component values mean that an importer does not write that cell.
     ``None`` maps an occupied component to tag ID zero.  When no non-zero tag
     exists, ``None`` is returned for the volume so untagged models retain zero
@@ -234,14 +243,24 @@ def write_geometry_hdf5(
     tag_names: Sequence[str] | None = None,
     compression: str | None = "gzip",
 ) -> None:
-    """Write a material/tag cell volume in the gprMax geometry-object schema."""
+    """Write cell arrays with x, y, z axes in the geometry-object schema.
+
+    ``data`` has shape ``(nx, ny, nz)`` and is stored as signed int16. Value
+    -1 leaves the destination cell unchanged on import; non-negative values
+    index ``material_keys`` when supplied. Tags are a separate same-shaped
+    array, so components sharing one material can retain distinct identities.
+    ``spacing`` and optional ``origin`` are in metres; origin denotes the
+    grid's lower corner, not the centre of its first cell.
+    """
 
     source_materials = np.asarray(data)
     if source_materials.ndim != 3:
         raise ValueError("data must be a 3D cell-centred array")
     if source_materials.dtype.kind not in "iu":
         raise ValueError("data must contain integer material indices")
-    if source_materials.size and (source_materials.min() < -1 or source_materials.max() > np.iinfo(np.int16).max):
+    if source_materials.size and (
+        source_materials.min() < -1 or source_materials.max() > np.iinfo(np.int16).max
+    ):
         raise ValueError("material indices must be -1 or fit in signed int16 storage")
     materials = np.asarray(source_materials, dtype=np.int16, order="C")
     dxyz = tuple(float(value) for value in spacing)
@@ -294,6 +313,10 @@ def write_geometry_preview(
     to :class:`GeometryObjectsRead`. ``False`` is returned when the optional
     PyVista/VTK visualisation dependency is unavailable; conversion of the
     reusable HDF5 geometry remains independent of that dependency.
+
+    A cell array of shape ``(nx, ny, nz)`` needs ``(nx+1, ny+1, nz+1)`` VTK
+    grid points. Fortran-order flattening gives VTK its x-fastest cell order
+    without changing the physical x, y, z axes of the HDF5 array.
     """
 
     try:

@@ -598,7 +598,7 @@ class PeplinskiSoil:
         self.rb = bulkdensity
         self.rs = sandpartdensity
         self.mu = watervolfraction
-        # Store all of the material IDs which allows for more general mixing models.
+        # Bin-to-material IDs from the most recent calculation on a grid.
         self.matID = []
 
     def calculate_properties(self, nbins, G):
@@ -610,6 +610,9 @@ class PeplinskiSoil:
             nbins: int for number of bins to use to create the different materials.
             G: FDTDGrid class describing a grid in a model.
         """
+
+        # Build a fresh map; other fractal volumes may still use the previous one.
+        material_ids = []
 
         # Debye model properties of water at 25C & zero salinity
         T = 25
@@ -672,9 +675,11 @@ class PeplinskiSoil:
             m.tau.append(watertau)
             m.ID = f"|{float(m.er):.4f}+{float(m.se):.4f}+{float(m.mr):.4f}+{float(m.sm):.4f}|"
             G.materials.append(m)
-            self.matID.append(m.numID)
+            material_ids.append(m.numID)
 
             muiter.iternext()
+
+        self.matID = material_ids
 
 
 class RangeMaterial:
@@ -699,7 +704,7 @@ class RangeMaterial:
         self.sig = se_range
         self.mu = mr_range
         self.ro = sm_range
-        # Store all of the material IDs which allows for more general mixing models.
+        # Bin-to-material IDs from the most recent calculation on a grid.
         self.matID = []
 
     def calculate_properties(self, nbins, G):
@@ -709,6 +714,8 @@ class RangeMaterial:
             nbins: int for number of bins to use to create the different materials.
             G: FDTDGrid class describing a grid in a model.
         """
+
+        material_ids = []
 
         # Generate a set of relative permittivity bins based on the given range
         erbins = np.linspace(self.er[0], self.er[1], nbins + 1)
@@ -738,6 +745,20 @@ class RangeMaterial:
         # make materials from
         romaterials = 0.5 * (robins[1 : nbins + 1] + robins[0:nbins])
 
+        # Reuse only unchanged, non-dispersive range-generated materials.
+        # A display name is not a constitutive definition: rounding small
+        # conductivities to four decimal places can erase entire ranges.
+        existing = {
+            m._range_material_key: m
+            for m in G.materials
+            if type(m) is Material
+            and getattr(m, "_range_material_key", None) == (m.er, m.se, m.mr, m.sm)
+            and m.type == ""
+            and m.averagable
+            and m.mass_density is None
+        }
+        used_ids = {m.ID for m in G.materials}
+
         # Iterate over the bins
         for iter in np.arange(nbins):
             # Relative permittivity
@@ -749,20 +770,22 @@ class RangeMaterial:
             # Magnetic loss
             sm = romaterials[iter]
 
-            # Check to see if the material already exists before creating a new one
-            requiredID = f"|{float(er):.4f}+{float(se):.4f}+{float(mr):.4f}+{float(sm):.4f}|"
-            material = next((x for x in G.materials if x.ID == requiredID), None)
-            # `self.matID` must gain exactly one entry per bin, regardless
-            # of whether this bin reuses an existing material or needs a
-            # new one - the previous `iter == 0` guard only appended a
-            # reused material's ID on the first bin, so any later bin
-            # that happened to reuse an existing material appended
-            # nothing at all, leaving matID shorter than nbins and every
-            # subsequent bin's index into it wrong (see fractal_box.py's
-            # `mixingmodel.matID[int(numberinbin)]` lookup).
-            if material:
-                self.matID.append(material.numID)
+            key = (float(er), float(se), float(mr), float(sm))
+            material = existing.get(key)
+            # Keep one mapping entry per bin even when properties coincide.
+            if material is not None:
+                material_ids.append(material.numID)
             else:
+                # Float repr retains the full value. Keep '+' separators so
+                # MPI's material ordering still recognises compound IDs.
+                # User-defined names may use this spelling too; do not reuse
+                # their material or create duplicate names in the table.
+                base_id = "|range:" + "+".join(repr(value) for value in key) + "|"
+                requiredID = base_id
+                suffix = 1
+                while requiredID in used_ids:
+                    requiredID = f"{base_id}_{suffix}"
+                    suffix += 1
                 m = Material(len(G.materials), requiredID)
                 m.type = ""
                 m.averagable = True
@@ -770,8 +793,13 @@ class RangeMaterial:
                 m.se = se
                 m.mr = mr
                 m.sm = sm
+                m._range_material_key = key
                 G.materials.append(m)
-                self.matID.append(m.numID)
+                existing[key] = m
+                used_ids.add(requiredID)
+                material_ids.append(m.numID)
+
+        self.matID = material_ids
 
 
 class ListMaterial:
@@ -789,7 +817,7 @@ class ListMaterial:
 
         self.ID = ID
         self.mat = listofmaterials
-        # Store all of the material IDs which allows for more general mixing models.
+        # Bin-to-material IDs from the most recent calculation on a grid.
         self.matID = []
 
     def calculate_properties(self, nbins, G):
@@ -799,6 +827,8 @@ class ListMaterial:
             nbins: int for number of bins to use to create the different materials.
             G: FDTDGrid class describing a grid in a model.
         """
+
+        material_ids = []
 
         # Iterate over the bins
         for iter in np.arange(nbins):
@@ -810,7 +840,9 @@ class ListMaterial:
                 logger.exception(self.__str__() + f" material(s) {requiredID} do not exist")
                 raise ValueError
 
-            self.matID.append(material.numID)
+            material_ids.append(material.numID)
+
+        self.matID = material_ids
 
 
 class CrimMixture:
@@ -862,7 +894,7 @@ class CrimMixture:
         self.f_min = f_min
         self.f_max = f_max
         self.a = a
-        # Store all of the material IDs which allows for more general mixing models.
+        # Bin-to-material IDs from the most recent calculation on a grid.
         self.matID = []
 
     def calculate_properties(self, nbins, G):
@@ -877,6 +909,7 @@ class CrimMixture:
             G: FDTDGrid class describing a grid in a model.
         """
 
+        material_ids = []
         matrix = next((m for m in G.materials if m.ID == self.matrix_id), None)
         if not matrix:
             logger.exception(f"{self.ID} material {self.matrix_id!r} does not exist")
@@ -1027,7 +1060,9 @@ class CrimMixture:
             m.tau.append(tau_disp)
             m.ID = f"|{float(m.er):.4f}+{float(m.se):.4f}+{float(m.mr):.4f}+{float(m.sm):.4f}|"
             G.materials.append(m)
-            self.matID.append(m.numID)
+            material_ids.append(m.numID)
+
+        self.matID = material_ids
 
 
 def create_built_in_materials(G):
@@ -1148,6 +1183,10 @@ def process_materials(G):
         materialsdata: list of material IDs, names, and properties to
                         print a table.
     """
+
+    from gprMax.dispersive_stability import validate_grid_dispersive_timestep
+
+    validate_grid_dispersive_timestep(G)
 
     if G.maxpoles == 0:
         materialsdata = [

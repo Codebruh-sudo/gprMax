@@ -64,12 +64,21 @@ def _success(result):
 
 @pytest.mark.parametrize("axis", range(3))
 @pytest.mark.slow
-@pytest.mark.parametrize("direction", (-1, 1))
+@pytest.mark.parametrize(
+    "direction,start_cell",
+    (
+        pytest.param(-1, 22, id="negative-outer"),
+        pytest.param(1, 18, id="positive-internal"),
+        pytest.param(-1, 42, id="negative-internal"),
+    ),
+)
 @pytest.mark.parametrize("kind", ("hertzian", "magnetic", "rx"))
-def test_stepped_objects_keep_their_origin_after_rank_migration(tmp_path, axis, direction, kind):
+def test_stepped_objects_keep_their_origin_after_rank_migration(
+    tmp_path, axis, direction, start_cell, kind
+):
     partition = [1, 1, 1]
     partition[axis] = 3
-    kwargs = dict(axis=axis, direction=direction, kind=kind)
+    kwargs = dict(axis=axis, direction=direction, start_cell=start_cell, kind=kind)
     serial, distributed = tmp_path / "serial", tmp_path / "mpi"
     _success(_run("scan", serial, **kwargs))
     _success(_run("scan", distributed, partition, **kwargs))
@@ -231,7 +240,11 @@ def _worker(args):
         return
     if args.case == "scan":
         position = np.array([0.012] * 3)
-        position[args.axis] = 0.036 if args.direction > 0 else 0.044
+        position[args.axis] = (
+            args.start_cell * dl
+            if args.start_cell is not None
+            else (0.036 if args.direction > 0 else 0.044)
+        )
         source = gprMax.MagneticDipole if args.kind == "magnetic" else gprMax.HertzianDipole
         scene.add(source(p1=tuple(position), polarisation="z", waveform_id="pulse"))
         receiver = position.copy()
@@ -319,6 +332,7 @@ if __name__ == "__main__":
     parser.add_argument("--precision", default="double")
     parser.add_argument("--axis", type=int, default=0)
     parser.add_argument("--direction", type=int, default=1)
+    parser.add_argument("--start-cell", type=int)
     parser.add_argument("--kind", default="hertzian")
     parser.add_argument("--restart", type=int, default=1)
     parser.add_argument("--averaging", default="y")

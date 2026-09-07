@@ -27,7 +27,7 @@ from gprMax.hash_cmds_file import get_user_objects
 from gprMax.user_objects.cmds_output import Radiometry
 
 
-def _lossy_scene(*, plane_wave=False):
+def _lossy_scene(*, plane_wave=False, conductivity=0.2):
     dl = 0.002
     scene = gprMax.Scene()
     scene.add(gprMax.Domain(p1=(0.032, 0.024, 0.024)))
@@ -35,7 +35,7 @@ def _lossy_scene(*, plane_wave=False):
     scene.add(gprMax.TimeWindow(time=2e-9))
     scene.add(gprMax.PMLThickness(thickness=2))
     scene.add(gprMax.OMPThreads(1))
-    scene.add(gprMax.Material(er=2.5, se=0.2, mr=1, sm=0, id="lossy"))
+    scene.add(gprMax.Material(er=2.5, se=conductivity, mr=1, sm=0, id="lossy"))
     scene.add(
         gprMax.Box(
             p1=(0.016, 0.006, 0.006),
@@ -178,6 +178,117 @@ def test_radiometry_port_weighting_is_independent_of_requested_power(tmp_path):
         one_watt.result.normalised_absorption_density,
         rtol=2e-6,
     )
+
+
+@pytest.mark.parametrize(
+    "source_kind,normalisation,expected_units",
+    (
+        ("voltage", "waveform", "V"),
+        ("current", "waveform", "A"),
+        ("current", "current_moment", "A m"),
+    ),
+)
+def test_radiometry_source_normalisation_unit_labels_match_saved_values(
+    tmp_path, source_kind, normalisation, expected_units
+):
+    scene = _lossy_scene()
+    if source_kind == "current":
+        voltage_source = next(
+            item for item in scene.grid_objects if isinstance(item, gprMax.VoltageSource)
+        )
+        scene.grid_objects.remove(voltage_source)
+        scene.add(
+            gprMax.HertzianDipole(p1=(0.012, 0.012, 0.012), polarisation="z", waveform_id="pulse")
+        )
+    target_amplitude = 0.01
+    output = gprMax.Radiometry(
+        frequencies=(1e9,),
+        tags="target",
+        waveform_id="pulse",
+        id="normalised",
+        normalisation=normalisation,
+        target_amplitude=target_amplitude,
+    )
+    scene.add(output)
+    filename = tmp_path / f"radiometry_{source_kind}_{normalisation}"
+    gprMax.run(scenes=[scene], n=1, outputfile=filename, hide_progress_bars=True)
+
+    result = output.result
+    assert result.valid[0]
+    np.testing.assert_array_equal(
+        result.normalised_absorption_density,
+        result.absorbed_power_density / target_amplitude**2,
+    )
+    with h5py.File(str(filename) + ".h5", "r") as data:
+        group = data["radiometry/normalised"]
+        # Unit metadata must describe the arrays actually written, without
+        # applying another numerical scaling during serialization.
+        np.testing.assert_array_equal(
+            group["absorbed_power_density"][...], result.absorbed_power_density
+        )
+        np.testing.assert_array_equal(
+            group["normalised_absorption_density"][...], result.normalised_absorption_density
+        )
+        assert group.attrs["TargetAmplitudeUnits"] == expected_units
+        assert group.attrs["NormalisedAbsorptionDensityUnits"] == f"W/m3/({expected_units})2"
+        assert group.attrs["IntegratedNormalisedAbsorptionUnits"] == f"W/({expected_units})2"
+        assert group["tags/target"].attrs["NormalisedAbsorptionUnits"] == f"W/({expected_units})2"
+
+
+@pytest.mark.parametrize("conductivity", (0.0, 0.2))
+@pytest.mark.filterwarnings("error::RuntimeWarning")
+def test_absorption_tag_summaries_preserve_invalid_frequencies_and_valid_zeros(
+    tmp_path, conductivity
+):
+    scene = _lossy_scene(conductivity=conductivity)
+    scene.add(gprMax.MaterialDensity(density=1000, material_ids="lossy"))
+    # This tag exists but has no sampled physical cells because it lies in PML.
+    scene.add(
+        gprMax.Box(
+            p1=(0.0, 0.0, 0.0),
+            p2=(0.002, 0.002, 0.002),
+            material_id="lossy",
+            tag="empty",
+        )
+    )
+    for output_class, output_id in ((gprMax.SAR, "sar"), (gprMax.Radiometry, "rad")):
+        scene.add(
+            output_class(
+                frequencies=(1e9, 20e9),
+                tags=("target", "empty"),
+                waveform_id="pulse",
+                id=output_id,
+                spectrum_limit="nyquist",
+            )
+        )
+    filename = tmp_path / "absorption_band_summaries"
+    gprMax.run(scenes=[scene], n=1, outputfile=filename, hide_progress_bars=True)
+
+    with h5py.File(str(filename) + ".h5", "r") as data:
+        for path in ("sar/sar", "radiometry/rad"):
+            group = data[path]
+            np.testing.assert_array_equal(group["valid"][...], (1, 0))
+            assert np.all(np.isnan(group["absorbed_power_density"][1]))
+            for tag in ("target", "empty"):
+                summary = group[f"tags/{tag}"]
+                power = summary["absorbed_power"][...]
+                assert np.isnan(power[1])
+                if tag == "empty" or conductivity == 0:
+                    assert power[0] == 0.0
+                else:
+                    assert power[0] > 0
+                if path.startswith("sar/"):
+                    average = summary["mass_average_sar"][...]
+                    assert np.isnan(average[1])
+                    if tag == "empty":
+                        assert np.isnan(average[0])
+                    if tag == "target" and conductivity == 0:
+                        assert average[0] == 0.0
+                else:
+                    weighting = summary["normalised_absorption"][...]
+                    assert np.isnan(weighting[1])
+                    if tag == "empty" or conductivity == 0:
+                        assert weighting[0] == 0.0
 
 
 def test_radiometry_state_is_reset_for_geometry_fixed_runs(tmp_path):

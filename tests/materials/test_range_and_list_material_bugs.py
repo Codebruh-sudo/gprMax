@@ -15,24 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with gprMax. If not, see <https://www.gnu.org/licenses/>.
 
-"""Regression tests for two materials.py bugs (Codex-reported):
-
-1. RangeMaterial.calculate_properties() only appended a REUSED existing
-   material's numID to self.matID when `iter == 0`. Any LATER bin
-   (iter > 0) that happened to reuse an already-existing material (e.g.
-   because its rounded properties collided with a material already in
-   G.materials) appended nothing at all, leaving matID shorter than
-   nbins and every subsequent bin's index into it wrong
-   (fractal_box.py's `mixingmodel.matID[int(numberinbin)]` lookup).
-   Fixed by appending the reused material's numID on every iteration
-   where one is found, not just iter == 0.
-
-2. ListMaterial.calculate_properties() accessed `material.numID` before
-   checking whether `material` is None - a missing/misspelled material
-   ID would raise AttributeError instead of reaching the intended
-   ValueError with a clear "material(s) ... do not exist" message. Fixed
-   by moving the None check first.
-"""
+"""Material-bin reuse must preserve indexing; missing list entries must fail clearly."""
 import pytest
 
 from gprMax.materials import ListMaterial, Material, RangeMaterial
@@ -41,17 +24,16 @@ from gprMax.materials import ListMaterial, Material, RangeMaterial
 def test_range_material_appends_one_entry_per_bin_even_when_a_later_bin_reuses_a_material():
     materials = []
 
-    # bin0 (er=1.5) is new; bin1 (er=2.5) is pre-populated as an EXISTING
-    # material below, so bin1's reuse happens at iter=1, not iter=0 - the
-    # exact case the old `iter == 0` guard mishandled.
-    existing = Material(numID=99, ID="|2.5000+0.0000+1.0000+0.0000|")
-    materials.append(existing)
-
     class _Grid:
         pass
 
     grid = _Grid()
     grid.materials = materials
+    # Populate the later bin through the range builder, with actual er=2.5
+    # rather than a material whose name alone appears to specify that value.
+    previous = RangeMaterial("previous", (2.5, 2.5), (0.0, 0.0), (1.0, 1.0), (0.0, 0.0))
+    previous.calculate_properties(1, grid)
+    existing = grid.materials[previous.matID[0]]
 
     rm = RangeMaterial(
         ID="range1",
@@ -67,7 +49,8 @@ def test_range_material_appends_one_entry_per_bin_even_when_a_later_bin_reuses_a
     # bin0 must be a genuinely new material, distinct from the reused one
     assert rm.matID[0] != existing.numID
     new_material = next(m for m in grid.materials if m.numID == rm.matID[0])
-    assert new_material.ID == "|1.5000+0.0000+1.0000+0.0000|"
+    assert new_material.er == 1.5
+    assert existing.er == 2.5
 
 
 def test_list_material_missing_material_raises_valueerror_not_attributeerror():

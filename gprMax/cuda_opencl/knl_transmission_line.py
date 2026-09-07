@@ -237,43 +237,48 @@ update_transmission_line_electric = {
         """
     $CUDA_IDX
 
-    if (i < NTL) {
-        int x = tl_info[i * $NY_TLINFO + 0];
-        int y = tl_info[i * $NY_TLINFO + 1];
-        int z = tl_info[i * $NY_TLINFO + 2];
-        int polarisation = tl_info[i * $NY_TLINFO + 3];
-        int offset = tl_info[i * $NY_TLINFO + 4];
-        int nl = tl_info[i * $NY_TLINFO + 5];
-        int srcpos = tl_info[i * $NY_TLINFO + 6];
-        int antpos = tl_info[i * $NY_TLINFO + 7];
-        int first_active = tl_info[i * $NY_TLINFO + 8];
-        int last_active = tl_info[i * $NY_TLINFO + 9];
+    // Like the CPU source loop, advance every active line in list order.
+    // Coincident terminals overwrite the same electric edge, so the last
+    // active line must win. Their private line states must all advance.
+    if (i == 0) {
+        for (int source = 0; source < NTL; source++) {
+            int x = tl_info[source * $NY_TLINFO + 0];
+            int y = tl_info[source * $NY_TLINFO + 1];
+            int z = tl_info[source * $NY_TLINFO + 2];
+            int polarisation = tl_info[source * $NY_TLINFO + 3];
+            int offset = tl_info[source * $NY_TLINFO + 4];
+            int nl = tl_info[source * $NY_TLINFO + 5];
+            int srcpos = tl_info[source * $NY_TLINFO + 6];
+            int antpos = tl_info[source * $NY_TLINFO + 7];
+            int first_active = tl_info[source * $NY_TLINFO + 8];
+            int last_active = tl_info[source * $NY_TLINFO + 9];
 
-        if (iteration >= first_active && iteration <= last_active) {
-            for (int linepos = 1; linepos < nl; linepos++) {
-                int pos = offset + linepos;
-                voltage[pos] -= resistance[i] * line_coefficient *
-                    (current[pos] - current[pos - 1]);
-            }
-            voltage[offset + srcpos] +=
-                line_coefficient * waveform_whole[i * $NY_TLWAVES + iteration];
+            if (iteration >= first_active && iteration <= last_active) {
+                for (int linepos = 1; linepos < nl; linepos++) {
+                    int pos = offset + linepos;
+                    voltage[pos] -= resistance[source] * line_coefficient *
+                        (current[pos] - current[pos - 1]);
+                }
+                voltage[offset + srcpos] +=
+                    line_coefficient * waveform_whole[source * $NY_TLWAVES + iteration];
 
-            // First-order absorbing boundary at the remote end of the line.
-            $REAL boundary_voltage = abc_coefficient *
-                (voltage[offset + 1] - abcv0[i]) + abcv1[i];
-            voltage[offset] = boundary_voltage;
-            abcv0[i] = boundary_voltage;
-            abcv1[i] = voltage[offset + 1];
+                // First-order absorbing boundary at the remote end of the line.
+                $REAL boundary_voltage = abc_coefficient *
+                    (voltage[offset + 1] - abcv0[source]) + abcv1[source];
+                voltage[offset] = boundary_voltage;
+                abcv0[source] = boundary_voltage;
+                abcv1[source] = voltage[offset + 1];
 
-            $REAL terminal_voltage = voltage[offset + antpos];
-            if (polarisation == 0) {
-                Ex[IDX3D_FIELDS(x,y,z)] = -terminal_voltage / dx;
-            }
-            else if (polarisation == 1) {
-                Ey[IDX3D_FIELDS(x,y,z)] = -terminal_voltage / dy;
-            }
-            else {
-                Ez[IDX3D_FIELDS(x,y,z)] = -terminal_voltage / dz;
+                $REAL terminal_voltage = voltage[offset + antpos];
+                if (polarisation == 0) {
+                    Ex[IDX3D_FIELDS(x,y,z)] = -terminal_voltage / dx;
+                }
+                else if (polarisation == 1) {
+                    Ey[IDX3D_FIELDS(x,y,z)] = -terminal_voltage / dy;
+                }
+                else {
+                    Ez[IDX3D_FIELDS(x,y,z)] = -terminal_voltage / dz;
+                }
             }
         }
     }

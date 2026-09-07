@@ -43,7 +43,13 @@ MAX_DIRECTION_BLOCK = 1024
 
 @dataclass(frozen=True)
 class EquivalentCurrentPhasors:
-    """Love currents collocated at common cell-face centres."""
+    """Love-current DFTs collocated at common cell-face centres.
+
+    Positions and unit normals have shape ``(npatches, 3)``; positions are in
+    metres and area weights in m2. Current arrays have shape
+    ``(nfrequencies, npatches, 3)`` in Cartesian component order. They retain
+    the input field DFT's time-integration factor and frequency ordering.
+    """
 
     positions: npt.NDArray[np.floating]
     normals: npt.NDArray[np.floating]
@@ -134,7 +140,13 @@ def _collocate_tangential_component(data, face_id: str) -> npt.NDArray:
 def collocate_love_currents(
     surface_data: Mapping[str, object],
 ) -> EquivalentCurrentPhasors:
-    """Form ``J = n x H`` and ``M = -n x E`` on common active faces."""
+    """Form ``J = n x H`` and ``M = -n x E`` on common active faces.
+
+    KSIR component surfaces are staggered, so their raw patch arrays cannot
+    be combined directly as vectors. Tangential components are first
+    collocated onto a common cell-face grid. Normal field components are not
+    needed by either cross product.
+    """
 
     missing = set(ALL_COMPONENTS) - set(surface_data)
     if missing:
@@ -163,9 +175,7 @@ def collocate_love_currents(
         ):
             raise ValueError("surface DFT components are not compatible")
         if tuple(face.face_id for face in data.surface.faces) != active_faces:
-            raise ValueError(
-                "equivalent-current surface components must use the same active faces"
-            )
+            raise ValueError("equivalent-current surface components must use the same active faces")
 
     all_positions = []
     all_normals = []

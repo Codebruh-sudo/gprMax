@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with gprMax. If not, see <https://www.gnu.org/licenses/>.
 
+from dataclasses import replace
 from types import SimpleNamespace
 
 import h5py
@@ -243,3 +244,42 @@ def test_output_contains_fast_time_and_optional_deramped_products(tmp_path):
         assert result["fast_time"].attrs["Window"] == "hann"
         assert result["fast_time/receiver_delay_response"].shape == (32,)
         assert result["deramped_sweep/I"].shape == (32,)
+
+
+@pytest.mark.parametrize(
+    "input_role", ["target_source", "target_receiver", "background_source", "background_receiver"]
+)
+@pytest.mark.parametrize("alias_kind", ["same_path", "symlink", "hardlink"])
+def test_fmcw_output_cannot_overwrite_any_input(tmp_path, input_role, alias_kind):
+    chirp = Chirp(100e6, 500e6, 1e-3, 8)
+    channel = _channel(chirp, np.ones(chirp.samples))
+    background = _channel(chirp, np.zeros(chirp.samples)).target
+    channel = replace(channel, background=background)
+    signals = {
+        "target_source": channel.target.source,
+        "target_receiver": channel.target.receiver,
+        "background_source": channel.background.source,
+        "background_receiver": channel.background.receiver,
+    }
+    files = {}
+    for role, signal in signals.items():
+        path = tmp_path / f"{role}.h5"
+        with h5py.File(path, "w") as output:
+            output.attrs["original_input"] = role
+        signal.filename = str(path)
+        files[role] = path
+    before = {role: path.read_bytes() for role, path in files.items()}
+    destination = files[input_role]
+    if alias_kind != "same_path":
+        destination = tmp_path / "alias.h5"
+        if alias_kind == "symlink":
+            destination.symlink_to(files[input_role])
+        else:
+            destination.hardlink_to(files[input_role])
+    fast = reconstruct_fast_time(channel)
+
+    with pytest.raises(ValueError, match="must not overwrite an input"):
+        write_fmcw_output(destination, channel, fast)
+
+    for role, path in files.items():
+        assert path.read_bytes() == before[role]

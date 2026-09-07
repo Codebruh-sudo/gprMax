@@ -17,6 +17,9 @@
 
 """Device-data and shared-template tests for transmission-line sources."""
 
+import ctypes
+import shutil
+import subprocess
 from types import SimpleNamespace
 
 import numpy as np
@@ -84,11 +87,137 @@ def test_transmission_line_host_arrays_pack_state_and_activity(float64_config):
     assert arrays["resistance"].dtype == np.float64
 
 
-def test_transmission_line_host_arrays_reject_duplicate_port(float64_config):
+def test_transmission_line_host_arrays_keep_coincident_line_states_separate(float64_config):
     grid = SimpleNamespace(iterations=4, dt=0.1)
+    first = _line()
+    second = _line()
+    second.voltage *= 2
+    second.current *= 3
+    second.resistance = 75.0
 
-    with pytest.raises(ValueError, match="same Yee electric-field edge"):
-        transmission_line_host_arrays([_line(), _line()], grid)
+    arrays = transmission_line_host_arrays([first, second], grid)
+
+    np.testing.assert_array_equal(arrays["info"][:, :4], [[2, 3, 4, 2]] * 2)
+    np.testing.assert_array_equal(arrays["info"][:, 4], [0, first.nl])
+    np.testing.assert_array_equal(
+        arrays["voltage"], np.concatenate((first.voltage, second.voltage))
+    )
+    np.testing.assert_array_equal(
+        arrays["current"], np.concatenate((first.current, second.current))
+    )
+    np.testing.assert_array_equal(arrays["resistance"], [50.0, 75.0])
+
+
+@pytest.fixture(scope="module")
+def compiled_transmission_line_electric(tmp_path_factory):
+    """Execute the shared kernel body on CPU without a device dependency."""
+    compiler = shutil.which("g++")
+    if compiler is None:
+        pytest.skip("A C++ compiler is required to exercise the shared source kernel")
+    path = tmp_path_factory.mktemp("transmission-line-kernel")
+    arguments = (
+        knl_transmission_line.update_transmission_line_electric["args_cuda"]
+        .substitute(REAL="double")
+        .replace("__global__ void", 'extern "C" void')
+        .replace(
+            "update_transmission_line_electric(",
+            "update_transmission_line_electric(int thread_index,",
+        )
+    )
+    body = knl_transmission_line.update_transmission_line_electric["func"].substitute(
+        CUDA_IDX="int i = thread_index;",
+        REAL="double",
+        NY_TLINFO=10,
+        NY_TLWAVES=5,
+    )
+    source = path / "kernel.cpp"
+    source.write_text(
+        "#define IDX3D_FIELDS(x,y,z) ((x)*25+(y)*5+(z))\n" + arguments + " {\n" + body + "\n}\n"
+    )
+    library_path = path / "kernel.so"
+    subprocess.run(
+        [compiler, "-shared", "-fPIC", "-O0", str(source), "-o", str(library_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    library = ctypes.CDLL(str(library_path))
+    kernel = library.update_transmission_line_electric
+    kernel.argtypes = (
+        [ctypes.c_int] * 3
+        + [ctypes.c_double] * 5
+        + [np.ctypeslib.ndpointer(dtype=np.int32, flags="C_CONTIGUOUS")]
+        + [np.ctypeslib.ndpointer(dtype=np.float64, flags="C_CONTIGUOUS")] * 9
+    )
+    kernel.restype = None
+    return kernel
+
+
+@pytest.mark.parametrize("polarisation", ["x", "y", "z"])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("inactive_last", [False, True])
+def test_coincident_transmission_lines_match_cpu_order_and_state(
+    float64_config,
+    compiled_transmission_line_electric,
+    polarisation,
+    reverse,
+    inactive_last,
+):
+    grid = SimpleNamespace(iterations=4, dt=0.1, dx=0.01, dy=0.02, dz=0.03)
+    lines = []
+    for scale in (1, 2):
+        line = TransmissionLine(80, grid.dt)
+        for name, value in vars(_line(polarisation)).items():
+            setattr(line, name, value)
+        line.voltage *= scale
+        line.current *= scale + 1
+        line.resistance *= scale
+        line.start, line.stop = 0.0, 0.3
+        lines.append(line)
+    if reverse:
+        lines.reverse()
+    if inactive_last:
+        lines[-1].start, lines[-1].stop = 0.05, 0.15
+    arrays = transmission_line_host_arrays(lines, grid)
+    expected = [np.full((5, 5, 5), value) for value in (1.0, 2.0, 3.0)]
+    actual = [field.copy() for field in expected]
+    line_coefficient = config.c * grid.dt / lines[0].dl
+    abc_coefficient = (config.c * grid.dt - lines[0].dl) / (config.c * grid.dt + lines[0].dl)
+
+    for iteration in range(grid.iterations):
+        for line in lines:
+            line.update_electric(iteration, None, None, *expected, grid)
+        # Visiting non-owner work items first also catches a return to the
+        # former one-work-item-per-line write ordering without a GPU race.
+        for work_item in (3, 2, 1, 0):
+            compiled_transmission_line_electric(
+                work_item,
+                len(lines),
+                iteration,
+                grid.dx,
+                grid.dy,
+                grid.dz,
+                line_coefficient,
+                abc_coefficient,
+                arrays["info"],
+                arrays["resistance"],
+                arrays["waveform_whole"],
+                arrays["voltage"],
+                arrays["current"],
+                arrays["abcv0"],
+                arrays["abcv1"],
+                *actual,
+            )
+        for observed, reference in zip(actual, expected):
+            np.testing.assert_allclose(observed, reference, rtol=1e-14, atol=1e-14)
+        np.testing.assert_allclose(
+            arrays["voltage"], np.concatenate([line.voltage for line in lines])
+        )
+        np.testing.assert_allclose(
+            arrays["current"], np.concatenate([line.current for line in lines])
+        )
+        np.testing.assert_allclose(arrays["abcv0"], [line.abcv0 for line in lines])
+        np.testing.assert_allclose(arrays["abcv1"], [line.abcv1 for line in lines])
 
 
 def test_dtoh_transmission_line_outputs(float64_config):
@@ -159,7 +288,9 @@ def test_metal_transmission_line_dispatch_preserves_kernel_contract(
 ):
     calls = []
     updates = MetalUpdates.__new__(MetalUpdates)
-    updates._dispatch_1d = lambda pipeline, scalars, buffers, count: calls.append((pipeline, scalars, buffers, count))
+    updates._dispatch_1d = lambda pipeline, scalars, buffers, count: calls.append(
+        (pipeline, scalars, buffers, count)
+    )
     updates.pso_transmission_line_magnetic = "magnetic_pipeline"
     updates.pso_transmission_line_electric = "electric_pipeline"
     updates.tl_line_coefficient = np.float64(0.25)
@@ -240,7 +371,9 @@ def test_transmission_line_dispatch_follows_magnetic_writers(float64_config, upd
     updates.update_transmission_line_magnetic_dev = lambda *args, **kwargs: calls.append(
         ("transmission_line", args, kwargs)
     )
-    updates.update_magnetic_dipole_dev = lambda *args, **kwargs: calls.append(("magnetic_dipole", args, kwargs))
+    updates.update_magnetic_dipole_dev = lambda *args, **kwargs: calls.append(
+        ("magnetic_dipole", args, kwargs)
+    )
 
     def buffer(name):
         return SimpleNamespace(gpudata=name) if updates_cls is CUDAUpdates else name
@@ -285,7 +418,11 @@ def test_transmission_line_dispatch_follows_magnetic_writers(float64_config, upd
         "Hy",
         "Hz",
     )
-    expected_kwargs = {"block": (32, 1, 1), "grid": (1, 1, 1)} if updates_cls is CUDAUpdates else {"range": slice(0, 2)}
+    expected_kwargs = (
+        {"block": (32, 1, 1), "grid": (1, 1, 1)}
+        if updates_cls is CUDAUpdates
+        else {"range": slice(0, 2)}
+    )
     assert kwargs == expected_kwargs
 
 

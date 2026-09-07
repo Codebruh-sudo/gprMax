@@ -58,8 +58,8 @@ update_hertzian_dipole = {
                                             device const $REAL& dy,
                                             device const $REAL& dz,
                                             device const int* srcinfo1,
-                                            device const $REAL* srcinfo2,    
-                                            device const $REAL* srcwaveforms,    
+                                            device const $REAL* srcinfo2,
+                                            device const $REAL* srcwaveforms,
                                             device const uint* ID,
                                             device $REAL* Ex,
                                             device $REAL* Ey,
@@ -82,39 +82,43 @@ update_hertzian_dipole = {
 
     $CUDA_IDX
 
-    if (i < NHERTZDIPOLE) {
+    // Coincident sources may share a field component. One work-item applies
+    // the list in CPU order, so no contribution can overwrite another in flight.
+    if (i == 0) {
+        for (int source = 0; source < NHERTZDIPOLE; ++source) {
 
-        $REAL dl;
-        int x, y, z, polarisation;
+            $REAL dl;
+            int x, y, z, polarisation;
 
-        x = srcinfo1[IDX2D_SRCINFO(i,0)];
-        y = srcinfo1[IDX2D_SRCINFO(i,1)];
-        z = srcinfo1[IDX2D_SRCINFO(i,2)];
-        polarisation = srcinfo1[IDX2D_SRCINFO(i,3)];
-        dl = srcinfo2[i];
+            x = srcinfo1[IDX2D_SRCINFO(source,0)];
+            y = srcinfo1[IDX2D_SRCINFO(source,1)];
+            z = srcinfo1[IDX2D_SRCINFO(source,2)];
+            polarisation = srcinfo1[IDX2D_SRCINFO(source,3)];
+            dl = srcinfo2[source];
 
-        // Precompute reciprocal of cell volume to avoid per-branch division
-        $REAL vol_inv = 1 / (dx * dy * dz);
+            // Precompute reciprocal of cell volume to avoid per-branch division
+            $REAL vol_inv = 1 / (dx * dy * dz);
 
-        // 'x' polarised source
-        if (polarisation == 0) {
-            int materialEx = ID[IDX4D_ID(0,x,y,z)];
-            Ex[IDX3D_FIELDS(x,y,z)] = Ex[IDX3D_FIELDS(x,y,z)] - updatecoeffsE[IDX2D_MAT(materialEx,4)] *
-                                        srcwaveforms[IDX2D_SRCWAVES(i,iteration)] * dl * vol_inv;
-        }
+            // 'x' polarised source
+            if (polarisation == 0) {
+                int materialEx = ID[IDX4D_ID(0,x,y,z)];
+                Ex[IDX3D_FIELDS(x,y,z)] = Ex[IDX3D_FIELDS(x,y,z)] - updatecoeffsE[IDX2D_MAT(materialEx,4)] *
+                                            srcwaveforms[IDX2D_SRCWAVES(source,iteration)] * dl * vol_inv;
+            }
 
-        // 'y' polarised source
-        else if (polarisation == 1) {
-            int materialEy = ID[IDX4D_ID(1,x,y,z)];
-            Ey[IDX3D_FIELDS(x,y,z)] = Ey[IDX3D_FIELDS(x,y,z)] - updatecoeffsE[IDX2D_MAT(materialEy,4)] *
-                                        srcwaveforms[IDX2D_SRCWAVES(i,iteration)] * dl * vol_inv;
-        }
+            // 'y' polarised source
+            else if (polarisation == 1) {
+                int materialEy = ID[IDX4D_ID(1,x,y,z)];
+                Ey[IDX3D_FIELDS(x,y,z)] = Ey[IDX3D_FIELDS(x,y,z)] - updatecoeffsE[IDX2D_MAT(materialEy,4)] *
+                                            srcwaveforms[IDX2D_SRCWAVES(source,iteration)] * dl * vol_inv;
+            }
 
-        // 'z' polarised source
-        else if (polarisation == 2) {
-            int materialEz = ID[IDX4D_ID(2,x,y,z)];
-            Ez[IDX3D_FIELDS(x,y,z)] = Ez[IDX3D_FIELDS(x,y,z)] - updatecoeffsE[IDX2D_MAT(materialEz,4)] *
-                                        srcwaveforms[IDX2D_SRCWAVES(i,iteration)] * dl * vol_inv;
+            // 'z' polarised source
+            else if (polarisation == 2) {
+                int materialEz = ID[IDX4D_ID(2,x,y,z)];
+                Ez[IDX3D_FIELDS(x,y,z)] = Ez[IDX3D_FIELDS(x,y,z)] - updatecoeffsE[IDX2D_MAT(materialEz,4)] *
+                                            srcwaveforms[IDX2D_SRCWAVES(source,iteration)] * dl * vol_inv;
+            }
         }
     }
 """
@@ -160,13 +164,13 @@ update_magnetic_dipole = {
                                             device const int& iteration,
                                             device const $REAL& dx,
                                             device const $REAL& dy,
-                                            device const $REAL& dz,  
+                                            device const $REAL& dz,
                                             device const int* srcinfo1,
-                                            device const $REAL* srcinfo2,    
-                                            device const $REAL* srcwaveforms,    
+                                            device const $REAL* srcinfo2,
+                                            device const $REAL* srcwaveforms,
                                             device const uint* ID,
                                             device $REAL* Hx,
-                                            device $REAL* Hy,  
+                                            device $REAL* Hy,
                                             device $REAL* Hz,
                                             uint i [[thread_position_in_grid]])
                                         """
@@ -186,37 +190,41 @@ update_magnetic_dipole = {
 
     $CUDA_IDX
 
-    if (i < NMAGDIPOLE) {
+    // Coincident sources may share a field component. One work-item applies
+    // the list in CPU order, so no contribution can overwrite another in flight.
+    if (i == 0) {
+        for (int source = 0; source < NMAGDIPOLE; ++source) {
 
-        int x, y, z, polarisation;
+            int x, y, z, polarisation;
 
-        x = srcinfo1[IDX2D_SRCINFO(i,0)];
-        y = srcinfo1[IDX2D_SRCINFO(i,1)];
-        z = srcinfo1[IDX2D_SRCINFO(i,2)];
-        polarisation = srcinfo1[IDX2D_SRCINFO(i,3)];
+            x = srcinfo1[IDX2D_SRCINFO(source,0)];
+            y = srcinfo1[IDX2D_SRCINFO(source,1)];
+            z = srcinfo1[IDX2D_SRCINFO(source,2)];
+            polarisation = srcinfo1[IDX2D_SRCINFO(source,3)];
 
-        // Precompute reciprocal of cell volume to avoid per-branch division
-        $REAL vol_inv = 1 / (dx * dy * dz);
+            // Precompute reciprocal of cell volume to avoid per-branch division
+            $REAL vol_inv = 1 / (dx * dy * dz);
 
-        // 'x' polarised source
-        if (polarisation == 0) {
-            int materialHx = ID[IDX4D_ID(3,x,y,z)];
-            Hx[IDX3D_FIELDS(x,y,z)] = Hx[IDX3D_FIELDS(x,y,z)] - updatecoeffsH[IDX2D_MAT(materialHx,4)] *
-                                        srcwaveforms[IDX2D_SRCWAVES(i,iteration)] * vol_inv;
-        }
+            // 'x' polarised source
+            if (polarisation == 0) {
+                int materialHx = ID[IDX4D_ID(3,x,y,z)];
+                Hx[IDX3D_FIELDS(x,y,z)] = Hx[IDX3D_FIELDS(x,y,z)] - updatecoeffsH[IDX2D_MAT(materialHx,4)] *
+                                            srcwaveforms[IDX2D_SRCWAVES(source,iteration)] * vol_inv;
+            }
 
-        // 'y' polarised source
-        else if (polarisation == 1) {
-            int materialHy = ID[IDX4D_ID(4,x,y,z)];
-            Hy[IDX3D_FIELDS(x,y,z)] = Hy[IDX3D_FIELDS(x,y,z)] - updatecoeffsH[IDX2D_MAT(materialHy,4)] *
-                                        srcwaveforms[IDX2D_SRCWAVES(i,iteration)] * vol_inv;
-        }
+            // 'y' polarised source
+            else if (polarisation == 1) {
+                int materialHy = ID[IDX4D_ID(4,x,y,z)];
+                Hy[IDX3D_FIELDS(x,y,z)] = Hy[IDX3D_FIELDS(x,y,z)] - updatecoeffsH[IDX2D_MAT(materialHy,4)] *
+                                            srcwaveforms[IDX2D_SRCWAVES(source,iteration)] * vol_inv;
+            }
 
-        // 'z' polarised source
-        else if (polarisation == 2) {
-            int materialHz = ID[IDX4D_ID(5,x,y,z)];
-            Hz[IDX3D_FIELDS(x,y,z)] = Hz[IDX3D_FIELDS(x,y,z)] - updatecoeffsH[IDX2D_MAT(materialHz,4)] *
-                                        srcwaveforms[IDX2D_SRCWAVES(i,iteration)] * vol_inv;
+            // 'z' polarised source
+            else if (polarisation == 2) {
+                int materialHz = ID[IDX4D_ID(5,x,y,z)];
+                Hz[IDX3D_FIELDS(x,y,z)] = Hz[IDX3D_FIELDS(x,y,z)] - updatecoeffsH[IDX2D_MAT(materialHz,4)] *
+                                            srcwaveforms[IDX2D_SRCWAVES(source,iteration)] * vol_inv;
+            }
         }
     }
 """
@@ -262,13 +270,13 @@ update_voltage_source = {
                                             device const int& iteration,
                                             device const $REAL& dx,
                                             device const $REAL& dy,
-                                            device const $REAL& dz,  
-                                            device const int* srcinfo1,    
-                                            device const $REAL* srcinfo2,     
-                                            device const $REAL* srcwaveforms,    
-                                            device const uint* ID,    
-                                            device $REAL* Ex,    
-                                            device $REAL* Ey,   
+                                            device const $REAL& dz,
+                                            device const int* srcinfo1,
+                                            device const $REAL* srcinfo2,
+                                            device const $REAL* srcwaveforms,
+                                            device const uint* ID,
+                                            device $REAL* Ex,
+                                            device $REAL* Ey,
                                             device $REAL* Ez,
                                             uint i [[thread_position_in_grid]])
                                         """
@@ -288,84 +296,69 @@ update_voltage_source = {
 
     $CUDA_IDX
 
-    if (i < NVOLTSRC) {
+    // Preserve CPU list order, including hard assignments mixed with additive
+    // voltage drives. Only one work-item may read or write the shared E edges.
+    if (i == 0) {
+        for (int source = 0; source < NVOLTSRC; ++source) {
 
-        $REAL resistance;
-        int x, y, z, polarisation;
+            $REAL resistance;
+            int x, y, z, polarisation;
 
-        x = srcinfo1[IDX2D_SRCINFO(i,0)];
-        y = srcinfo1[IDX2D_SRCINFO(i,1)];
-        z = srcinfo1[IDX2D_SRCINFO(i,2)];
-        polarisation = srcinfo1[IDX2D_SRCINFO(i,3)];
-        resistance = srcinfo2[i];
+            x = srcinfo1[IDX2D_SRCINFO(source,0)];
+            y = srcinfo1[IDX2D_SRCINFO(source,1)];
+            z = srcinfo1[IDX2D_SRCINFO(source,2)];
+            polarisation = srcinfo1[IDX2D_SRCINFO(source,3)];
+            resistance = srcinfo2[source];
 
-        // Voltage activity follows the four-int coordinate rows. Inactive
-        // hard sources release the edge; zero samples while active still
-        // impose zero E. Soft-source arithmetic and waveform timing are
-        // unchanged.
-        int activity_offset = 4 * NVOLTSRC + 2 * i;
-        int first_active = srcinfo1[activity_offset];
-        int last_active = srcinfo1[activity_offset + 1];
-        int active = iteration >= first_active && iteration <= last_active;
+            // Voltage activity follows the four-int coordinate rows. Inactive
+            // hard sources release the edge; zero samples while active still
+            // impose zero E. Soft-source arithmetic and waveform timing are
+            // unchanged.
+            int activity_offset = 4 * NVOLTSRC + 2 * source;
+            int first_active = srcinfo1[activity_offset];
+            int last_active = srcinfo1[activity_offset + 1];
+            int active = iteration >= first_active && iteration <= last_active;
 
-        // 'x' polarised source
-        if (polarisation == 0) {
-            if (resistance != 0) {
-                int materialEx = ID[IDX4D_ID(0,x,y,z)];
-                $REAL area_inv = 1 / (resistance * dy * dz);
-                Ex[IDX3D_FIELDS(x,y,z)] = Ex[IDX3D_FIELDS(x,y,z)] - updatecoeffsE[IDX2D_MAT(materialEx,4)] *
-                                            srcwaveforms[IDX2D_SRCWAVES(i,iteration)] * area_inv;
+            // 'x' polarised source
+            if (polarisation == 0) {
+                if (resistance != 0) {
+                    int materialEx = ID[IDX4D_ID(0,x,y,z)];
+                    $REAL area_inv = 1 / (resistance * dy * dz);
+                    Ex[IDX3D_FIELDS(x,y,z)] = Ex[IDX3D_FIELDS(x,y,z)] - updatecoeffsE[IDX2D_MAT(materialEx,4)] *
+                                                srcwaveforms[IDX2D_SRCWAVES(source,iteration)] * area_inv;
+                }
+                else if (active) {
+                    Ex[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(source,iteration)] / dx;
+                }
             }
-            else if (active) {
-                Ex[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(i,iteration)] / dx;
-            }
-        }
 
-        // 'y' polarised source
-        else if (polarisation == 1) {
-            if (resistance != 0) {
-                int materialEy = ID[IDX4D_ID(1,x,y,z)];
-                $REAL area_inv = 1 / (resistance * dx * dz);
-                Ey[IDX3D_FIELDS(x,y,z)] = Ey[IDX3D_FIELDS(x,y,z)] - updatecoeffsE[IDX2D_MAT(materialEy,4)] *
-                                            srcwaveforms[IDX2D_SRCWAVES(i,iteration)] * area_inv;
+            // 'y' polarised source
+            else if (polarisation == 1) {
+                if (resistance != 0) {
+                    int materialEy = ID[IDX4D_ID(1,x,y,z)];
+                    $REAL area_inv = 1 / (resistance * dx * dz);
+                    Ey[IDX3D_FIELDS(x,y,z)] = Ey[IDX3D_FIELDS(x,y,z)] - updatecoeffsE[IDX2D_MAT(materialEy,4)] *
+                                                srcwaveforms[IDX2D_SRCWAVES(source,iteration)] * area_inv;
+                }
+                else if (active) {
+                    Ey[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(source,iteration)] / dy;
+                }
             }
-            else if (active) {
-                Ey[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(i,iteration)] / dy;
-            }
-        }
 
-        // 'z' polarised source
-        else if (polarisation == 2) {
-            if (resistance != 0) {
-                int materialEz = ID[IDX4D_ID(2,x,y,z)];
-                $REAL area_inv = 1 / (resistance * dx * dy);
-                Ez[IDX3D_FIELDS(x,y,z)] = Ez[IDX3D_FIELDS(x,y,z)] - updatecoeffsE[IDX2D_MAT(materialEz,4)] *
-                                            srcwaveforms[IDX2D_SRCWAVES(i,iteration)] * area_inv;
-            }
-            else if (active) {
-                Ez[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(i,iteration)] / dz;
+            // 'z' polarised source
+            else if (polarisation == 2) {
+                if (resistance != 0) {
+                    int materialEz = ID[IDX4D_ID(2,x,y,z)];
+                    $REAL area_inv = 1 / (resistance * dx * dy);
+                    Ez[IDX3D_FIELDS(x,y,z)] = Ez[IDX3D_FIELDS(x,y,z)] - updatecoeffsE[IDX2D_MAT(materialEz,4)] *
+                                                srcwaveforms[IDX2D_SRCWAVES(source,iteration)] * area_inv;
+                }
+                else if (active) {
+                    Ez[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(source,iteration)] / dz;
+                }
             }
         }
     }
 """
     ),
-}                
-                                        
-
-       
-       
-                                            
-                                           
-                                            
-    
-
-                                           
-   
-                                           
-                                            
-   
-    
-
-   
-
-      
+}

@@ -22,6 +22,9 @@ from cython.parallel import prange
 
 from gprMax.config cimport float_or_double
 
+# Match spacing to the field/coefficient precision; a C float would round
+# double-precision grid spacing before the correction is evaluated.
+
 
 cpdef void order1_xminus(
     int xs,
@@ -45,7 +48,7 @@ cpdef void order1_xminus(
     float_or_double[:, ::1] RB,
     float_or_double[:, ::1] RE,
     float_or_double[:, ::1] RF,
-    float d
+    float_or_double d
 ):
     """Updates the Hy and Hz field components for the xminus slab.
 
@@ -115,7 +118,7 @@ cpdef void order2_xminus(
     float_or_double[:, ::1] RB,
     float_or_double[:, ::1] RE,
     float_or_double[:, ::1] RF,
-    float d
+    float_or_double d
 ):
     """Updates the Hy and Hz field components for the xminus slab.
 
@@ -193,7 +196,7 @@ cpdef void order1_xplus(
     float_or_double[:, ::1] RB,
     float_or_double[:, ::1] RE,
     float_or_double[:, ::1] RF,
-    float d
+    float_or_double d
 ):
     """Updates the Hy and Hz field components for the xplus slab.
 
@@ -263,7 +266,7 @@ cpdef void order2_xplus(
     float_or_double[:, ::1] RB,
     float_or_double[:, ::1] RE,
     float_or_double[:, ::1] RF,
-    float d
+    float_or_double d
 ):
     """Updates the Hy and Hz field components for the xplus slab.
 
@@ -341,7 +344,7 @@ cpdef void order1_yminus(
     float_or_double[:, ::1] RB,
     float_or_double[:, ::1] RE,
     float_or_double[:, ::1] RF,
-    float d
+    float_or_double d
 ):
     """Updates the Hx and Hz field components for the yminus slab.
 
@@ -411,7 +414,7 @@ cpdef void order2_yminus(
     float_or_double[:, ::1] RB,
     float_or_double[:, ::1] RE,
     float_or_double[:, ::1] RF,
-    float d
+    float_or_double d
 ):
     """Updates the Hx and Hz field components for the yminus slab.
 
@@ -489,7 +492,7 @@ cpdef void order1_yplus(
     float_or_double[:, ::1] RB,
     float_or_double[:, ::1] RE,
     float_or_double[:, ::1] RF,
-    float d
+    float_or_double d
 ):
     """Updates the Hx and Hz field components for the yplus slab.
 
@@ -559,7 +562,7 @@ cpdef void order2_yplus(
     float_or_double[:, ::1] RB,
     float_or_double[:, ::1] RE,
     float_or_double[:, ::1] RF,
-    float d
+    float_or_double d
 ):
     """Updates the Hx and Hz field components for the yplus slab.
 
@@ -637,7 +640,7 @@ cpdef void order1_zminus(
     float_or_double[:, ::1] RB,
     float_or_double[:, ::1] RE,
     float_or_double[:, ::1] RF,
-    float d
+    float_or_double d
 ):
     """Updates the Hx and Hy field components for the zminus slab.
 
@@ -707,7 +710,7 @@ cpdef void order2_zminus(
     float_or_double[:, ::1] RB,
     float_or_double[:, ::1] RE,
     float_or_double[:, ::1] RF,
-    float d
+    float_or_double d
 ):
     """Updates the Hx and Hy field components for the zminus slab.
 
@@ -785,7 +788,7 @@ cpdef void order1_zplus(
     float_or_double[:, ::1] RB,
     float_or_double[:, ::1] RE,
     float_or_double[:, ::1] RF,
-    float d
+    float_or_double d
 ):
     """Updates the Hx and Hy field components for the zplus slab.
 
@@ -855,7 +858,7 @@ cpdef void order2_zplus(
     float_or_double[:, ::1] RB,
     float_or_double[:, ::1] RE,
     float_or_double[:, ::1] RF,
-    float d
+    float_or_double d
 ):
     """Updates the Hx and Hy field components for the zplus slab.
 

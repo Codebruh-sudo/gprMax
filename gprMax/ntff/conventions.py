@@ -32,7 +32,6 @@ from typing import Optional
 import numpy as np
 import numpy.typing as npt
 
-
 PHASOR_TIME_DEPENDENCE = "exp(+j*omega*t)"
 FORWARD_TRANSFORM_KERNEL = "exp(-j*omega*t)"
 OUTGOING_GREEN_RADIAL_FACTOR = "exp(-j*k*R)"
@@ -49,9 +48,16 @@ def engineering_dft(
 ) -> npt.NDArray[np.complexfloating]:
     """Evaluate the engineering-convention DFT at arbitrary frequencies.
 
-    This is a small NumPy reference implementation for tests and prototypes;
-    the production collector will use a recursive phasor. The transformed time
-    axis is replaced by a leading frequency axis.
+    This NumPy implementation transforms an available sample history, including
+    source histories used for output normalisation. Streaming collectors use
+    recursive phasors instead of constructing the full frequency/time phase
+    array. The transformed time axis is replaced by a leading frequency axis.
+    The ``dt`` factor gives the output units of the samples multiplied by
+    seconds; no amplitude or window-gain normalisation is applied here.
+    Phase arguments use at least float64 even for float32 samples: rounding
+    large frequency-time products can otherwise introduce a false residual
+    at a source-spectrum notch. Phasors and accumulation retain the complex
+    precision selected from the sample dtype.
 
     Args:
         samples: Real or complex time samples.
@@ -82,7 +88,8 @@ def engineering_dft(
     else:
         real_dtype = np.dtype(float)
         complex_dtype = np.dtype(complex)
-    freqs = np.asarray(frequencies, dtype=real_dtype)
+    phase_dtype = np.promote_types(real_dtype, np.float64)
+    freqs = np.asarray(frequencies, dtype=phase_dtype)
     if freqs.ndim != 1 or freqs.size == 0:
         raise ValueError("frequencies must be a non-empty one-dimensional array")
     if not np.all(np.isfinite(freqs)) or np.any(freqs < 0):
@@ -106,13 +113,9 @@ def engineering_dft(
         if not np.all(np.isfinite(weights)):
             raise ValueError("window must contain only finite values")
 
-    times = time_offset + dt * np.arange(nsamples, dtype=real_dtype)
-    phase = np.exp(
-        -2j * np.pi * freqs[:, np.newaxis] * times[np.newaxis, :]
-    ).astype(complex_dtype)
-    values = values.astype(
-        complex_dtype if values.dtype.kind == "c" else real_dtype, copy=False
-    )
+    times = time_offset + dt * np.arange(nsamples, dtype=phase_dtype)
+    phase = np.exp(-2j * np.pi * freqs[:, np.newaxis] * times[np.newaxis, :]).astype(complex_dtype)
+    values = values.astype(complex_dtype if values.dtype.kind == "c" else real_dtype, copy=False)
     weighted_values = values * weights.reshape((nsamples,) + (1,) * (values.ndim - 1))
     return np.asarray(
         dt * np.tensordot(phase, weighted_values, axes=((1,), (0,))),

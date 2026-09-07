@@ -452,6 +452,9 @@ cpdef void build_voxel(
         solid, rigidE, rigidH, ID: memoryviews to access solid, rigid and ID arrays.
     """
 
+    # The volume path changes claims owned by this cell only. A neighbouring
+    # cell may still keep the shared component rigid after an overwrite;
+    # explicit magnetic-edge setters have separate neighbour-claim semantics.
     if averaging:
         solid[i, j, k] = numID
         unset_rigid_E(i, j, k, rigidE)
@@ -1415,6 +1418,12 @@ cpdef void build_voxels_from_array(
         solid, rigidE, rigidH, ID: memoryviews to access solid, rigid and ID arrays.
     """
 
+    # Caller contract: data is contiguous and its origin matches xs/ys/zs;
+    # entries are -1 (skip) or material IDs before the additive offset below.
+    # Both lookup arrays must cover every resulting target-grid material ID.
+    # "Global" here distinguishes the grid catalogue from file-local indices,
+    # not a guarantee about numeric IDs on other MPI ranks. Public geometry
+    # import validates/remaps its file indices first and passes offset zero.
     cdef Py_ssize_t i, j, k
     cdef int xf, yf, zf, numID
     cdef bint pec, voxel_averaging
@@ -1478,7 +1487,7 @@ cpdef void build_voxels_from_array_mask(
     np.uint8_t[::1] is_pec_lookup,
     np.uint8_t[::1] is_averagable_lookup,
     np.int8_t[:, :, ::1] mask,
-    np.int16_t[:, :, ::1] data,
+    voxel_material_id_t[:, :, ::1] data,
     np.uint32_t[:, :, ::1] solid,
     np.int8_t[:, :, :, ::1] rigidE,
     np.int8_t[:, :, :, ::1] rigidH,
@@ -1501,7 +1510,9 @@ cpdef void build_voxels_from_array_mask(
                     PEC (or PEC-equivalent) - see build_voxel().
         is_averagable_lookup: memoryview indexed by numID, True where that
                     material permits dielectric smoothing (Material.averagable).
-        data: memoryview to access array containing numeric IDs of voxels to create.
+        data: int16 or int32 memoryview containing numeric IDs of voxels to
+                    create. Target-grid material IDs must not be narrowed to
+                    compact int16 indices.
         mask: memoryview to access to array containing a mask of voxels to create.
         solid, rigidE, rigidH, ID: memoryviews to access solid, rigid and ID arrays.
     """

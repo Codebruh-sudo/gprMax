@@ -356,6 +356,10 @@ def build_symmetry_boundary_edges(grid) -> list:
     dropped entirely, not included with both flags False, so the
     per-iteration dispatcher never even calls into it.
 
+    Both bordering faces must also be global domain faces touched by this
+    grid. On an MPI rank, a local array limit at a partition seam is not a
+    symmetry-domain edge, even if the other bordering face is global PMC.
+
     Args:
         grid: FDTDGrid class describing a grid in a model.
 
@@ -391,15 +395,14 @@ def build_symmetry_boundary_edges_dispersive(grid) -> list:
     the functions returned here always match the arrays they'll be called
     with.
 
+    The same two-global-face ownership rule as the non-dispersive builder
+    applies: MPI partition seams do not create additional physical edges.
+
     Returns:
         edges: list of (cython_func, a_pmc, b_pmc, t_attr, e_attr, h1_attr,
             h2_attr) tuples for FDTDGrid.symmetry_boundary_edges_dispersive.
     """
-    table = (
-        _EDGE_TABLE_DISPERSIVE_COMPLEX
-        if grid.drudelorentz
-        else _EDGE_TABLE_DISPERSIVE
-    )
+    table = _EDGE_TABLE_DISPERSIVE_COMPLEX if grid.drudelorentz else _EDGE_TABLE_DISPERSIVE
     face_is_pmc = {face: grid.symmetry_boundaries.get(face) == "pmc" for face in _ALL_FACES}
 
     edges = []
@@ -420,17 +423,14 @@ def build_symmetry_boundary_edges_dispersive_b(grid) -> list:
     """Dispersive Phase-B counterpart of build_symmetry_boundary_edges().
 
     See build_symmetry_boundary_edges_dispersive() for the real/complex
-    table selection.
+    table selection and the global-face ownership rule. Phase B selects the
+    same physical edges as phase A, not extra edges at MPI partition seams.
 
     Returns:
         edges: list of (cython_func, t_attr, e_attr) tuples for
             FDTDGrid.symmetry_boundary_edges_dispersive_b.
     """
-    table = (
-        _EDGE_TABLE_DISPERSIVE_B_COMPLEX
-        if grid.drudelorentz
-        else _EDGE_TABLE_DISPERSIVE_B
-    )
+    table = _EDGE_TABLE_DISPERSIVE_B_COMPLEX if grid.drudelorentz else _EDGE_TABLE_DISPERSIVE_B
     face_is_pmc = {face: grid.symmetry_boundaries.get(face) == "pmc" for face in _ALL_FACES}
 
     edges = []

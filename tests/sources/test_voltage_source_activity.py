@@ -24,7 +24,9 @@ def _backend(monkeypatch, backend, dtype):
                 assert options == 0
                 return data
 
-        monkeypatch.setattr(config, "get_model_config", lambda: SimpleNamespace(device={"dev": Device()}))
+        monkeypatch.setattr(
+            config, "get_model_config", lambda: SimpleNamespace(device={"dev": Device()})
+        )
     else:
         package = "pycuda" if backend == "cuda" else "pyopencl"
         name = "gpuarray" if backend == "cuda" else "array"
@@ -44,7 +46,9 @@ def _host(value, dtype):
 @pytest.mark.parametrize("backend", ["cuda", "opencl", "metal"])
 @pytest.mark.parametrize("dtype", [np.float32, np.float64], ids=["single", "double"])
 @pytest.mark.parametrize("polarisation", ["x", "y", "z"])
-def test_voltage_tail_preserves_rows_and_exact_inclusive_host_times(monkeypatch, backend, dtype, polarisation):
+def test_voltage_tail_preserves_rows_and_exact_inclusive_host_times(
+    monkeypatch, backend, dtype, polarisation
+):
     _backend(monkeypatch, backend, dtype)
     grid = SimpleNamespace(iterations=10, dt=0.1)
     exact = 3 * grid.dt
@@ -69,7 +73,11 @@ def test_voltage_tail_preserves_rows_and_exact_inclusive_host_times(monkeypatch,
         source.waveformvalues_halfdt = source.waveformvalues_wholedt + 0.5
         sources.append(source)
     info, resistance, waveforms = htod_src_arrays(sources, grid)
-    info, resistance, waveforms = (_host(info, np.int32), _host(resistance, dtype), _host(waveforms, dtype))
+    info, resistance, waveforms = (
+        _host(info, np.int32),
+        _host(resistance, dtype),
+        _host(waveforms, dtype),
+    )
     assert info.size == 6 * len(sources)
     coords = info[: 4 * len(sources)].reshape(-1, 4)
     activity = info[4 * len(sources) :].reshape(-1, 2)
@@ -77,9 +85,13 @@ def test_voltage_tail_preserves_rows_and_exact_inclusive_host_times(monkeypatch,
         np.testing.assert_array_equal(coords[index], [*source.coord, "xyz".index(polarisation)])
         first, last = activity[index]
         for iteration in range(grid.iterations + 1):
-            assert (first <= iteration <= last) == (source.start <= iteration * grid.dt <= source.stop)
+            assert (first <= iteration <= last) == (
+                source.start <= iteration * grid.dt <= source.stop
+            )
         assert resistance[index] == source.resistance
-        expected = source.waveformvalues_halfdt if source.resistance else source.waveformvalues_wholedt
+        expected = (
+            source.waveformvalues_halfdt if source.resistance else source.waveformvalues_wholedt
+        )
         np.testing.assert_array_equal(waveforms.reshape(-1, 11)[index], expected)
     # A later study upload must use the current window, not a cached interval.
     sources[0].start, sources[0].stop = exact, 0.5
@@ -101,9 +113,12 @@ def test_non_voltage_source_layout_is_unchanged(monkeypatch, backend, family):
         source.waveformvalues_wholedt = np.arange(4) + 10 * index
         sources.append(source)
     info, other, waveforms = htod_src_arrays(sources, grid)
-    np.testing.assert_array_equal(_host(info, np.int32).reshape(-1, 4), [[i, i + 1, i + 2, i] for i in range(3)])
     np.testing.assert_array_equal(
-        _host(other, np.float64), [source.dl if family is HertzianDipole else 0 for source in sources]
+        _host(info, np.int32).reshape(-1, 4), [[i, i + 1, i + 2, i] for i in range(3)]
+    )
+    np.testing.assert_array_equal(
+        _host(other, np.float64),
+        [source.dl if family is HertzianDipole else 0 for source in sources],
     )
     expected = [
         source.waveformvalues_halfdt if family is HertzianDipole else source.waveformvalues_wholedt
@@ -118,10 +133,13 @@ def test_every_shared_template_gates_only_hard_assignment(backend, real):
     args = update_voltage_source[f"args_{backend}"].substitute(REAL=real)
     body = update_voltage_source["func"].substitute(REAL=real, CUDA_IDX="")
     assert args.count("srcinfo1") == 1
-    assert "int activity_offset = 4 * NVOLTSRC + 2 * i;" in body
+    assert "int activity_offset = 4 * NVOLTSRC + 2 * source;" in body
     assert "int active = iteration >= first_active && iteration <= last_active;" in body
     assert body.count("else if (active)") == 3
     assert body.count("if (resistance != 0)") == 3
-    assert "return;" not in body  # OpenCL may loop over multiple sources per work item.
+    assert "return;" not in body  # An inactive source must not skip later sources.
     for component, spacing in zip(("Ex", "Ey", "Ez"), ("dx", "dy", "dz")):
-        assert f"{component}[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(i,iteration)] / {spacing};" in body
+        assert (
+            f"{component}[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(source,iteration)] / {spacing};"
+            in body
+        )

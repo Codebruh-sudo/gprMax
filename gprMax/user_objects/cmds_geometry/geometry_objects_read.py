@@ -16,6 +16,7 @@
 # along with gprMax. If not, see <https://www.gnu.org/licenses/>.
 
 import logging
+import shlex
 from pathlib import Path
 
 import h5py
@@ -23,9 +24,11 @@ import numpy as np
 
 import gprMax.config as config
 from gprMax.cython.geometry_primitives import build_voxels_from_array
-from gprMax.geometry_outputs.geometry_objects_read import ReadGeometryObject
+from gprMax.geometry_outputs.geometry_objects_read import (
+    ReadGeometryObject,
+    read_geometry_tag_names,
+)
 from gprMax.grid.fdtd_grid import FDTDGrid
-from gprMax.hash_cmds_file import get_user_objects
 from gprMax.material_database import (
     build_material_from_spec,
     load_material_spec,
@@ -36,13 +39,33 @@ from gprMax.user_objects.user_objects import GeometryUserObject
 logger = logging.getLogger(__name__)
 
 
+def _legacy_conversion_error(geofile, matfile="materials.txt"):
+    command = shlex.join(
+        [
+            "python",
+            "-m",
+            "toolboxes.MaterialDatabase",
+            "convert-geometry",
+            str(geofile),
+            str(matfile),
+        ]
+    )
+    return ValueError(
+        "GeometryObjectsRead requires keyed HDF5 geometry and a JSON material database. "
+        "Legacy text material files are no longer accepted by the simulator. "
+        f"Convert the original pair first: {command}. "
+        "Use the converted HDF5 file and the printed database name in geometry_objects_read "
+        "(API: material_database=...). The converter leaves the source files unchanged."
+    )
+
+
 class GeometryObjectsRead(GeometryUserObject):
     """Allows you to insert pre-defined geometry into a model.
 
-    The geometry is specified using integer arrays in an HDF5 file. New files
+    The geometry is specified using integer arrays in an HDF5 file. These files
     contain ``/material_keys`` which map their compact integer indices to a
-    versioned JSON material database. Legacy ``#material`` text files remain
-    readable for compatibility.
+    versioned JSON material database. Convert legacy HDF5/text pairs first with
+    ``python -m toolboxes.MaterialDatabase convert-geometry``.
 
     Attributes:
         p1: list of lower left (x,y,z) coordinates in the domain where
@@ -50,8 +73,8 @@ class GeometryObjectsRead(GeometryUserObject):
             placed.
         geofile: string path to and filename of the HDF5 file that
             contains an integer array which defines the geometry.
-        material_database: database name for a new-format geometry file.
-        matfile: legacy text material file (deprecated).
+        material_database: database name, without ``.json``, for a keyed
+            geometry file. The JSON file must be beside the HDF5 file.
         averaging: optional ``"y"``/``"n"`` flag controlling interface
             averaging when a voxel-only file is reconstructed. The default
             is ``"n"``. Files containing complete ``/ID``, ``/rigidE``, and
@@ -63,6 +86,11 @@ class GeometryObjectsRead(GeometryUserObject):
         return "#geometry_objects_read"
 
     def __init__(self, **kwargs):
+        if kwargs.get("matfile") is not None:
+            raise _legacy_conversion_error(kwargs.get("geofile", "geometry.h5"), kwargs["matfile"])
+        database = kwargs.get("material_database")
+        if isinstance(database, (str, Path)) and str(database).lower().endswith(".txt"):
+            raise _legacy_conversion_error(kwargs.get("geofile", "geometry.h5"), database)
         super().__init__(**kwargs)
         self._declared_tags_cache = None
 
@@ -90,19 +118,7 @@ class GeometryObjectsRead(GeometryUserObject):
         if self._declared_tags_cache is None:
             geofile = self._resolve_geofile()
             with h5py.File(geofile, "r") as geometry:
-                if "/tag_names" not in geometry:
-                    self._declared_tags_cache = ()
-                else:
-                    raw_names = geometry["/tag_names"][:]
-                    names = tuple(
-                        value.decode("utf-8") if isinstance(value, bytes) else str(value)
-                        for value in raw_names
-                    )
-                    if not names or names[0] != "untagged":
-                        raise ValueError(
-                            f"Geometry file '{geofile}' has an invalid /tag_names catalogue"
-                        )
-                    self._declared_tags_cache = names[1:]
+                self._declared_tags_cache = read_geometry_tag_names(geometry)[1:]
         return self._declared_tags_cache
 
     def build(self, grid: FDTDGrid):
@@ -114,21 +130,17 @@ class GeometryObjectsRead(GeometryUserObject):
             logger.exception(f"{self.__str__()} requires exactly five parameters")
             raise
         material_database = self.kwargs.get("material_database")
-        matfile = self.kwargs.get("matfile")
         averaging = self._resolve_averaging()
-        if (material_database is None) == (matfile is None):
+        if material_database is None:
             raise ValueError(
-                f"{self.params_str()} requires exactly one of material_database or legacy matfile"
+                f"{self.params_str()} requires material_database (a JSON database name)"
             )
 
         geofile = self._resolve_geofile()
 
-        if material_database is not None:
-            material_id_map, material_description = self._build_database_material_map(
-                grid, geofile, material_database
-            )
-        else:
-            material_id_map, material_description = self._build_legacy_material_map(grid, matfile)
+        material_id_map, material_description = self._build_database_material_map(
+            grid, geofile, material_database
+        )
 
         # Discretise the point using uip object. This has different behaviour
         # depending on the type of uip object. So we can use it for
@@ -228,10 +240,7 @@ class GeometryObjectsRead(GeometryUserObject):
         search_directory = Path(geofile).parent
         with h5py.File(geofile, "r") as geometry:
             if "/material_keys" not in geometry:
-                raise ValueError(
-                    f"Geometry file '{geofile}' has no /material_keys dataset; "
-                    "supply its legacy matfile instead"
-                )
+                raise _legacy_conversion_error(geofile)
             recorded_database = geometry.attrs.get("MaterialDatabase")
             if isinstance(recorded_database, bytes):
                 recorded_database = recorded_database.decode("utf-8")
@@ -279,77 +288,3 @@ class GeometryObjectsRead(GeometryUserObject):
             existing_by_id[namespaced_id] = created
             material_id_map[index] = created.numID
         return material_id_map, f"material database {database}"
-
-    def _build_legacy_material_map(self, grid, matfile):
-        """Build the mapping used by pre-database geometry object pairs."""
-
-        # See if material file exists at specified path and if not try input
-        # file directory
-        matfile = Path(matfile)
-
-        if not matfile.exists():
-            matfile = Path(config.sim_config.input_file_path.parent, matfile)
-
-        matstr = matfile.with_suffix("").name
-
-        # Read materials from file. Strip out any newline characters and
-        # comments that must begin with double hashes.
-        with open(matfile, "r") as f:
-            raw_lines = [
-                line.rstrip()
-                for line in f
-                if (line.startswith("#") and not line.startswith("##") and line.rstrip("\n"))
-            ]
-
-        # The file's /data and /ID arrays use 0-based indices into the
-        # *materials* only (in file order) - any #add_dispersion_* line
-        # describes the material immediately preceding it and doesn't get
-        # its own index. Group lines by material so each group can be
-        # checked, by ID name, against materials already in this grid -
-        # this covers the builtin pec/pmc/free_space (in whatever order or
-        # subset the exporting region actually used) and anything already
-        # read in from a previous #geometry_objects_read, rather than
-        # assuming a fixed count/order of builtin materials.
-        material_groups = []
-        for line in raw_lines:
-            if line.startswith("#material:"):
-                material_id = line.rsplit(" ", 1)[-1]
-                material_groups.append((material_id, [line]))
-            else:
-                material_groups[-1][1].append(line)
-
-        existing_by_id = {m.ID: m.numID for m in grid.materials}
-        material_id_map = np.empty(len(material_groups), dtype=np.int32)
-        lines_to_build = []
-        groups_to_build = []
-        for index, (material_id, lines) in enumerate(material_groups):
-            if material_id in existing_by_id:
-                # Already exists in this grid (e.g. a builtin) - reuse it
-                # rather than redeclaring it, which would either collide
-                # with the existing material or create a needless duplicate.
-                material_id_map[index] = existing_by_id[material_id]
-            else:
-                namespaced_id = f"{material_id}{{{matstr}}}"
-                lines_to_build.extend(f"{line}{{{matstr}}}\n" for line in lines)
-                groups_to_build.append((index, namespaced_id))
-
-        # Build scene
-        # API for multiple scenes / model runs
-        scene = config.get_model_config().get_scene()
-        assert scene is not None
-        material_objs = get_user_objects(lines_to_build, checkessential=False)
-        for material_obj in material_objs:
-            scene.add(material_obj)
-
-        # Creates the internal simulation objects
-        scene.build_grid_objects(material_objs, grid)
-
-        # Fill in numIDs for the materials that were actually (re)built, and
-        # tag them as imported. Materials reused from the existing grid
-        # (e.g. builtins) keep their original type/numID untouched.
-        materials_by_id = {m.ID: m for m in grid.materials}
-        for index, namespaced_id in groups_to_build:
-            material = materials_by_id[namespaced_id]
-            material_id_map[index] = material.numID
-            material.type = f"{material.type},\nimported" if material.type else "imported"
-        return material_id_map, f"legacy materials file {matfile}"

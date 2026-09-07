@@ -25,6 +25,7 @@ cube is fractional.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 
 import numpy as np
@@ -61,7 +62,19 @@ USED_CELL_VOLUME_THRESHOLD = 0.999
 
 @dataclass(frozen=True)
 class SpatialAverageSARResult:
-    """One mass-based spatial-average SAR distribution."""
+    """One mass-based spatial-average SAR distribution on the input cell grid.
+
+    Array axes are x/y/z. SAR is in W/kg, averaging mass in kg and averaging
+    volume in m3. Output orientations 1..6 identify the starting faces
+    -x, +x, -y, +y, -z, +z; 7 denotes a centred cube and 0 no assigned cube.
+    Cells receiving a neighbouring centred cube's SAR can have a finite SAR
+    without their own mass, volume or orientation entry.
+
+    Status records the averaging procedure, not just finite output: INVALID
+    is background, UNUSED has no accepted centred-cube coverage, USED is
+    covered by another accepted centred cube, and VALID has its own accepted
+    centred cube. Face-centred results retain UNUSED status.
+    """
 
     target_mass: float
     sar: npt.NDArray[np.floating]
@@ -75,7 +88,17 @@ class SpatialAverageSARResult:
 
 @dataclass(frozen=True)
 class SpatialAverageSARPlan:
-    """Geometry-only data reused across frequencies for one target mass."""
+    """Density- and grid-dependent geometry reused for one target mass.
+
+    ``tissue`` and ``status`` have the input x/y/z cell shape. Centred and
+    boundary cell lists have three columns of integer indices; centred side
+    lengths and masses have one entry per centred cell. Face side lengths
+    and masses have shape ``(nboundary_cells, 6)``. Lengths are in metres and
+    masses in kg. Reuse requires unchanged density values and grid spacing,
+    not merely the same tissue/background mask. A compact density fingerprint
+    checks reuse without retaining another full density volume. Spacing is an
+    independent read-only snapshot of the supplied cell sizes.
+    """
 
     target_mass: float
     spacing: npt.NDArray[np.float64]
@@ -90,10 +113,11 @@ class SpatialAverageSARPlan:
     face_volume_tolerance: float
     used_volume_threshold: float
     nthreads: int
+    density_fingerprint: bytes
 
     @property
     def nbytes(self) -> int:
-        """Memory occupied by reusable plan arrays."""
+        """Reusable array and fingerprint bytes, excluding Python object overhead."""
 
         arrays = (
             self.spacing,
@@ -106,11 +130,34 @@ class SpatialAverageSARPlan:
             self.face_sides,
             self.face_masses,
         )
-        return int(sum(array.nbytes for array in arrays))
+        return int(sum(array.nbytes for array in arrays) + len(self.density_fingerprint))
+
+
+def _density_fingerprint(density: npt.NDArray[np.float64]) -> bytes:
+    """Hash canonical C-order density, ignoring non-finite background values.
+
+    Public entry points already convert density to contiguous float64. Hash
+    at most 1 MiB of values at a time, rather than copying the whole volume;
+    replacing background by zero makes different NaN representations agree.
+    Tissue membership is checked separately when applying the plan.
+    """
+
+    fingerprint = hashlib.sha256()
+    values = density.reshape(-1)
+    chunk_cells = 131072
+    for start in range(0, values.size, chunk_cells):
+        chunk = values[start : start + chunk_cells]
+        canonical = np.where(np.isfinite(chunk), chunk, 0.0)
+        fingerprint.update(memoryview(canonical))
+    return fingerprint.digest()
 
 
 def _prefix_integral(values, spacing):
-    """Integral at grid vertices for a piecewise-constant cell quantity."""
+    """Integrate a cell quantity to vertices, including the cell-volume factor.
+
+    An input of shape ``(nx, ny, nz)`` gives ``(nx + 1, ny + 1, nz + 1)``;
+    each zero-index plane represents an empty integration interval.
+    """
 
     prefix = np.pad(np.asarray(values, dtype=np.float64), ((1, 0),) * 3)
     prefix = prefix.cumsum(0).cumsum(1).cumsum(2)
@@ -118,7 +165,12 @@ def _prefix_integral(values, spacing):
 
 
 def _integral_at(prefix, spacing, point):
-    """Trilinearly evaluate a cellwise-constant cumulative integral."""
+    """Evaluate the cumulative integral at a physical x/y/z point in metres.
+
+    Trilinear interpolation of the vertex integrals accounts for fractional
+    cell volumes; it does not interpolate the original cell-centred density
+    or SAR. Coordinates are clipped to the integral's grid extent.
+    """
 
     shape = np.asarray(prefix.shape) - 1
     coordinate = np.clip(np.asarray(point) / spacing, 0, shape)
@@ -191,7 +243,12 @@ def _bounds_for_cube(center, side, orientation, spacing=None):
 
 
 def _find_cube(density, integrals, spacing, cell, target_mass, orientation):
-    """Find a centred (6) or face-centred (0..5) target-mass cube."""
+    """Find a centred (6) or face-centred (0..5) target-mass cube.
+
+    Candidate orientations are zero-based here, unlike the stored result's
+    1..7 encoding. Cube bounds must remain inside the array domain; failure
+    to enclose the requested mass returns None rather than a smaller mass.
+    """
 
     if _find_mass_cube_cython is not None:
         return _find_mass_cube_cython(
@@ -457,10 +514,16 @@ def build_spatial_average_plan(
     face_volume_tolerance: float = 0.05,
     nthreads: int = 1,
 ) -> SpatialAverageSARPlan:
-    """Precompute all density/tag/grid-dependent averaging geometry."""
+    """Precompute density- and grid-dependent averaging geometry.
+
+    ``density`` is a 3-D x/y/z cell array in kg/m3; non-finite entries mark
+    background. ``spacing`` contains the three cell sizes in metres and
+    ``target_mass`` is in kg. Geometry is independent of local SAR, so this
+    compiled plan can serve multiple frequencies with unchanged density.
+    """
 
     rho = np.ascontiguousarray(density, dtype=np.float64)
-    dl = np.ascontiguousarray(spacing, dtype=np.float64)
+    dl = np.array(spacing, dtype=np.float64, order="C", copy=True)
     if rho.ndim != 3:
         raise ValueError("density must be a 3-D array")
     if dl.shape != (3,) or not np.all(np.isfinite(dl)) or np.any(dl <= 0):
@@ -535,6 +598,7 @@ def build_spatial_average_plan(
         face_sides,
         face_masses,
     )
+    dl.setflags(write=False)
     return SpatialAverageSARPlan(
         target_mass=float(target_mass),
         spacing=dl,
@@ -549,6 +613,7 @@ def build_spatial_average_plan(
         face_volume_tolerance=float(face_volume_tolerance),
         used_volume_threshold=USED_CELL_VOLUME_THRESHOLD,
         nthreads=nthreads,
+        density_fingerprint=_density_fingerprint(rho),
     )
 
 
@@ -557,7 +622,14 @@ def apply_spatial_average_plan(
     local_sar: npt.ArrayLike,
     density: npt.ArrayLike,
 ) -> SpatialAverageSARResult:
-    """Apply a local-SAR field to a reusable spatial-averaging plan."""
+    """Apply a local-SAR field in W/kg to a reusable averaging plan.
+
+    Supply the same density values used to build the plan: cached cube
+    masses and sizes depend on them. Shape, tissue membership and a canonical
+    float64 density fingerprint are checked before using the cached geometry.
+    Equivalent dtype/layout representations and NaN backgrounds are accepted;
+    changed tissue density requires rebuilding the plan.
+    """
 
     rho = np.ascontiguousarray(density, dtype=np.float64)
     sar = np.ascontiguousarray(local_sar, dtype=np.float64)
@@ -568,6 +640,8 @@ def apply_spatial_average_plan(
         raise ValueError("tissue density must be positive and local SAR finite")
     if not np.array_equal(np.isfinite(rho), tissue):
         raise ValueError("density tissue membership differs from the averaging plan")
+    if _density_fingerprint(rho) != plan.density_fingerprint:
+        raise ValueError("density values differ from the averaging plan; rebuild the plan")
 
     absorbed_prefix = _prefix_integral(np.where(tissue, rho * sar, 0.0), plan.spacing)
     output = np.full(rho.shape, np.nan, dtype=np.float64)

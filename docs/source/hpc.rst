@@ -80,6 +80,12 @@ In this example, the model will be divided across 8 MPI ranks in a 2 x 2 x 2 pat
 
 The ``--mpi`` argument is passed to gprMax which takes three integers to define the number of MPI processes in the x, y, and z dimensions to form a cartesian grid.
 
+Point sources and receivers have a single MPI owner. An internal partition
+plane belongs to the rank on its positive side; a global upper plane belongs
+to the last rank along that axis, including on PMC symmetry faces. This
+ownership rule does not relax source-specific placement restrictions or make
+every field component valid on a boundary.
+
 Unlike the grid engine examples, here we specify the number of CPUs per task (16) and the number of tasks (8), rather than the total number of CPUs/slots.
 
 .. note::

@@ -7,7 +7,13 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
-"""Timing-aware stepped-frequency processing of gprMax impulse responses."""
+"""Convert stored gprMax time histories to stepped-frequency responses.
+
+The loaders retain each source/receiver's physical sample-zero time. The
+transforms use those offsets before source normalisation, so electric and
+magnetic histories need not share a time origin. FMCW and ImpulseResponse
+reuse these loaders and the time-first array convention.
+"""
 
 from __future__ import annotations
 
@@ -24,8 +30,10 @@ from scipy.signal import czt, fftconvolve
 class SampledSignal:
     """A uniformly sampled signal with an explicit physical time origin.
 
-    The first array dimension is time. Receiver samples may have a second
-    dimension containing the traces of a merged B-scan.
+    ``samples`` has shape ``(nt,)`` or ``(nt, ntraces)``; a merged B-scan
+    keeps traces on axis 1. Sample n is at ``time_offset + n*dt``, in seconds.
+    ``units`` describes sample amplitudes; loading does not apply the stored
+    ``spatial_scale`` metadata as an additional numerical conversion.
     """
 
     path: str
@@ -45,7 +53,13 @@ class SampledSignal:
 
 @dataclass(frozen=True)
 class FrequencyResponse:
-    """Source-normalised complex response at requested SFCW frequencies."""
+    """Source-normalised response with frequency in Hz on axis 0.
+
+    ``response`` and ``receiver_spectrum`` have shape ``(nf,)`` or
+    ``(nf, ntraces)``. The scalar source spectrum and validity mask have
+    shape ``(nf,)`` and are shared across receiver traces. Response units
+    are receiver sample units divided by source sample units.
+    """
 
     frequency: npt.NDArray[np.float64]
     response: npt.NDArray[np.complex128]
@@ -157,7 +171,11 @@ def load_source(filename: str | Path, source_path: str | None = None) -> Sampled
             raise ValueError(f"source group {source_path!r} has no scalar excitation samples")
         excitation = group["excitation"]
         samples = np.asarray(excitation["samples"], dtype=np.float64)
-        dt = float(excitation.attrs.get("SampleInterval", _nearest_dt(group)))
+        dt = float(
+            excitation.attrs["SampleInterval"]
+            if "SampleInterval" in excitation.attrs
+            else _nearest_dt(group)
+        )
         return SampledSignal(
             path=source_path,
             samples=samples,
@@ -176,7 +194,13 @@ def load_receiver(
     receiver_path: str | None = None,
     component: str | None = None,
 ) -> SampledSignal:
-    """Load one receiver history and its Yee-time convention."""
+    """Load a field/current history and its sample-zero time in seconds.
+
+    Dataset timing metadata takes precedence. Without an explicit offset,
+    E samples start at zero and H/current samples at ``-dt/2``. The sample
+    interval falls back to the nearest ancestor carrying a ``dt`` attribute,
+    which permits a receiver inside a subgrid to use its local interval.
+    """
 
     available = list_receivers(filename)
     if receiver_path is None:
@@ -205,7 +229,11 @@ def load_receiver(
 
     with h5py.File(filename, "r") as output:
         dataset = output[f"{receiver_path}/{component}"]
-        dt = float(dataset.attrs.get("SampleInterval", _nearest_dt(dataset.parent)))
+        dt = float(
+            dataset.attrs["SampleInterval"]
+            if "SampleInterval" in dataset.attrs
+            else _nearest_dt(dataset.parent)
+        )
         inferred_offset = 0.0 if component.startswith("E") else -0.5 * dt
         return SampledSignal(
             path=f"{receiver_path}/{component}",
@@ -252,8 +280,12 @@ def engineering_dft(
     time_offset: float = 0.0,
     block_size: int = 128,
 ) -> npt.NDArray[np.complex128]:
-    """Evaluate a sampled signal at arbitrary frequencies using ``exp(-jwt)``.
+    """Evaluate ``dt * sum(x[n] * exp(-2j*pi*f*(time_offset + n*dt)))``.
 
+    Times are in seconds and frequencies in Hz. Transform axis 0 of a
+    ``(nt,)`` or ``(nt, ntraces)`` real array, returning ``(nf,)`` or
+    ``(nf, ntraces)``. The factor ``dt`` gives spectrum units of sample
+    units times seconds; the time-origin phase is not an array-index shift.
     Uniform stepped-frequency requests use a chirp-z transform. Arbitrary
     requests fall back to bounded-memory direct evaluation.
     """
@@ -298,7 +330,13 @@ def direct_frequency_response(
     source_floor_db: float = -100.0,
     tail_taper_fraction: float = 0.0,
 ) -> FrequencyResponse:
-    """Calculate a timing-correct source-normalised receiver response."""
+    """Divide the time-origin-corrected receiver spectrum by its source.
+
+    The optional taper affects only the receiver history. Source bins must
+    exceed ``10**(source_floor_db/20)`` times the peak requested source
+    magnitude; rejected bins remain complex NaNs. This mask avoids division
+    by a weak source spectrum, but is not an estimate of simulation error.
+    """
 
     if source.samples.ndim != 1:
         raise ValueError("the source excitation must be a one-dimensional time history")
@@ -362,9 +400,14 @@ def homodyne_frequency_response(
 ) -> FrequencyResponse:
     """Reproduce tone convolution and ideal quadrature homodyne detection.
 
-    A least-squares DC extraction removes the small finite-record cross term
-    between the sampled cosine and quadrature references. It is equivalent to
-    an ideal low-pass homodyne detector over the selected steady-state record.
+    A one-sample source defines the discrete convolution kernel after its
+    index shift and amplitude are removed. Each tone is fitted against
+    cosine and negative-sine references using the receiver's physical times.
+    The two-column least-squares fit accounts for the finite record's
+    non-orthogonal references; separate averages of the two products would
+    retain their cross term. This route accepts only one receiver trace.
+    Nyquist is excluded because its sampled sine/cosine references cannot
+    supply two independent quadratures; direct spectral evaluation supports it.
     """
 
     if not isinstance(cycles, int) or cycles <= 0:
@@ -379,6 +422,10 @@ def homodyne_frequency_response(
     _validate_spectrum_inputs(receiver.samples, receiver.dt, requested, receiver.time_offset)
     if np.any(requested <= 0):
         raise ValueError("homodyne processing requires strictly positive frequencies")
+    if np.any(requested >= 1 / (2 * source.dt)):
+        raise ValueError(
+            "homodyne processing requires frequencies strictly below the FDTD Nyquist frequency"
+        )
 
     impulse_index, impulse_amplitude = _single_impulse(source.samples)
     tail_db = tail_relative_db(receiver.samples)
@@ -431,7 +478,12 @@ def homodyne_frequency_response(
 
 
 def tail_relative_db(samples: npt.ArrayLike, fraction: float = 0.05) -> float:
-    """Return the peak magnitude in the record tail relative to the full peak."""
+    """Return ``20*log10(tail_peak/full_peak)`` across all supplied traces.
+
+    The tail covers at least eight samples, capped by the record length.
+    A zero tail or all-zero record returns negative infinity. This measures
+    the recorded tail amplitude, not the unrecorded response after it.
+    """
 
     values = np.asarray(samples, dtype=np.float64)
     if values.ndim not in (1, 2) or values.shape[0] == 0:
@@ -473,7 +525,12 @@ def spectral_window(
     gaussian_sigma: float = 0.2,
     normalise: bool = True,
 ) -> npt.NDArray[np.float64]:
-    """Return a stepped-frequency weighting window."""
+    """Return ``count`` real frequency weights, optionally with unit mean.
+
+    Gaussian sigma is measured on the dimensionless interval [-0.5, 0.5],
+    not in Hz. Normalisation divides by the mean when that mean is positive;
+    it does not normalise the sum or the window's squared magnitude.
+    """
 
     if not isinstance(count, int) or count <= 0:
         raise ValueError("count must be a positive integer")
@@ -509,7 +566,16 @@ def reconstruct_time_response(
     normalise_window: bool = True,
     time_shift: float = 0.0,
 ) -> TimeResponse:
-    """Inverse-transform uniformly stepped complex data into a real response."""
+    """Reconstruct one delay interval from increasing uniform tones.
+
+    For frequency spacing ``df`` and padded length ``count``, the time axis
+    is ``arange(count)/(count*df)`` seconds, sampling one envelope period
+    ``1/df``. The carrier-modulated bandpass signal need not share that period.
+    Positive ``time_shift`` applies a delay through a negative spectral
+    phase. Axis 1, when present, remains the independent trace axis.
+    The envelope is modulated at the first requested frequency; the real
+    bandpass result is twice the real part of that complex bandpass signal.
+    """
 
     frequencies = np.asarray(frequency_response.frequency, dtype=np.float64)
     response = np.asarray(frequency_response.response, dtype=np.complex128)
@@ -597,14 +663,41 @@ def process_output(
     raise ValueError("method must be 'direct' or 'homodyne'")
 
 
+def _validate_output_path(filename: str | Path, input_filenames) -> Path:
+    """Reject input aliases before a processed-output writer opens in mode w.
+
+    Resolving paths covers relative names and symbolic links; samefile also
+    catches distinct hard links. Empty provenance names carry no input path.
+    """
+
+    path = Path(filename)
+    resolved_output = path.resolve()
+    for input_filename in input_filenames:
+        if not input_filename:
+            continue
+        input_path = Path(input_filename)
+        aliases_input = resolved_output == input_path.resolve()
+        if not aliases_input:
+            try:
+                aliases_input = path.samefile(input_path)
+            except FileNotFoundError:
+                aliases_input = False
+        if aliases_input:
+            raise ValueError("processed output must not overwrite an input HDF5 file")
+    return path
+
+
 def write_sfcw_output(
     filename: str | Path,
     frequency_response: FrequencyResponse,
     time_response: TimeResponse | None = None,
 ) -> Path:
-    """Write processed complex stepped-frequency data to an HDF5 file."""
+    """Write processed HDF5 data, rejecting aliases of source/receiver files."""
 
-    path = Path(filename)
+    path = _validate_output_path(
+        filename,
+        (frequency_response.source.filename, frequency_response.receiver.filename),
+    )
     with h5py.File(path, "w") as output:
         output.attrs["Format"] = "gprMax SFCW toolbox"
         output.attrs["Method"] = frequency_response.method

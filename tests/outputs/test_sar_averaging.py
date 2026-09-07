@@ -25,7 +25,10 @@ from gprMax.sar_averaging import (
     VALID,
     _bounds_for_cube,
     _centered_shells_touch_tissue,
+    _density_fingerprint,
     _spatial_average_sar_python,
+    apply_spatial_average_plan,
+    build_spatial_average_plan,
     spatial_average_sar,
 )
 
@@ -171,3 +174,117 @@ def test_compiled_spatial_plan_matches_python_reference():
     )
     assert compiled.peak_sar == pytest.approx(reference.peak_sar)
     assert compiled.peak_cell == reference.peak_cell
+
+
+def test_reusable_plan_rejects_changed_density_with_unchanged_tissue_mask():
+    density = np.full((8, 8, 8), 1000.0)
+    local_sar = np.full(density.shape, 2.5)
+    plan = build_spatial_average_plan(density, (0.001,) * 3, 0.0001)
+    original = apply_spatial_average_plan(plan, local_sar, density)
+    assert original.peak_sar == pytest.approx(2.5)
+
+    density *= 2
+    with pytest.raises(ValueError, match="density values differ"):
+        apply_spatial_average_plan(plan, local_sar, density)
+
+
+def test_reusable_plan_spacing_does_not_alias_the_callers_array():
+    density = np.full((8, 8, 8), 1000.0)
+    local_sar = np.full(density.shape, 2.5)
+    spacing = np.full(3, 0.001)
+    plan = build_spatial_average_plan(density, spacing, 0.0001)
+    original = apply_spatial_average_plan(plan, local_sar, density)
+
+    spacing *= 2
+    np.testing.assert_array_equal(plan.spacing, np.full(3, 0.001))
+    repeated = apply_spatial_average_plan(plan, local_sar, density)
+    np.testing.assert_array_equal(repeated.sar, original.sar)
+    assert not plan.spacing.flags.writeable
+    with pytest.raises(ValueError, match="read-only"):
+        plan.spacing[0] = 0.002
+
+
+@pytest.mark.parametrize("change", ("one_ulp", "reordered"))
+def test_reusable_plan_checks_density_values_not_only_global_summaries(change):
+    density = np.full((8, 8, 8), 1000.0)
+    density[3, 3, 3] = 1200.0
+    plan = build_spatial_average_plan(density, (0.001,) * 3, 0.0001)
+    changed = density.copy()
+    if change == "one_ulp":
+        changed[3, 3, 3] = np.nextafter(changed[3, 3, 3], np.inf)
+    else:
+        changed[3, 3, 3], changed[4, 4, 4] = changed[4, 4, 4], changed[3, 3, 3]
+
+    with pytest.raises(ValueError, match="density values differ"):
+        apply_spatial_average_plan(plan, np.ones_like(density), changed)
+
+
+@pytest.mark.parametrize(
+    "representation", ("float32", "fortran", "strided", "big_endian", "nan_payload")
+)
+def test_reusable_plan_accepts_equivalent_density_representations(representation):
+    density = np.full((8, 8, 8), 1000.0)
+    density[0] = np.nan
+    density[3, 3, 3] = 1200.0
+    original_bytes = density.tobytes()
+    local_sar = np.full(density.shape, 2.5)
+    plan = build_spatial_average_plan(density, (0.001,) * 3, 0.0001)
+    original = apply_spatial_average_plan(plan, local_sar, density)
+    if representation == "float32":
+        equivalent = density.astype(np.float32)
+    elif representation == "fortran":
+        equivalent = np.asfortranarray(density)
+    elif representation == "strided":
+        storage = np.empty((16, 8, 8))
+        equivalent = storage[::2]
+        equivalent[:] = density
+        assert not equivalent.flags.c_contiguous
+    elif representation == "big_endian":
+        equivalent = density.astype(">f8")
+    else:
+        equivalent = density.copy()
+        equivalent.view(np.uint64)[0] = 0x7FF8000000000001
+        assert np.all(np.isnan(equivalent[0]))
+
+    equivalent_bytes = equivalent.tobytes()
+    repeated = apply_spatial_average_plan(plan, local_sar, equivalent)
+    for name in ("sar", "status", "averaging_mass", "averaging_volume", "orientation"):
+        np.testing.assert_array_equal(getattr(repeated, name), getattr(original, name))
+    assert repeated.peak_sar == original.peak_sar
+    assert repeated.peak_cell == original.peak_cell
+    assert equivalent.tobytes() == equivalent_bytes
+    assert density.tobytes() == original_bytes
+
+
+def test_reusable_plan_accepts_readonly_inputs_and_multiple_sar_fields():
+    density = np.full((8, 8, 8), 1000.0)
+    density.setflags(write=False)
+    spacing = np.full(3, 0.001)
+    spacing.setflags(write=False)
+    plan = build_spatial_average_plan(density, spacing, 0.0001)
+    for value in (2.5, 7.0, 2.5):
+        local_sar = np.full(density.shape, value)
+        local_sar.setflags(write=False)
+        result = apply_spatial_average_plan(plan, local_sar, density)
+        assert result.peak_sar == pytest.approx(value)
+        np.testing.assert_allclose(result.sar[np.isfinite(result.sar)], value)
+
+
+@pytest.mark.parametrize("replacement", (0.0, -1.0, np.nan, np.inf, -np.inf))
+def test_reusable_plan_still_rejects_invalid_or_changed_tissue(replacement):
+    density = np.full((8, 8, 8), 1000.0)
+    plan = build_spatial_average_plan(density, (0.001,) * 3, 0.0001)
+    density[3, 3, 3] = replacement
+    with pytest.raises(ValueError, match="tissue density|density tissue membership"):
+        apply_spatial_average_plan(plan, np.ones_like(density), density)
+
+
+def test_density_fingerprint_covers_chunk_boundaries_and_final_chunk():
+    density = np.full((3, 131072), 1000.0)
+    original = _density_fingerprint(density)
+    assert len(original) == 32
+    for position in (0, 131072, density.size - 1):
+        density.flat[position] = 1001.0
+        assert _density_fingerprint(density) != original
+        density.flat[position] = 1000.0
+    assert _density_fingerprint(density) == original

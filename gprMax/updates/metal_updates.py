@@ -1227,10 +1227,8 @@ class MetalUpdates(Updates[MetalGrid]):
 
             # Dispatch the kernel
             cmpencoder_magnetic.dispatchThreads_threadsPerThreadgroup_(
-                self.metal.MTLSizeMake(round32(len(self.grid.magneticdipoles)), 1, 1),
-                self.metal.MTLSizeMake(
-                    self.pso_magnetic_dipole.maxTotalThreadsPerThreadgroup(), 1, 1
-                ),
+                self.metal.MTLSizeMake(1, 1, 1),
+                self.metal.MTLSizeMake(1, 1, 1),
             )
             cmpencoder_magnetic.endEncoding()
             cmdbuffer_magnetic.commit()
@@ -1474,6 +1472,9 @@ class MetalUpdates(Updates[MetalGrid]):
     def update_electric_sources(self, iteration):
         """Updates electric field components from sources -
         update any Hertzian dipole sources last.
+
+        One work-item advances each list in CPU order. Completion waits
+        retain voltage, TL, then Hertzian precedence across source families.
         """
         if self.grid.voltagesources:
             real_dtype = config.sim_config.dtypes["float_or_double"]
@@ -1529,10 +1530,8 @@ class MetalUpdates(Updates[MetalGrid]):
 
             # Dispatch the kernel
             cmpencoder_voltage.dispatchThreads_threadsPerThreadgroup_(
-                self.metal.MTLSizeMake(round32(len(self.grid.voltagesources)), 1, 1),
-                self.metal.MTLSizeMake(
-                    self.pso_voltage_source.maxTotalThreadsPerThreadgroup(), 1, 1
-                ),
+                self.metal.MTLSizeMake(1, 1, 1),
+                self.metal.MTLSizeMake(1, 1, 1),
             )
             cmpencoder_voltage.endEncoding()
             cmdbuffer_voltage.commit()
@@ -1563,7 +1562,7 @@ class MetalUpdates(Updates[MetalGrid]):
                     self.grid.Ey_dev,
                     self.grid.Ez_dev,
                 ),
-                len(self.grid.transmissionlines),
+                1,
             )
 
         if self.grid.hertziandipoles:
@@ -1625,10 +1624,8 @@ class MetalUpdates(Updates[MetalGrid]):
 
             # Dispatch the kernel
             cmpencoder_hertzian.dispatchThreads_threadsPerThreadgroup_(
-                self.metal.MTLSizeMake(round32(len(self.grid.hertziandipoles)), 1, 1),
-                self.metal.MTLSizeMake(
-                    self.pso_hertzian_dipole.maxTotalThreadsPerThreadgroup(), 1, 1
-                ),
+                self.metal.MTLSizeMake(1, 1, 1),
+                self.metal.MTLSizeMake(1, 1, 1),
             )
             cmpencoder_hertzian.endEncoding()
             cmdbuffer_hertzian.commit()

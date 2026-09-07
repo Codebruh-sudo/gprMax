@@ -56,7 +56,14 @@ def _readonly(array: npt.NDArray) -> npt.NDArray:
 
 @dataclass(frozen=True)
 class KSIRSurfaceFace:
-    """One non-overlapping midpoint-patch face of a component surface."""
+    """One non-overlapping midpoint-patch face of a component surface.
+
+    Inside/outside indices have shape ``(npatches, 3)`` in x/y/z order;
+    flat indices address a C-order array of ``field_shape``. Patch positions
+    have the same three-column layout in metres, area weights are in m2,
+    and ``normal_spacing`` is the positive sample separation in metres.
+    The unit normal points from each inside sample toward its outside sample.
+    """
 
     component: str
     face_id: str
@@ -95,7 +102,9 @@ class KSIRSurfaceFace:
         """Collocate same-component samples and calculate the outward derivative.
 
         The sample arrays may have any leading dimensions, but their final
-        dimension must enumerate this face's patches.
+        dimension must enumerate this face's patches. Outside minus inside
+        already follows the outward direction on both lower and upper faces;
+        applying another normal-sign factor would reverse the lower faces.
         """
 
         inside_values = np.asarray(inside)
@@ -111,7 +120,14 @@ class KSIRSurfaceFace:
 
 @dataclass(frozen=True)
 class KSIRComponentSurface:
-    """Closed cuboid used to transform one Cartesian field component."""
+    """Component-specific cuboid geometry and its active integration faces.
+
+    Logical ``lower``/``upper`` bounds are grid-line indices, whereas physical
+    bounds include the component's half-cell extensions and are in metres.
+    Faces use canonical x0/xmax/y0/ymax/z0/zmax order with any excluded faces
+    removed; concatenated patch arrays preserve that order. A separate closure
+    policy determines how omitted faces are treated.
+    """
 
     component: str
     lower: Tuple[int, int, int]

@@ -437,9 +437,7 @@ class MPIFractalSurface(FractalSurface):
         # Take the real part (numerical errors can give rise to an imaginary part)
         #  of the IFFT, and convert type to floattype. N.B calculation of fractals
         # must always be carried out at double precision, i.e. float64, complex128
-        A = np.ascontiguousarray(
-            np.real(A), dtype=config.sim_config.dtypes["float_or_double"]
-        )
+        A = np.ascontiguousarray(np.real(A), dtype=config.sim_config.dtypes["float_or_double"])
 
         # Allreduce to get min and max values in the fractal surface
         min_value = np.array(np.amin(A), dtype=config.sim_config.dtypes["float_or_double"])
@@ -454,6 +452,11 @@ class MPIFractalSurface(FractalSurface):
             + self.fractalrange[0]
             - ((self.fractalrange[1] - self.fractalrange[0]) / fractalrange) * min_value
         )
+
+        # Integer bounds can promote the scaled array to float64. Match the
+        # receive buffer precision before constructing MPI datatypes; sending
+        # doubles into a float32 surface would truncate the message.
+        A = np.ascontiguousarray(A, dtype=config.sim_config.dtypes["float_or_double"])
 
         # Distribute A (DistArray) to match the MPIGrid decomposition
         local_shape = (np.minimum(self.stop, self.upper_bound) - np.maximum(self.start, 0))[dims]

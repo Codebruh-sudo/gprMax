@@ -7,7 +7,13 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
-"""FMCW synthesis from timing-aware gprMax broadband responses."""
+"""Synthesize FMCW products from broadband gprMax time histories.
+
+SFCW provides time-aware loading, source normalisation and frequency
+windows. This module samples that channel on a chirp's frequency grid, then
+forms delay-domain responses or synthetic deramped I/Q data. These are
+post-processing operations on stored records, not another FDTD time loop.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +27,7 @@ import numpy.typing as npt
 
 from toolboxes.SFCW.processing import (
     FrequencyResponse,
+    _validate_output_path,
     apply_tail_taper,
     direct_frequency_response,
     engineering_dft,
@@ -33,7 +40,13 @@ from toolboxes.SFCW.processing import (
 
 @dataclass(frozen=True)
 class Chirp:
-    """Uniform linear-FMCW sweep sampled at the requested tone centres."""
+    """Linear sweep parameters with frequencies in Hz and sweep time in seconds.
+
+    Processing uses ``samples`` ascending frequencies from ``f_start`` up
+    to, but excluding, ``f_stop``. A down sweep reverses their acquisition
+    order and has negative slope, in Hz/s. The delay grid has spacing
+    ``1/bandwidth`` seconds and is independent of sweep direction.
+    """
 
     f_start: float
     f_stop: float
@@ -48,7 +61,11 @@ class Chirp:
             raise ValueError("f_stop must be finite and greater than f_start")
         if not np.isfinite(self.sweep_time) or self.sweep_time <= 0:
             raise ValueError("sweep_time must be finite and positive")
-        if isinstance(self.samples, bool) or not isinstance(self.samples, Integral) or self.samples < 2:
+        if (
+            isinstance(self.samples, bool)
+            or not isinstance(self.samples, Integral)
+            or self.samples < 2
+        ):
             raise ValueError("samples must be an integer of at least two")
         if self.direction not in {"up", "down"}:
             raise ValueError("direction must be 'up' or 'down'")
@@ -90,7 +107,12 @@ class Chirp:
 
 @dataclass(frozen=True)
 class ChannelResponse:
-    """Source-normalised target response, optionally background subtracted."""
+    """Channel response on the chirp's ascending frequency grid.
+
+    ``response`` is ``(samples,)`` or ``(samples, ntraces)``; a one-dimensional
+    source-validity mask applies across traces. ``normalisation`` distinguishes
+    stored-source division from measured-incident-field division.
+    """
 
     chirp: Chirp
     response: npt.NDArray[np.complex128]
@@ -150,9 +172,11 @@ def process_channel(
 ) -> ChannelResponse:
     """Calculate an FMCW channel from one broadband target/reference pair.
 
-    Target and background records are normalised by their own exact stored
-    source histories before subtraction. This remains correct when nominally
-    identical simulations have small source-sampling differences.
+    Target and background spectra are divided by their own stored source
+    spectra before subtraction; dividing their raw difference by just one
+    source would instead assume identical source histories. One background
+    trace may be broadcast across all target traces. A merged receiver file
+    can use source metadata from a separate original A-scan file.
     """
 
     frequency = chirp.frequency
@@ -190,7 +214,9 @@ def process_channel(
         if response.ndim == 2 and background_response.ndim == 1:
             background_response = background_response[:, None]
         compatible = background_response.shape == response.shape or (
-            response.ndim == 2 and background_response.ndim == 2 and background_response.shape == (response.shape[0], 1)
+            response.ndim == 2
+            and background_response.ndim == 2
+            and background_response.shape == (response.shape[0], 1)
         )
         if not compatible:
             raise ValueError("target and background responses have incompatible trace dimensions")
@@ -324,7 +350,12 @@ def _interpolate_complex_response(
     coordinate_name,
     coverage_name,
 ):
-    """Interpolate finite complex data using magnitude and unwrapped phase."""
+    """Interpolate magnitude and unwrapped phase separately, then recombine.
+
+    Coordinates must increase and cover the requested interval, within the
+    endpoint tolerance below. Interpolating real and imaginary parts would
+    be a different operation, especially across a large phase change.
+    """
 
     frequency = np.asarray(source_coordinate, dtype=np.float64)
     response = np.asarray(source_response, dtype=np.complex128)
@@ -401,7 +432,9 @@ def load_receiver_delay_response(
     elif "gain" in names:
         response = np.asarray(table[names["gain"]], dtype=np.complex128)
     else:
-        raise ValueError("receiver-delay CSV requires gain, real/imag, or magnitude/phase_deg columns")
+        raise ValueError(
+            "receiver-delay CSV requires gain, real/imag, or magnitude/phase_deg columns"
+        )
     return _interpolate_complex_response(
         table[delay_name],
         response,
@@ -428,10 +461,13 @@ def reconstruct_fast_time(
 ) -> FastTimeResponse:
     """Apply instrument/window corrections and reconstruct fast time.
 
-    The default follows Eide et al. and neglects residual video phase (RVP).
-    ``include`` applies the RVP that would be present after deramping a real
-    linear chirp. This is useful for short, steep laboratory chirps; for
-    ordinary subsurface FMCW sweeps it is normally indistinguishable.
+    Frequency-domain instrument response and window multiply the channel
+    before the axis-0 IFFT. The optional residual video phase (RVP) factor is
+    ``exp(1j*pi*slope*delay**2)``; the delay-dependent receiver response is
+    then applied in the delay domain, not as another frequency weight.
+    All correction vectors have one entry per chirp sample and broadcast
+    across traces. If velocity is supplied in m/s, range is ``velocity*delay/2``
+    in metres: a two-way-delay conversion, not a geometry-derived distance.
     """
 
     if residual_video_phase not in {"neglect", "include"}:
@@ -451,7 +487,9 @@ def reconstruct_fast_time(
     else:
         instrument = np.asarray(instrument_response, dtype=np.complex128)
         if instrument.shape != (count,) or not np.all(np.isfinite(instrument)):
-            raise ValueError("instrument_response must be a finite vector with one value per sample")
+            raise ValueError(
+                "instrument_response must be a finite vector with one value per sample"
+            )
 
     frequency_shape = (-1,) + (1,) * (response.ndim - 1)
     processed = response * instrument.reshape(frequency_shape) * weights.reshape(frequency_shape)
@@ -466,7 +504,9 @@ def reconstruct_fast_time(
     else:
         delay_response = np.asarray(receiver_delay_response, dtype=np.complex128)
         if delay_response.shape != (count,) or not np.all(np.isfinite(delay_response)):
-            raise ValueError("receiver_delay_response must be a finite vector with one value per sample")
+            raise ValueError(
+                "receiver_delay_response must be a finite vector with one value per sample"
+            )
         envelope = envelope * _broadcast_frequency_vector(delay_response, envelope.ndim)
 
     carrier = np.exp(2j * np.pi * channel.chirp.f_start * delay)
@@ -501,10 +541,11 @@ def synthesize_deramped_sweep(
 ) -> DerampedSweep:
     """Synthesize ideal complex stretch-receiver samples.
 
-    The returned convention gives positive beat frequency for a delayed point
-    response during an up-chirp. RVP can be included exactly on the discrete
-    delay grid. It is omitted by default, as in the subsurface approximation
-    used by Eide et al.
+    Conjugating the channel gives positive beat frequency for a delayed point
+    response during an up-chirp. A down-chirp reverses the sample order and
+    uses negative slope. Beat bins are in unshifted FFT order, in Hz, and
+    ``delay = beat_frequency/slope`` is in seconds. Optional RVP is applied
+    on the discrete delay grid before transforming back and conjugating.
     """
 
     if residual_video_phase not in {"neglect", "include"}:
@@ -516,7 +557,9 @@ def synthesize_deramped_sweep(
     else:
         instrument = np.asarray(instrument_response, dtype=np.complex128)
         if instrument.shape != (count,) or not np.all(np.isfinite(instrument)):
-            raise ValueError("instrument_response must be a finite vector with one value per sample")
+            raise ValueError(
+                "instrument_response must be a finite vector with one value per sample"
+            )
     corrected = response * _broadcast_frequency_vector(instrument, response.ndim)
 
     if residual_video_phase == "include":
@@ -548,9 +591,14 @@ def write_fmcw_output(
     fast_time: FastTimeResponse,
     deramped: DerampedSweep | None = None,
 ) -> Path:
-    """Write processed FMCW products and provenance to HDF5."""
+    """Write FMCW HDF5 products without overwriting any target/reference input."""
 
-    path = Path(filename)
+    input_filenames = [channel.target.source.filename, channel.target.receiver.filename]
+    if channel.background is not None:
+        input_filenames.extend(
+            (channel.background.source.filename, channel.background.receiver.filename)
+        )
+    path = _validate_output_path(filename, input_filenames)
     chirp = channel.chirp
     with h5py.File(path, "w") as output:
         output.attrs["Format"] = "gprMax FMCW toolbox"
@@ -584,7 +632,9 @@ def write_fmcw_output(
             background = output.create_group("background")
             background.create_dataset("response", data=channel.background.response)
             background.create_dataset("source_spectrum", data=channel.background.source_spectrum)
-            background.create_dataset("receiver_spectrum", data=channel.background.receiver_spectrum)
+            background.create_dataset(
+                "receiver_spectrum", data=channel.background.receiver_spectrum
+            )
 
         group = output.create_group("fast_time")
         group.attrs["Window"] = fast_time.window
@@ -608,7 +658,9 @@ def write_fmcw_output(
             group.attrs["ResidualVideoPhase"] = deramped.residual_video_phase
             slow_time = group.create_dataset("slow_time", data=deramped.slow_time)
             slow_time.attrs["Units"] = "s"
-            instantaneous = group.create_dataset("instantaneous_frequency", data=deramped.instantaneous_frequency)
+            instantaneous = group.create_dataset(
+                "instantaneous_frequency", data=deramped.instantaneous_frequency
+            )
             instantaneous.attrs["Units"] = "Hz"
             group.create_dataset("complex_signal", data=deramped.complex_signal)
             group.create_dataset("I", data=deramped.in_phase)

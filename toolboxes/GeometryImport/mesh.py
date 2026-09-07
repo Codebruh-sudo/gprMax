@@ -3,7 +3,13 @@
 # This file is part of gprMax and is distributed under the GNU General Public
 # License, version 3 or (at your option) any later version.
 
-"""Voxelise labelled surface or unstructured meshes for gprMax."""
+"""Convert labelled meshes to the shared material/tag cell-volume schema.
+
+Closed surfaces use STEPtoVoxel's scanline voxeliser and overlap priorities.
+Unstructured volumes instead supply region IDs from containing mesh cells
+sampled at FDTD cell centres. Both routes retain component identity until
+the separate material-index and geometry-tag arrays are assembled.
+"""
 
 from __future__ import annotations
 
@@ -46,6 +52,8 @@ _PREFERRED_REGION_ARRAYS = (
 
 @dataclass(frozen=True)
 class MeshRegion:
+    """Map an external region value/name to a dense zero-based cell-data ID."""
+
     source_value: str
     name: str
     compact_id: int
@@ -173,11 +181,7 @@ def _available_cell_arrays(source) -> set[str]:
         if not populated:
             return set()
         highest = max(int(_cell_dimensions(block).max()) for block in populated)
-        blocks = [
-            block
-            for block in populated
-            if np.any(_cell_dimensions(block) == highest)
-        ]
+        blocks = [block for block in populated if np.any(_cell_dimensions(block) == highest)]
         available = set(blocks[0].cell_data.keys())
         for block in blocks[1:]:
             available &= set(block.cell_data.keys())
@@ -225,7 +229,13 @@ def load_mesh_source(
     unit: str,
     region_array: str | None = None,
 ) -> MeshSource:
-    """Load Gmsh/VTK/VTP/VTU geometry and identify its semantic regions."""
+    """Load mesh regions and convert point coordinates to metres.
+
+    ``unit`` explicitly describes source coordinate units; no coordinate
+    reference-system transform is applied. Only the highest-dimensional
+    cells are retained, and their selected scalar region values are mapped
+    to compact IDs, separate from the eventual material/tag assignments.
+    """
 
     pv = _pyvista()
     source_path = Path(path).expanduser().resolve()
@@ -259,7 +269,9 @@ def load_mesh_source(
     else:
         if effective_array not in dataset.cell_data:
             available = sorted(dataset.cell_data.keys())
-            raise ValueError(f"Cell-data region array {effective_array!r} was not found; available={available}")
+            raise ValueError(
+                f"Cell-data region array {effective_array!r} was not found; available={available}"
+            )
         raw = np.asarray(dataset.cell_data[effective_array])
         if raw.ndim != 1 or len(raw) != dataset.n_cells:
             raise ValueError("The selected region array must contain one scalar per mesh cell")
@@ -351,6 +363,13 @@ def read_mesh_assignments(path: str | Path) -> tuple[MeshAssignment, ...]:
 
 
 def _surface_components(source: MeshSource, selected, spacing, pad_cells, supersample):
+    """Voxelise each selected watertight region with its assignment priority.
+
+    Mesh material IDs temporarily identify components, not constitutive
+    materials. Sorting is stable: for equal priorities, the earlier selected
+    region retains overlapping cells under the voxeliser's strict comparison.
+    """
+
     dataset = source.dataset
     source_by_value = {region.source_value: region for region in source.regions}
     meshes = []
@@ -358,10 +377,15 @@ def _surface_components(source: MeshSource, selected, spacing, pad_cells, supers
     for component_id, assignment in enumerate(ordered):
         region = source_by_value[assignment.region]
         selected_cells = np.asarray(dataset.cell_data[_INTERNAL_REGION_ARRAY]) == region.compact_id
-        surface = dataset.extract_cells(selected_cells).extract_surface(algorithm="dataset_surface").triangulate()
+        surface = (
+            dataset.extract_cells(selected_cells)
+            .extract_surface(algorithm="dataset_surface")
+            .triangulate()
+        )
         if surface.n_open_edges:
             raise ValueError(
-                f"Surface region {region.name!r} is not watertight " f"({surface.n_open_edges} open edges)"
+                f"Surface region {region.name!r} is not watertight "
+                f"({surface.n_open_edges} open edges)"
             )
         faces = np.asarray(surface.faces).reshape(-1, 4)
         if faces.size and not np.all(faces[:, 0] == 3):
@@ -392,7 +416,12 @@ def _surface_components(source: MeshSource, selected, spacing, pad_cells, supers
 
 
 def _sample_volume(dataset, grid: GridSpec, *, z_chunk_cells: int = 32) -> np.ndarray:
-    """Probe an unstructured volume at FDTD cell centres in bounded chunks."""
+    """Probe containing-cell region IDs into an ``(nx, ny, nz)`` array.
+
+    Chunks bound the number of temporary z layers. Invalid VTK sample points
+    remain -1; valid region IDs use Fortran-order reshaping to recover the
+    x-y-z axes from VTK's x-fastest point sequence.
+    """
 
     pv = _pyvista()
     dataset = dataset.copy(deep=False)
@@ -414,8 +443,12 @@ def _sample_volume(dataset, grid: GridSpec, *, z_chunk_cells: int = 32) -> np.nd
         # interpolated like point data, so region IDs remain discrete without
         # VTK's categorical point-scalar mode.
         sampled = centres.sample(dataset, categorical=False, pass_cell_data=False)
-        valid = np.asarray(sampled["vtkValidPointMask"], dtype=bool).reshape((grid.nx, grid.ny, nz), order="F")
-        values = np.asarray(sampled[_INTERNAL_REGION_ARRAY], dtype=np.int32).reshape((grid.nx, grid.ny, nz), order="F")
+        valid = np.asarray(sampled["vtkValidPointMask"], dtype=bool).reshape(
+            (grid.nx, grid.ny, nz), order="F"
+        )
+        values = np.asarray(sampled[_INTERNAL_REGION_ARRAY], dtype=np.int32).reshape(
+            (grid.nx, grid.ny, nz), order="F"
+        )
         block = result[:, :, z0 : z0 + nz]
         block[valid] = values[valid]
     return result
@@ -452,7 +485,13 @@ def convert_mesh(
     pad_cells: int = 2,
     supersample: int = 1,
 ) -> MeshConversionResult:
-    """Voxelise a labelled surface or unstructured-volume mesh."""
+    """Convert selected mesh regions on a grid with metre-valued voxel sizes.
+
+    ``supersample`` controls closed-surface voting only; unstructured-volume
+    conversion samples once at each cell centre. Component IDs determine
+    spatial ownership before repeated material names are compacted and tags
+    are assigned, so sharing a material does not merge region identities.
+    """
 
     if (
         len(voxel_size) != 3
@@ -477,7 +516,9 @@ def convert_mesh(
     if not selected:
         raise ValueError("No mesh regions have include=y")
     if source.kind == "surface":
-        component_grid, grid, ordered = _surface_components(source, selected, voxel_size, pad_cells, supersample)
+        component_grid, grid, ordered = _surface_components(
+            source, selected, voxel_size, pad_cells, supersample
+        )
     else:
         component_grid, grid, ordered = _volume_components(source, selected, voxel_size, pad_cells)
 

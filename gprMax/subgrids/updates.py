@@ -22,11 +22,7 @@ from gprMax.model import Model
 from gprMax.subgrids.grid import SubGridBaseGrid
 
 from ..updates.cpu_updates import CPUUpdates
-from .precursor_nodes import (
-    PrecursorNodes,
-    PrecursorNodesEqualResolution,
-    PrecursorNodesFiltered,
-)
+from .precursor_nodes import PrecursorNodes, PrecursorNodesEqualResolution, PrecursorNodesFiltered
 from .subgrid_hsg import SubGridHSG
 
 logger = logging.getLogger(__name__)
@@ -162,8 +158,9 @@ class SubgridUpdater(CPUUpdates[SubGridBaseGrid]):
             self.update_magnetic_sources()
 
         self.update_electric_a()
-        if not subgrid.equal_resolution:
-            self.update_electric_pml()
+        # Ratio-one construction omits auxiliary boundary slabs, but explicit
+        # internal absorbers still need the ordinary PML corrections.
+        self.update_electric_pml()
         precursors.calc_exact_magnetic_in_time()
         subgrid.update_electric_is(precursors)
         self.update_electric_sources()
@@ -209,8 +206,7 @@ class SubgridUpdater(CPUUpdates[SubGridBaseGrid]):
             self.store_outputs()
 
         self.update_magnetic()
-        if not subgrid.equal_resolution:
-            self.update_magnetic_pml()
+        self.update_magnetic_pml()
         precursors.calc_exact_electric_in_time()
         subgrid.update_magnetic_is(precursors)
         self.update_magnetic_sources()

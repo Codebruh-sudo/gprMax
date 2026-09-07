@@ -27,6 +27,9 @@ cdef inline float_or_double interpolate_native(
     int dx, int dy, int dz, int sx, int sy, int sz,
     int ox, int oy, int oz
 ) noexcept nogil:
+    # i/j/k count output cells; dx/dy/dz are their widths in native cells.
+    # sx/sy/sz are 0/1 selectors: zero collapses a 2D invariant-axis stencil,
+    # rather than representing a coarser spatial sampling step.
     # Twice the native fractional index relative to the coarse lower corner.
     # Yee offsets ox/oy/oz are measured in half native cells.
     cdef int qx = sx * (dx - ox)
@@ -34,6 +37,9 @@ cdef inline float_or_double interpolate_native(
     cdef int qz = sz * (dz - oz)
     cdef int a, b, c
     cdef float_or_double value = 0
+    # Along an active axis the required native index is i*dx + (dx-ox)/2.
+    # Even q selects one exact sample; odd q averages its two neighbours.
+    # The product stencil interpolates the coarse centre, not a volume mean.
     for a in range(1 + qx % 2):
         for b in range(1 + qy % 2):
             for c in range(1 + qz % 2):

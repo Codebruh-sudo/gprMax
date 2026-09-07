@@ -141,6 +141,12 @@ The requested port power is obtained through the same terminal/modal power
 adapter used for antenna gain. Non-positive, non-finite, or invalid port
 powers produce invalid SAR bins rather than unbounded scaling. Frequencies
 below ``SourceFloorDB`` are likewise marked invalid and stored as NaN.
+Transforms of stored source histories evaluate their phase arguments in at
+least double precision, even for single-precision simulations. This reduces
+phase-rounding errors at spectral notches; it does not make normalisation by
+an arbitrarily weak source spectrum reliable. The source-support cutoff and
+validity masks still apply, and the transform output retains the configured
+complex precision.
 Source and port normalisation are resolved across the complete model rather
 than only the grid containing the SAR output. Consequently, a source on the
 main grid can illuminate and normalise tagged tissue sampled at every fine

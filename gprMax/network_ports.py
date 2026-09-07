@@ -24,6 +24,12 @@ The driving-point admittance of a network is represented by
 Each placed terminal owns only its pole states and time histories. The field
 coupling is a local correction to one electric edge; it does not allocate
 dispersive state over the complete FDTD mesh.
+
+The shared model describes the network; each terminal holds independent dynamic
+state. A terminal can have a generator waveform or act as a passive load with
+zero generator voltage. Its recurrence is driven by terminal voltage minus
+generator voltage. CPU execution calls a Cython edge correction, while device
+execution uses packed per-terminal histories and concatenated pole states.
 """
 
 from __future__ import annotations
@@ -68,6 +74,12 @@ def linear_interval_coefficients(
 
     The formulation is the fractional-time extension of the exponential
     recursive-convolution treatment used for dispersive media in gprMax.
+
+    ``dt`` is seconds and ``fraction`` is dimensionless. With ``u`` in volts,
+    a pole is in 1/s, its residue in S/s and the state contribution in amperes.
+    The half-interval coefficients evaluate the current needed by the electric
+    update; the full-interval coefficients advance the stored state. Averaging
+    two endpoint states is not the same as evaluating the half-interval state.
     """
 
     if not np.isfinite(dt) or dt <= 0:
@@ -84,7 +96,14 @@ def linear_interval_coefficients(
 
 @dataclass(frozen=True)
 class RationalNetworkModel:
-    """Reusable scalar driving-point admittance model."""
+    """Reusable scalar driving-point admittance in siemens.
+
+    Conductance is in S, capacitance in F, poles in 1/s and residues in S/s.
+    Pole and residue tuples have equal length, with explicit conjugate partners
+    for complex terms. A pole at zero is allowed, for example for an inductor.
+    These checks constrain the representation; the separate sampled passivity
+    check does not prove passivity at every frequency.
+    """
 
     ID: str
     conductance: float = 0.0
@@ -142,7 +161,12 @@ class RationalNetworkModel:
         object.__setattr__(self, "residues", residues)
 
     def admittance(self, frequency: npt.ArrayLike) -> npt.NDArray[np.complexfloating]:
-        """Evaluate the continuous-time admittance at non-negative frequencies."""
+        """Evaluate continuous-time admittance at frequencies in Hz.
+
+        The complex result preserves the input shape, including scalar input.
+        Evaluation exactly at a pole returns an infinite contribution rather
+        than approximating it with a small denominator.
+        """
 
         values = np.asarray(frequency, dtype=np.float64)
         if np.any(values < 0) or not np.all(np.isfinite(values)):
@@ -158,7 +182,11 @@ class RationalNetworkModel:
         return result
 
     def validate_passivity(self, frequencies: npt.ArrayLike, tolerance: float = 0.0) -> None:
-        """Reject a passive model whose sampled real admittance is negative."""
+        """Reject negative real admittance at the supplied frequencies in Hz.
+
+        ``tolerance`` is in siemens. This finite sampling check is skipped when
+        ``allow_active`` is set; it is not an all-frequency passivity proof.
+        """
 
         if self.allow_active:
             return
@@ -172,7 +200,17 @@ class RationalNetworkModel:
 
 
 class RationalNetworkTerminal:
-    """One rational network connected to one electric Yee edge."""
+    """One rational network connected to one electric Yee edge.
+
+    ``coord`` is an integer ``(i, j, k)`` in the owning grid's field arrays;
+    ``polarisation`` selects Ex, Ey or Ez. Terminal voltage uses ``-dl * E``,
+    with ``dl`` the edge length in metres and ``area`` the transverse cell area
+    in m^2. The network current is positive for current into the passive load.
+
+    For N updates, voltage has shape ``(N + 1,)`` at integer time levels and
+    current has shape ``(N,)`` at half levels. Pole state has shape
+    ``(number_of_poles,)`` and is not shared with another placed terminal.
+    """
 
     def __init__(
         self,
@@ -258,7 +296,15 @@ class RationalNetworkTerminal:
         return {"x": grid.Ex, "y": grid.Ey, "z": grid.Ez}[self.polarisation]
 
     def prepare(self, grid) -> None:
-        """Bind final material coefficients and initialise sparse recurrence state."""
+        """Bind final edge coefficients and allocate recurrence state and histories.
+
+        This must follow geometry averaging and material-coefficient creation.
+        The local implicit denominator includes the electric source coefficient
+        and edge geometry; using a generic free-space coefficient would change
+        the coupling on a dielectric edge. PML, inactive and dispersive edges
+        are rejected here. An already prepared terminal only resets its state,
+        so this path does not rebind changed geometry or material coefficients.
+        """
 
         if self.prepared:
             self.reset()
@@ -354,6 +400,13 @@ class RationalNetworkTerminal:
         self.prepared = True
 
     def _prepare_waveform(self, grid) -> None:
+        """Sample the generator in volts at integer and positive half time levels.
+
+        Both arrays are evaluated from the waveform, not obtained by averaging
+        adjacent samples. Integer endpoints drive the pole and capacitance
+        terms; the half-step sample drives the direct conductance term.
+        """
+
         real_dtype = np.dtype(config.sim_config.dtypes["float_or_double"])
         self.waveform_whole = np.zeros(grid.iterations + 1, dtype=real_dtype)
         self.waveform_half = np.zeros(grid.iterations, dtype=real_dtype)
@@ -382,7 +435,7 @@ class RationalNetworkTerminal:
         self.waveform_half *= self.study_scale
 
     def reset(self) -> None:
-        """Return all dynamic network state and histories to rest."""
+        """Zero dynamic states and recorded histories, retaining coefficients and drive."""
 
         if not self.prepared:
             return
@@ -392,7 +445,14 @@ class RationalNetworkTerminal:
         self.generator_voltage.fill(0)
 
     def update(self, iteration: int, grid) -> None:
-        """Apply the locally implicit edge correction and advance pole states."""
+        """Correct the provisional electric field and advance the network one step.
+
+        On entry, the field contains the ordinary electric update for n+1 and
+        ``voltage[iteration]`` holds V at n. The Cython routine solves for the
+        corrected V at n+1, returns current at n+1/2, and advances the pole
+        states to n+1. The two history arrays therefore have different time
+        origins; they must not be transformed as simultaneous samples.
+        """
 
         if not self.prepared:
             raise RuntimeError(f"network terminal {self.ID!r} has not been prepared")
@@ -436,6 +496,14 @@ def rational_network_host_arrays(terminals, grid) -> dict[str, np.ndarray]:
     states serially. Complex recurrence coefficients are split into real and
     imaginary arrays so the identical kernel body works on CUDA, OpenCL, and
     Metal without relying on backend-specific complex ABIs.
+
+    ``info`` is int32 with shape ``(terminals, 6)`` and ``params`` has shape
+    ``(terminals, 7)``. Waveform and history arrays are terminal-major: integer
+    levels have N+1 columns and half levels N columns. Pole offsets/counts index
+    concatenated one-dimensional coefficient/state buffers, not a rectangular
+    max-poles-per-terminal allocation. Real storage follows solver precision.
+    ``info`` fields are int32, and the packer also bounds total pole storage
+    and terminal-history sizes to the signed-int32 range.
     """
 
     count = len(terminals)
@@ -546,7 +614,13 @@ def htod_rational_network_arrays(terminals, grid, queue=None):
 
 
 def dtoh_rational_network_outputs(voltage, current, grid) -> None:
-    """Copy device terminal histories into their runtime terminal objects."""
+    """Restore device voltage/current histories without re-collocating them in time.
+
+    CUDA/OpenCL callers supply downloaded host arrays; Metal supplies buffers
+    decoded here after checking their byte lengths. Terminal order must match
+    ``grid.networkterminals`` as used when packing. Generator voltage is restored
+    from the prepared half-step waveform, not inferred from terminal voltage.
+    """
 
     voltage_shape = (len(grid.networkterminals), grid.iterations + 1)
     current_shape = (len(grid.networkterminals), grid.iterations)

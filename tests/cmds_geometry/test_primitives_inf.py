@@ -105,7 +105,9 @@ def test_cylinder_spans_full_te_invariant_axis(monkeypatch, tmp_path):
     scene.add(gprMax.DomainMode(mode="TE"))
     scene.add(gprMax.Domain(p1=(0.02, 0.02, INF)))
     scene.add(gprMax.PMLThickness(thickness=0))
-    scene.add(gprMax.Cylinder(p1=(0.01, 0.01, INF), p2=(0.01, 0.01, INF), r=0.005, material_id="diel"))
+    scene.add(
+        gprMax.Cylinder(p1=(0.01, 0.01, INF), p2=(0.01, 0.01, INF), r=0.005, material_id="diel")
+    )
 
     grid = _run(monkeypatch, tmp_path, "cyl_te", scene)
     assert grid.solid[10, 10, :].tolist() == [3, 3]
@@ -116,7 +118,9 @@ def test_cylinder_spans_full_tm_invariant_axis(monkeypatch, tmp_path):
     scene.add(gprMax.DomainMode(mode="TM"))
     scene.add(gprMax.Domain(p1=(0.02, 0.02, INF)))
     scene.add(gprMax.PMLThickness(thickness=0))
-    scene.add(gprMax.Cylinder(p1=(0.01, 0.01, INF), p2=(0.01, 0.01, INF), r=0.005, material_id="diel"))
+    scene.add(
+        gprMax.Cylinder(p1=(0.01, 0.01, INF), p2=(0.01, 0.01, INF), r=0.005, material_id="diel")
+    )
 
     grid = _run(monkeypatch, tmp_path, "cyl_tm", scene)
     assert grid.solid[10, 10, :].tolist() == [3]
@@ -125,7 +129,9 @@ def test_cylinder_spans_full_tm_invariant_axis(monkeypatch, tmp_path):
 def test_cylinder_3d_with_inf_is_rejected(monkeypatch, tmp_path):
     scene = _scene_with_diel()
     scene.add(gprMax.Domain(p1=(0.02, 0.02, 0.02)))
-    scene.add(gprMax.Cylinder(p1=(0.01, 0.01, INF), p2=(0.01, 0.01, INF), r=0.005, material_id="diel"))
+    scene.add(
+        gprMax.Cylinder(p1=(0.01, 0.01, INF), p2=(0.01, 0.01, INF), r=0.005, material_id="diel")
+    )
 
     with pytest.raises(ValueError, match="2D"):
         _run(monkeypatch, tmp_path, "cyl_3d", scene)
@@ -141,7 +147,9 @@ def test_cone_3d_with_inf_is_rejected(monkeypatch, tmp_path):
     scene = _scene_with_diel()
     scene.add(gprMax.Domain(p1=(0.02, 0.02, 0.02)))
     scene.add(
-        gprMax.Cone(p1=(0.01, 0.01, INF), p2=(0.01, 0.01, INF), r1=0.002, r2=0.008, material_id="diel")
+        gprMax.Cone(
+            p1=(0.01, 0.01, INF), p2=(0.01, 0.01, INF), r1=0.002, r2=0.008, material_id="diel"
+        )
     )
 
     with pytest.raises(ValueError, match="2D"):
@@ -154,7 +162,9 @@ def test_cone_rejected_in_2d_mode(monkeypatch, tmp_path, mode):
     scene.add(gprMax.DomainMode(mode=mode))
     scene.add(gprMax.Domain(p1=(0.02, 0.02, INF)))
     scene.add(
-        gprMax.Cone(p1=(0.01, 0.01, INF), p2=(0.01, 0.01, INF), r1=0.002, r2=0.008, material_id="diel")
+        gprMax.Cone(
+            p1=(0.01, 0.01, INF), p2=(0.01, 0.01, INF), r1=0.002, r2=0.008, material_id="diel"
+        )
     )
 
     with pytest.raises(ValueError, match="2D"):
@@ -350,7 +360,7 @@ def test_geometry_objects_read_offset_resolves_inf_in_2d_mode(monkeypatch):
     grid.dl = (1e-3, 1e-3, 1e-3)
     grid.nx, grid.ny, grid.nz = (2, 10, 10)
 
-    gor = GeometryObjectsRead(p1=(-INF, 0, 0), geofile="dummy.h5", matfile="dummy.txt")
+    gor = GeometryObjectsRead(p1=(-INF, 0, 0), geofile="dummy.h5", material_database="dummy")
     uip = gor._create_uip(grid)
     resolved = uip.resolve_inf_point(gor.kwargs["p1"])
     # x is the invariant axis of an active 2D mode and this is a single
@@ -373,7 +383,7 @@ def test_geometry_objects_read_offset_with_inf_in_3d_is_rejected(monkeypatch):
     grid.dl = (1e-3, 1e-3, 1e-3)
     grid.nx, grid.ny, grid.nz = (10, 10, 10)
 
-    gor = GeometryObjectsRead(p1=(-INF, 0, 0), geofile="dummy.h5", matfile="dummy.txt")
+    gor = GeometryObjectsRead(p1=(-INF, 0, 0), geofile="dummy.h5", material_database="dummy")
     uip = gor._create_uip(grid)
     with pytest.raises(ValueError, match="2D"):
         uip.resolve_inf_point(gor.kwargs["p1"])

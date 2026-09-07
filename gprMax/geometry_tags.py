@@ -15,7 +15,15 @@
 # You should have received a copy of the GNU General Public License
 # along with gprMax. If not, see <https://www.gnu.org/licenses/>.
 
-"""Cell-centred semantic tags for voxelised geometry."""
+"""Cell-centred semantic labels, separate from electromagnetic material IDs.
+
+Scene preparation discovers tag names before building geometry, freezes one
+model-wide registry, and allocates maps only on grids that declare tags. A map
+has the same cell indexing as ``solid``, not the component indexing of the Yee
+material arrays. Geometry writers overwrite tags alongside cell materials;
+an untagged volume writes zero, including when it carves out another volume.
+Material smoothing does not average these discrete labels.
+"""
 
 from __future__ import annotations
 
@@ -26,13 +34,16 @@ from typing import Optional
 import numpy as np
 import numpy.typing as npt
 
-
 UNTAGGED_NAME = "untagged"
 _TAG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
 
 
 def validate_geometry_tag(tag: Optional[str]) -> Optional[str]:
-    """Validate and normalise a user-facing geometry tag."""
+    """Validate a tag and return it unchanged; ``None`` denotes untagged cells.
+
+    Names are case-sensitive and are neither stripped nor otherwise rewritten.
+    The reserved display name ``untagged`` cannot be an explicit user tag.
+    """
 
     if tag is None:
         return None
@@ -48,8 +59,26 @@ def validate_geometry_tag(tag: Optional[str]) -> Optional[str]:
     return tag
 
 
+def validate_geometry_tag_ids(values: npt.ArrayLike, catalogue_size: int) -> npt.NDArray:
+    """Check file-local IDs before indexing, including an all-untagged file."""
+    values = np.asarray(values)
+    if values.dtype.kind not in "iu":
+        raise ValueError("Geometry tag IDs must be integers")
+    if values.size and int(values.min()) < 0:
+        raise ValueError("Geometry tag IDs must be non-negative")
+    if values.size and int(values.max()) >= catalogue_size:
+        raise ValueError("Geometry object contains a tag ID absent from its tag-name table")
+    return values
+
+
 class GeometryTagRegistry:
-    """Maps semantic tag names to compact, deterministic integer IDs."""
+    """Assign compact IDs in registration order, with zero reserved for untagged.
+
+    Repeated names share an ID. IDs are local to this registry, so persistence
+    must include ``names`` and imports must remap by name, not copy numeric IDs
+    between independently constructed models. Freezing prevents new names from
+    exceeding the integer width selected when a grid allocates its tag map.
+    """
 
     def __init__(self) -> None:
         self._names = [UNTAGGED_NAME]
@@ -77,6 +106,8 @@ class GeometryTagRegistry:
             self.register(tag)
 
     def freeze(self) -> None:
+        """Prevent new names while allowing lookup or registration of existing ones."""
+
         self._frozen = True
 
     @property
@@ -93,6 +124,8 @@ class GeometryTagRegistry:
 
     @property
     def dtype(self) -> np.dtype:
+        """Smallest supported unsigned width that can hold the highest assigned ID."""
+
         max_id = len(self._names) - 1
         if max_id <= np.iinfo(np.uint8).max:
             return np.dtype(np.uint8)
@@ -111,7 +144,14 @@ class GeometryTagRegistry:
 
 
 class GeometryTagMap:
-    """Dense cell map whose storage type is selected by its registry."""
+    """Host-side, C-contiguous ``(nx, ny, nz)`` cell labels for one grid.
+
+    ``shape`` is in cells, with no extra Yee-component endpoint planes. The
+    frozen registry chooses uint8, uint16 or uint32 storage; all cells initially
+    have ID zero. Scene preparation leaves the map absent for untagged grids.
+    This is persistent geometry, not field history: geometry-fixed runs retain
+    it along with ``solid`` rather than clearing it during the field reset.
+    """
 
     def __init__(self, shape: tuple[int, int, int], registry: GeometryTagRegistry) -> None:
         if not registry.frozen:
@@ -131,12 +171,18 @@ class GeometryTagMap:
     def remap_file_ids(
         self, values: npt.NDArray[np.integer], file_names: Iterable[str]
     ) -> npt.NDArray[np.integer]:
-        """Map file-local tag IDs to this map's model-wide IDs."""
+        """Return file-local labels remapped to this registry, preserving shape.
+
+        ``file_names[index]`` identifies each nonzero input ID; index zero is
+        always untagged. Input IDs must be non-negative integers within the
+        file's catalogue; validate before indexing or narrowing their dtype.
+        All file names must be registered before freezing the registry. The
+        returned array uses this map's dtype without writing into the map.
+        """
 
         names = tuple(file_names)
+        values = validate_geometry_tag_ids(values, len(names))
         lookup = np.asarray(
             [self.registry.id_for(name if index else None) for index, name in enumerate(names)]
         )
-        if values.size and int(values.max()) >= lookup.size:
-            raise ValueError("Geometry object contains a tag ID absent from its tag-name table")
         return np.asarray(lookup[values], dtype=self.data.dtype, order="C")

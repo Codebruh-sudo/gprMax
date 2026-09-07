@@ -25,7 +25,13 @@ class MPIUnavailableError(RuntimeError):
 
 
 def require_mpi(feature: str = "MPI functionality") -> ModuleType:
-    """Import and return :mod:`mpi4py.MPI` for a requested MPI feature."""
+    """Import and return :mod:`mpi4py.MPI` for a requested MPI feature.
+
+    Keep this call inside the path that actually needs MPI: importing MPI
+    may initialise its runtime, whereas importing this support module does
+    not. ImportError/RuntimeError become MPIUnavailableError with the supplied
+    feature name; successful calls return mpi4py's module, not a communicator.
+    """
 
     try:
         from mpi4py import MPI

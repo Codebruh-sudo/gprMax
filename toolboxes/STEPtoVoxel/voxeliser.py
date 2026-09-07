@@ -6,7 +6,14 @@
 # GNU General Public License, version 3 or (at your option) any later version.
 # See LICENSE in this directory.
 
-"""Slice-based solid voxelisation and gprMax geometry export."""
+"""Classify triangle-mesh interiors on a cell grid and resolve overlaps.
+
+World coordinates are converted to continuous voxel coordinates before
+plane intersections and scanline voting. The public arrays use x, y, z
+axes; local slice buffers use y, x and are transposed on return. STEP and
+GeometryImport surface converters reuse this classifier, assigning their
+own meaning to its non-negative mesh IDs.
+"""
 
 from __future__ import annotations
 
@@ -35,9 +42,10 @@ class GridSpec:
     """
     World-space voxel grid definition.
 
-    origin_world: corner of voxel (0,0,0) in world units.
-    dxyz_world:   voxel size (dx, dy, dz) in world units.
-    nxyz:         number of voxels (nx, ny, nz).
+    ``origin_world`` is the lower corner of cell (0, 0, 0), not its centre.
+    ``dxyz_world`` and ``nxyz`` are ordered x, y, z. Cell (i, j, k) has centre
+    ``origin_world + ([i,j,k] + 0.5)*dxyz_world``. Low-level grid operations
+    require consistent world length units; they do not convert units.
     """
 
     origin_world: np.ndarray  # (3,) float
@@ -62,13 +70,12 @@ class TriangleMesh:
     """
     Indexed triangle mesh in world coordinates.
 
-    material_id:
-      - gprMax material index (0 reserved for background/air)
-      - you decide mapping externally (e.g., by part name or a config file)
-
-    priority:
-      - used only when merge_mode="priority"
-      - higher number wins on overlap
+    Vertices have shape ``(N, 3)``; each row of ``triangles`` contains three
+    zero-based vertex indices. ``material_id`` is a non-negative output ID;
+    callers may use it for components before mapping to materials. Empty
+    output cells use -1, so ID zero is available for an occupied component.
+    ``priority`` is used only in priority merging: higher values win and
+    equal values retain the earlier mesh.
     """
 
     vertices_world: np.ndarray  # (N,3) float
@@ -93,13 +100,12 @@ def make_grid_from_bbox(
     pad: int = 2,
 ) -> GridSpec:
     """
-    Create a voxel grid that encloses [vmin_world, vmax_world] with `pad` voxels margin.
+    Build a grid from [vmin_world, vmax_world] with ``pad`` cells on each side.
 
-    Robustness:
-      - snap origin down to an enclosing integer voxel lattice
-      - treat values already numerically on a lattice plane as exact, avoiding
-        an accidental extra cell from floating-point round-off
-      - keep origin/dxyz float64
+    The lower bound is snapped down on a zero-origin voxel lattice. Values
+    within 1e-9 voxel units of an integer are snapped to that integer first,
+    so round-off just below a lattice plane does not add a lower cell.
+    Origin and spacing are stored as float64.
     """
     vmin_world = np.asarray(vmin_world, dtype=np.float64)
     vmax_world = np.asarray(vmax_world, dtype=np.float64)
@@ -137,11 +143,16 @@ def make_grid_from_bbox(
 
 
 def compute_scene_bbox(meshes: Sequence[TriangleMesh]) -> Tuple[np.ndarray, np.ndarray]:
+    """Return float64 world bounds without narrowing fine translated meshes.
+
+    Bounding-box construction must retain the precision used by grid creation
+    and world-to-voxel conversion; a later upcast cannot recover lost extents.
+    """
     if not meshes:
         raise ValueError("meshes must be non-empty")
     vmins, vmaxs = [], []
     for m in meshes:
-        V = np.asarray(m.vertices_world, dtype=np.float32)
+        V = np.asarray(m.vertices_world, dtype=np.float64)
         if V.ndim != 2 or V.shape[1] != 3:
             raise ValueError("vertices_world must be (N,3)")
         vmins.append(V.min(axis=0))
@@ -171,7 +182,8 @@ def _generate_tri_events(tris_xyz: np.ndarray, eps: float = 1e-7) -> List[Tuple[
     Plane sweep events for z slicing.
     tris_xyz: (M,3,3) float, triangle vertices in voxel coords.
 
-    eps is in *voxel coord units* (i.e., fraction of a voxel). 1e-7 is safe for float64.
+    ``eps`` is a fraction of a voxel, not a world-space length. It expands
+    each triangle's active z interval to include nearby slicing planes.
     """
     events: List[Tuple[float, str, int]] = []
     for i, tri in enumerate(tris_xyz):
@@ -211,6 +223,9 @@ def _generate_tri_events_int(tris_xyz: np.ndarray, nz: int) -> List[Tuple[int, s
 
         z0 = max(z0, 0)
         z1 = min(z1, nz - 1)
+        if z1 < z0:
+            # A triangle outside the cropped grid has no layer events.
+            continue
 
         events.append((z0, "begin", i))
         events.append((z1, "end", i))  # end is inclusive; remove AFTER painting layer
@@ -236,7 +251,9 @@ def _where_line_crosses_z(p1: np.ndarray, p2: np.ndarray, z: float) -> np.ndarra
     return _linear_interpolation(p1, p2, t)
 
 
-def _triangle_to_intersecting_points(tri: np.ndarray, z_plane: float, eps: float = 1e-7) -> List[np.ndarray]:
+def _triangle_to_intersecting_points(
+    tri: np.ndarray, z_plane: float, eps: float = 1e-7
+) -> List[np.ndarray]:
     """
     Return intersection points between triangle edges and plane z=z_plane.
     Robust to near-plane degeneracy.
@@ -308,7 +325,9 @@ def _triangle_to_intersecting_points(tri: np.ndarray, z_plane: float, eps: float
 # -----------------------------------------------------------------------------
 
 
-def _find_polylines(segments: List[Tuple[Tuple[int, int], Tuple[int, int]]]) -> List[List[Tuple[int, int]]]:
+def _find_polylines(
+    segments: List[Tuple[Tuple[int, int], Tuple[int, int]]]
+) -> List[List[Tuple[int, int]]]:
     polylines: List[List[Tuple[int, int]]] = []
     fwd: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
     bwd: Dict[Tuple[int, int], List[Tuple[int, int]]] = {}
@@ -389,7 +408,9 @@ def _dist2(a: Tuple[float, float], b: Tuple[float, float]) -> float:
     return dx * dx + dy * dy
 
 
-def _winding_contour_pole(pos: Tuple[float, float], pt: Tuple[float, float], repel: bool) -> Tuple[float, float]:
+def _winding_contour_pole(
+    pos: Tuple[float, float], pt: Tuple[float, float], repel: bool
+) -> Tuple[float, float]:
     x, y = _sub2(pos, pt)
     dist2 = x * x + y * y
     if dist2 == 0.0:
@@ -456,7 +477,9 @@ class _PolygonRepair:
     Input segments are integer pixel coordinates: ((x1,y1),(x2,y2))
     """
 
-    def __init__(self, segments: List[Tuple[Tuple[int, int], Tuple[int, int]]], dims_xy: Tuple[int, int]):
+    def __init__(
+        self, segments: List[Tuple[Tuple[int, int], Tuple[int, int]]], dims_xy: Tuple[int, int]
+    ):
         self.dims_xy = dims_xy  # (ny, nx) or (height,width); used only for max_iterations scale
         self.original_segments = list(segments)
         self.loops: List[List[Tuple[int, int]]] = []
@@ -487,7 +510,9 @@ class _PolygonRepair:
         search_ends = [poly[0] for poly in self.polylines]
 
         endpoints = [(poly[0], poly[-1]) for poly in self.polylines]
-        endpoints_f = [((float(a[0]), float(a[1])), (float(b[0]), float(b[1]))) for (a, b) in endpoints]
+        endpoints_f = [
+            ((float(a[0]), float(a[1])), (float(b[0]), float(b[1]))) for (a, b) in endpoints
+        ]
 
         max_iterations = int(self.dims_xy[0] + self.dims_xy[1])  # heuristic
         end = _winding_number_search(
@@ -540,7 +565,9 @@ def _generate_line_events_int(
     return events
 
 
-def _y_at_x_halfopen(p1: Tuple[float, float], p2: Tuple[float, float], xq: float) -> Optional[float]:
+def _y_at_x_halfopen(
+    p1: Tuple[float, float], p2: Tuple[float, float], xq: float
+) -> Optional[float]:
     """
     y-value where segment p1->p2 crosses vertical line x = xq.
 
@@ -604,7 +631,9 @@ def _column_intervals_even_odd(
     return [(ys[index], ys[index + 1]) for index in range(0, len(ys), 2)]
 
 
-def _segment_active_at_xq(a: Tuple[float, float], b: Tuple[float, float], xq: float, *, eps: float = 1e-12) -> bool:
+def _segment_active_at_xq(
+    a: Tuple[float, float], b: Tuple[float, float], xq: float, *, eps: float = 1e-12
+) -> bool:
     ax, ay = a
     bx, by = b
     if ax == bx:
@@ -629,7 +658,12 @@ def _lines_to_vote_counts(
     *,
     supersample: int,
 ) -> np.ndarray:
-    """Count interior x-y subcell samples using an even-odd scanline fill."""
+    """Count interior samples into a ``(ny, nx)`` plane using even-odd fill.
+
+    Each cell is tested at ``supersample`` evenly centred offsets per axis.
+    Half-open interval ends assign a sample on a shared contour only once;
+    using inclusive bounds at both ends would change boundary votes.
+    """
     ny, nx = plane_shape_yx
     votes = np.zeros((ny, nx), dtype=np.uint32)
     if not line_list:
@@ -663,20 +697,22 @@ def _repaired_lines_to_votes(
     supersample: int = 1,
 ) -> np.ndarray:
     """
-    Repair open polylines into loops, then fill.
-    SAFE: if repair fails or yields no loops, fall back to filling without repair.
+    Optionally repair open polylines into loops before scanline voting.
+
+    Repair rounds endpoints to integer pixel coordinates. If disabled, if
+    ``repair_all`` raises, or if no usable segments/loops result, vote using
+    the original lines. This fallback does not establish that they are closed.
     """
     if not line_list:
         return np.zeros(plane_shape_yx, dtype=np.uint32)
 
-    # Always have a fallback path
     def _fallback() -> np.ndarray:
         return _lines_to_vote_counts(line_list, plane_shape_yx, supersample=supersample)
 
     if not enable_repair:
         return _fallback()
 
-    # Convert float endpoints -> integer pixel coords for your _PolygonRepair
+    # Polygon repair operates on integer pixel endpoints.
     segs_int: List[Tuple[Tuple[int, int], Tuple[int, int]]] = []
     for a, b in line_list:
         ax, ay = int(round(a[0])), int(round(a[1]))
@@ -693,11 +729,11 @@ def _repaired_lines_to_votes(
     except Exception:
         return _fallback()
 
-    # If repair produced no loops, do NOT blank the slice
+    # An empty repair result must not erase votes from the original lines.
     if not repair.loops:
         return _fallback()
 
-    # Convert loops back to line segments (float is fine)
+    # The scanline classifier consumes floating-point line segments.
     repaired_lines: List[Tuple[Tuple[float, float], Tuple[float, float]]] = []
     for loop in repair.loops:
         for k in range(len(loop) - 1):
@@ -767,7 +803,12 @@ def _voxelise_z_slices(
     *,
     supersample: int,
 ) -> np.ndarray:
-    """Voxelise with a local z sweep and symmetric subcell sampling."""
+    """Sweep local z, then return a boolean ``(nx, ny, nz)`` mask.
+
+    The working volume is ``(nz, ny, nx)`` to hold contiguous slice planes.
+    One sample per axis uses inclusive triangle layer events; larger sample
+    counts accumulate ``supersample**3`` votes and require a strict majority.
+    """
     V_vox = np.asarray(V_vox, dtype=np.float64)
     T = np.asarray(T, dtype=np.int32)
     nx, ny, nz = map(int, shape_nxyz)
@@ -838,7 +879,12 @@ def _preserve_empty_thin_solid(
     T: np.ndarray,
     shape_nxyz: Tuple[int, int, int],
 ) -> np.ndarray:
-    """Represent a closed one-subcell-thick plate in x, y, or z by one cell."""
+    """Paint a central slice for each bounding-box extent between 0 and 1 voxel.
+
+    This fallback is called only when ordinary voting left the entire solid
+    empty. Each eligible axis contributes a one-cell-thick slice at its
+    bounding-box midpoint; it does not recover every thin feature of a mesh.
+    """
     preserved = np.zeros(shape_nxyz, dtype=bool)
     extents = np.ptp(V_vox, axis=0)
     thin_axes = [index for index, extent in enumerate(extents) if 0 < extent < 1.0]
@@ -850,8 +896,7 @@ def _preserve_empty_thin_solid(
         local_shape = tuple(int(shape_nxyz[index]) for index in permutation)
         local_triangles = local_vertices[T]
         plane = 0.5 * (
-            float(np.min(local_triangles[:, :, 2]))
-            + float(np.max(local_triangles[:, :, 2]))
+            float(np.min(local_triangles[:, :, 2])) + float(np.max(local_triangles[:, :, 2]))
         )
         layer = int(np.clip(np.floor(plane), 0, local_shape[2] - 1))
         votes = _paint_z_plane(
@@ -877,10 +922,12 @@ def voxelise_solid_scanline(
 ) -> np.ndarray:
     """Voxelise a closed triangle mesh using an axis-selectable plane sweep.
 
-    One sample evaluates the centre of every voxel. Larger values use an
-    equal number of subcell samples along x, y, and z and require a strict
-    majority, avoiding the directional dilation of the original x-only
-    supersampling scheme.
+    ``V_vox`` contains continuous voxel coordinates, ``T`` zero-based vertex
+    indices, and ``shape_nxyz`` the output cell counts. The chosen sweep axis
+    is permuted into local z and restored in the returned boolean array.
+    One sample evaluates each cell centre. Larger values sample equally
+    along all three axes and require a strict majority. Optional thin-solid
+    preservation runs only if that voting produced no occupied cells.
     """
     if supersample < 1:
         raise ValueError("supersample must be at least one")
@@ -909,7 +956,7 @@ def voxelise_solid_scanline(
 
 
 def _merge_layer(
-    mat_layer: np.ndarray,  # (nx,ny) uint16
+    mat_layer: np.ndarray,  # (nx,ny) int16
     solid_mask_layer: np.ndarray,  # (nx,ny) bool
     material_id: int,
     *,
@@ -918,7 +965,10 @@ def _merge_layer(
     new_priority: int,
 ) -> None:
     """
-    In-place merge for a single z layer.
+    Merge one z layer in place, retaining -1 as the empty-cell sentinel.
+
+    Priority ties retain the existing owner because comparison is strict;
+    changing ``>`` to ``>=`` would change overlap ownership.
     """
     if merge_mode == "last_wins":
         mat_layer[solid_mask_layer] = np.int16(material_id)
@@ -958,8 +1008,8 @@ def voxelise_material_grid(
     Voxelise one or more triangle meshes into a single material-index grid.
 
     merge_mode:
-      - "priority"  : recommended for STEP assemblies with nested solids (a heart inside a bunny model, for example)
-                      higher mesh.priority overwrites lower on overlap
+      - "priority"  : higher mesh.priority overwrites lower on overlap;
+                      equal priorities retain the earlier mesh
       - "last_wins" : later meshes overwrite earlier
       - "first_wins": earlier meshes keep material on overlap
 
@@ -968,7 +1018,7 @@ def voxelise_material_grid(
       - "x", "y", or "z": use an explicitly reproducible slice direction
 
     Returns:
-      mat_grid (nx,ny,nz) int16
+      mat_grid (nx,ny,nz) int16, with -1 for cells not assigned to a mesh
       grid     GridSpec
     """
     if not meshes:
@@ -994,7 +1044,9 @@ def voxelise_material_grid(
     # Voxelise each mesh → solid mask → merge
     for m in meshes:
         if m.material_id < 0 or m.material_id > np.iinfo(np.int16).max:
-            raise ValueError(f"material_id must be in 0..{np.iinfo(np.int16).max}, got {m.material_id}")
+            raise ValueError(
+                f"material_id must be in 0..{np.iinfo(np.int16).max}, got {m.material_id}"
+            )
 
         Vv = world_to_voxel_coords(m.vertices_world, grid)
         solid = voxelise_solid_scanline(
@@ -1042,7 +1094,10 @@ def write_gprmax_hdf5(path_h5: str, mat_grid: np.ndarray, grid: GridSpec) -> Non
       dataset "data": material index grid
       attrs   "dx_dy_dz": (dx,dy,dz)
 
-    Also writes origin/shape as extra attrs (safe; gprMax will ignore).
+    ``mat_grid`` uses x, y, z axes and -1 for unwritten cells. Spacing is
+    written unchanged, so the caller must provide metres for gprMax input.
+    Origin and shape are also stored as metadata; origin does not replace
+    the placement coordinates supplied to the geometry-import command.
     """
     if not _HAS_H5PY:
         raise RuntimeError("h5py not installed. pip install h5py")
@@ -1055,8 +1110,16 @@ def write_gprmax_hdf5(path_h5: str, mat_grid: np.ndarray, grid: GridSpec) -> Non
 
     with h5py.File(path_h5, "w") as f:
         f.create_dataset("data", data=mat_grid, compression="gzip")
-        f.attrs["dx_dy_dz"] = (float(grid.dxyz_world[0]), float(grid.dxyz_world[1]), float(grid.dxyz_world[2]))
-        f.attrs["origin_xyz"] = (float(grid.origin_world[0]), float(grid.origin_world[1]), float(grid.origin_world[2]))
+        f.attrs["dx_dy_dz"] = (
+            float(grid.dxyz_world[0]),
+            float(grid.dxyz_world[1]),
+            float(grid.dxyz_world[2]),
+        )
+        f.attrs["origin_xyz"] = (
+            float(grid.origin_world[0]),
+            float(grid.origin_world[1]),
+            float(grid.origin_world[2]),
+        )
         f.attrs["shape_nxyz"] = (int(grid.nx), int(grid.ny), int(grid.nz))
 
 
@@ -1075,9 +1138,7 @@ def write_voxel_cache_hdf5(
     compression: Optional[str] = "gzip",
 ) -> None:
     """
-    Write a cached voxel grid to disk safely (atomic write).
-
-    This is intentionally *I/O only* and does not affect voxelisation.
+    Write an existing voxel grid through a temporary file and os.replace.
 
     Stored format (HDF5):
       dataset "data": int16 grid (nx, ny, nz)
@@ -1089,8 +1150,8 @@ def write_voxel_cache_hdf5(
         - meta_json   : str (optional, JSON)
 
     Notes:
-      - gprMax will ignore unknown attrs if you later use this as a geometry file.
-      - Uses a .tmp file and os.replace for atomicity.
+      - No voxel classification or unit conversion occurs here.
+      - The completed .tmp file replaces the destination after HDF5 is closed.
     """
     if not _HAS_H5PY:
         raise RuntimeError("h5py not installed. pip install h5py")
@@ -1099,7 +1160,9 @@ def write_voxel_cache_hdf5(
     if mat_grid.ndim != 3:
         raise ValueError("mat_grid must be 3D (nx,ny,nz)")
     if mat_grid.shape != (grid.nx, grid.ny, grid.nz):
-        raise ValueError(f"mat_grid shape {mat_grid.shape} does not match grid {(grid.nx, grid.ny, grid.nz)}")
+        raise ValueError(
+            f"mat_grid shape {mat_grid.shape} does not match grid {(grid.nx, grid.ny, grid.nz)}"
+        )
 
     # Prepare metadata JSON
     meta_json = ""
@@ -1128,7 +1191,7 @@ def write_voxel_cache_hdf5(
         if meta_json:
             f.attrs["meta_json"] = meta_json
 
-    # Atomic replace (prevents partially-written cache on crash)
+    # Publish only after the temporary HDF5 file has been closed.
     os.replace(tmp_path, path_h5)
 
 
@@ -1181,9 +1244,10 @@ def validate_cached_voxel_grid(
     expect_shape: Optional[Tuple[int, int, int]] = None,
 ) -> bool:
     """
-    Light sanity checks to avoid using a corrupted/incompatible cache.
+    Check array rank, integer dtype, optional shape and required attributes.
 
-    This does NOT check cache_key equality — the runner should do that.
+    Attribute values and material IDs are not validated here. The caller
+    must compare cache keys separately before reusing a grid for another mesh.
     """
     try:
         if not isinstance(mat_grid, np.ndarray):

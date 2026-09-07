@@ -15,7 +15,16 @@
 # You should have received a copy of the GNU General Public License
 # along with gprMax. If not, see <https://www.gnu.org/licenses/>.
 
-"""Versioned JSON material databases and their gprMax translation layer."""
+"""Translate versioned JSON entries into grid-specific electromagnetic materials.
+
+Resolution and validation produce a ``MaterialSpec`` without allocating field
+or dispersive history arrays. Building the selected specification then assigns
+a grid-local numeric material ID, checks time-step-dependent pole constraints,
+and updates the model's maximum pole count. Geometry imports use the matching
+and export helpers to connect file-local material keys with live materials.
+Database names, entry keys, display names and grid material IDs have separate
+roles; an alias resolves to the target entry and its provenance.
+"""
 
 from __future__ import annotations
 
@@ -58,7 +67,13 @@ class MaterialDatabaseSource:
 
 @dataclass(frozen=True)
 class MaterialSpec:
-    """Validated, grid-independent material definition."""
+    """Validated properties before grid IDs and time-step checks are applied.
+
+    Relative permittivity/permeability are dimensionless; ``mass_density`` is
+    kg/m^3 or None. Pole mappings retain model-specific, unit-labelled keys
+    from the JSON schema. The dataclass is frozen, but its mapping members are
+    not deeply immutable and should be treated as read-only by consumers.
+    """
 
     key: str
     name: str
@@ -97,6 +112,13 @@ def official_material_directory() -> Path:
 
 
 def _read_json(path: Path) -> Mapping[str, Any]:
+    """Cache parsed documents by path and nanosecond modification time.
+
+    This reads the JSON root, not every material definition. Validation of
+    individual entries is deferred until they are selected or a catalogue is
+    explicitly validated. Callers must not mutate the cached mapping.
+    """
+
     try:
         stat = path.stat()
     except FileNotFoundError as exc:
@@ -349,7 +371,12 @@ def load_material_spec(
     search_directory: Optional[Path] = None,
     _visited: Sequence[Tuple[str, str]] = (),
 ) -> MaterialSpec:
-    """Resolve and validate one entry, following aliases if necessary."""
+    """Resolve and validate one entry, following aliases if necessary.
+
+    Alias traversal retains the canonical target's key, metadata and source;
+    the alias is not a second material definition. Pole checks that require
+    the grid time step are deferred to ``build_material_from_spec``.
+    """
 
     if not isinstance(material, str) or not MATERIAL_KEY_PATTERN.fullmatch(material):
         raise ValueError(
@@ -551,7 +578,7 @@ def load_material_spec(
 def validate_material_database(
     database: str, *, search_directory: Optional[Path] = None
 ) -> Tuple[Tuple[str, MaterialSpec], ...]:
-    """Validate every entry in a database and return an immutable catalogue.
+    """Validate every entry in a database and return a tuple catalogue.
 
     The requested key is retained separately because an alias resolves to the
     canonical target specification. This function is also the implementation
@@ -576,7 +603,14 @@ def validate_material_database(
 
 
 def build_material_from_spec(grid: FDTDGrid, spec: MaterialSpec, material_id: str) -> Material:
-    """Create a grid material from a validated, immutable specification."""
+    """Append a material with the requested local name and next numeric grid ID.
+
+    This binds a validated specification to ``grid.dt`` and the current model's
+    dispersive-averaging policy. Only selected dispersive entries contribute to
+    ``maxpoles``; merely loading a database does not enlarge recurrence storage.
+    Density is copied as material metadata, not converted into a pole or an
+    electromagnetic update coefficient.
+    """
 
     if (
         is_reserved_impedance_id(material_id)
@@ -600,6 +634,9 @@ def build_material_from_spec(grid: FDTDGrid, spec: MaterialSpec, material_id: st
     result.averagable = bool(spec.averagable)
 
     if isinstance(result, DispersiveMaterial):
+        # ``tau`` is a historical storage name: seconds for Debye, but hertz
+        # for Lorentz and Drude. Keep the schema's distinct units here; the
+        # corresponding material-coefficient builders interpret each model.
         if result.is_pec or result.is_pmc:
             raise ValueError("Perfect conductors cannot contain electric dispersion")
         if spec.model == "debye":
@@ -645,7 +682,15 @@ def build_material_from_spec(grid: FDTDGrid, spec: MaterialSpec, material_id: st
 
 
 def material_matches_spec(material: Material, spec: MaterialSpec) -> bool:
-    """Return whether a live material is constitutively equivalent to *spec*."""
+    """Compare base properties, density and the supported pole representation.
+
+    Reuse requires identical numerical definitions, not a tolerance intended
+    for comparing simulation results. In particular, an absolute tolerance
+    appropriate for permittivity would conflate distinct picosecond relaxation
+    times. Names, provenance and averaging flags are not compared. Density
+    must be absent on both sides or equal: identical electromagnetic properties
+    alone do not make materials interchangeable for cell-based mass calculations.
+    """
 
     scalar_values = (
         (material.er, spec.relative_permittivity),
@@ -653,12 +698,12 @@ def material_matches_spec(material: Material, spec: MaterialSpec) -> bool:
         (material.mr, spec.relative_permeability),
         (material.sm, spec.magnetic_conductivity),
     )
-    if not all(np.isclose(actual, expected, equal_nan=False) for actual, expected in scalar_values):
+    if not all(actual == expected for actual, expected in scalar_values):
         return False
     if material.mass_density is None or spec.mass_density is None:
         if material.mass_density is not spec.mass_density:
             return False
-    elif not np.isclose(material.mass_density, spec.mass_density):
+    elif material.mass_density != spec.mass_density:
         return False
     if spec.model in ("constant", "builtin"):
         return not isinstance(material, DispersiveMaterial) or material.poles == 0
@@ -667,37 +712,37 @@ def material_matches_spec(material: Material, spec: MaterialSpec) -> bool:
     if spec.model != "general" and spec.model not in material.type:
         return False
     if spec.model == "debye":
-        return np.allclose(
+        return np.array_equal(
             material.deltaer,
             [pole["relative_permittivity_difference"] for pole in spec.poles],
-        ) and np.allclose(material.tau, [pole["relaxation_time_s"] for pole in spec.poles])
+        ) and np.array_equal(material.tau, [pole["relaxation_time_s"] for pole in spec.poles])
     if spec.model == "lorentz":
         return (
-            np.allclose(
+            np.array_equal(
                 material.deltaer,
                 [pole["relative_permittivity_difference"] for pole in spec.poles],
             )
-            and np.allclose(
+            and np.array_equal(
                 material.tau,
                 [pole["resonance_frequency_hz"] for pole in spec.poles],
             )
-            and np.allclose(
+            and np.array_equal(
                 material.alpha,
                 [pole["damping_coefficient_per_s"] for pole in spec.poles],
             )
         )
     if spec.model == "drude":
-        return np.allclose(
+        return np.array_equal(
             material.tau,
             [pole["plasma_frequency_hz"] for pole in spec.poles],
-        ) and np.allclose(
+        ) and np.array_equal(
             material.alpha,
             [pole["collision_frequency_per_s"] for pole in spec.poles],
         )
     return (
-        np.allclose(material.inclusive_w, [pole["w_per_s"] for pole in spec.poles])
-        and np.allclose(material.inclusive_q, [pole["q_per_s"] for pole in spec.poles])
-        and np.isclose(material.inclusive_conductivity, spec.inclusive_conductivity)
+        np.array_equal(material.inclusive_w, [pole["w_per_s"] for pole in spec.poles])
+        and np.array_equal(material.inclusive_q, [pole["q_per_s"] for pole in spec.poles])
+        and material.inclusive_conductivity == spec.inclusive_conductivity
     )
 
 

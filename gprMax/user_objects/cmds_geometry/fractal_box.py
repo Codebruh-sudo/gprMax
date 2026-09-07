@@ -50,7 +50,8 @@ class FractalBox(GeometryUserObject):
                         mixing model). This should be set to one if using a
                         normal material instead of a mixing model.
         mixing_model_id: string identifier for the associated mixing model or
-                            material.
+                            material. Several boxes may share a mixing model;
+                            each box uses its own n_materials bin mapping.
         id: string identifier for the fractal box itself.
         seed: (optional) float parameter which controls the seeding of the
                 random number generator used to create the fractals.
@@ -194,6 +195,10 @@ class FractalBox(GeometryUserObject):
         self.volume.weighting = weighting
         self.volume.averaging = averagefractalbox
         self.volume.mixingmodel = mixingmodel
+        if mixingmodel is not None:
+            # Scene prepares every fractal box before rasterising any of them.
+            # A later box can evaluate this model with a different bin count.
+            self.volume.material_ids = tuple(mixingmodel.matID)
 
         dielectricsmoothing = "on" if self.volume.averaging else "off"
         logger.info(
@@ -256,7 +261,7 @@ class FractalBox(GeometryUserObject):
                         for j in range(0, self.volume.ny):
                             for k in range(0, self.volume.nz):
                                 numberinbin = self.volume.fractalvolume[i, j, k]
-                                self.volume.fractalvolume[i, j, k] = self.volume.mixingmodel.matID[
+                                self.volume.fractalvolume[i, j, k] = self.volume.material_ids[
                                     int(numberinbin)
                                 ]
 
@@ -762,7 +767,8 @@ class FractalBox(GeometryUserObject):
                 # Build voxels from any true values of the 3D mask array
                 waternumID = next((x.numID for x in grid.materials if x.ID == "water"), 0)
                 grassnumID = next((x.numID for x in grid.materials if x.ID == "grass"), 0)
-                data = self.volume.fractalvolume.astype("int16", order="C")
+                # These are target-grid material IDs, not compact file indices.
+                data = self.volume.fractalvolume.astype("int32", order="C")
                 mask = self.volume.mask.copy(order="C")
                 is_pec_lookup = np.array([m.is_pec for m in grid.materials], dtype=np.uint8)
                 is_averagable_lookup = np.array(
@@ -819,11 +825,12 @@ class FractalBox(GeometryUserObject):
                         for j in range(0, self.volume.ny):
                             for k in range(0, self.volume.nz):
                                 numberinbin = self.volume.fractalvolume[i, j, k]
-                                self.volume.fractalvolume[i, j, k] = self.volume.mixingmodel.matID[
+                                self.volume.fractalvolume[i, j, k] = self.volume.material_ids[
                                     int(numberinbin)
                                 ]
 
-                data = self.volume.fractalvolume.astype("int16", order="C")
+                # These are target-grid material IDs, not compact file indices.
+                data = self.volume.fractalvolume.astype("int32", order="C")
                 is_pec_lookup = np.array([m.is_pec for m in grid.materials], dtype=np.uint8)
                 is_averagable_lookup = np.array(
                     [m.averagable for m in grid.materials], dtype=np.uint8
