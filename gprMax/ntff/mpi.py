@@ -46,7 +46,14 @@ def _patch_owner_ranks(grid, inside_indices):
 
 
 def localise_component_surface(surface: KSIRComponentSurface, grid) -> KSIRComponentSurface:
-    """Partition a global component surface and map its indices to one rank."""
+    """Partition a global component surface and map its indices to one rank.
+
+    The inside sample selects the owning rank. Both sample indices become
+    local, including any outside sample in the halo, but patch positions and
+    physical bounds remain in the global coordinate frame. Global patch IDs
+    retain concatenated face ordering for later gathering; a rank may own no
+    patches on a particular face.
+    """
 
     local_shape = tuple(int(value + 1) for value in grid.size)
     lower_extent = np.asarray(grid.lower_extent, dtype=np.int32)

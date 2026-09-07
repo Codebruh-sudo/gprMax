@@ -7,7 +7,14 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
-"""Synthesis of arbitrary source waveforms from one FDTD impulse response."""
+"""Synthesize receiver histories for new waveforms from a stored impulse run.
+
+SFCW supplies signal loading and the time-first array convention. Here the
+stored scalar impulse fixes the convolution's amplitude and index shift;
+target waveforms are sampled using the source's waveform-evaluation times.
+The output writer retains receiver paths and timing metadata for downstream
+gprMax readers. No FDTD field updates are performed in this module.
+"""
 
 from __future__ import annotations
 
@@ -22,6 +29,7 @@ from scipy.signal import fftconvolve
 
 from toolboxes.SFCW.processing import (
     SampledSignal,
+    _validate_output_path,
     apply_tail_taper,
     list_receivers,
     list_sources,
@@ -47,7 +55,12 @@ BUILTIN_WAVEFORM_TYPES = (
 
 @dataclass(frozen=True)
 class SourceSampling:
-    """Stored scalar source and the time used to evaluate its waveform."""
+    """Stored scalar source and its waveform-evaluation convention.
+
+    ``evaluation_time_offset`` is in seconds and can differ from the physical
+    sample-zero time in ``signal``. For a hard voltage source, waveform sample
+    n is evaluated at ``n*dt`` but imposed on the field stored at ``(n+1)*dt``.
+    """
 
     signal: SampledSignal
     evaluation_time_offset: float
@@ -57,7 +70,13 @@ class SourceSampling:
 
 @dataclass(frozen=True)
 class TargetWaveform:
-    """A target driving waveform sampled exactly on the source update lattice."""
+    """One-dimensional target driving samples on the source update lattice.
+
+    ``dt``, offsets and start/stop times are in seconds; frequency is in Hz.
+    Samples use the selected source's driving quantity and units. Evaluation
+    times choose waveform values, whereas ``source_time_offset`` locates
+    those values on the stored physical source history.
+    """
 
     id: str
     samples: npt.NDArray[np.float64]
@@ -250,7 +269,12 @@ def sample_builtin_waveform(
     start_time: float = 0.0,
     stop_time: float | None = None,
 ) -> TargetWaveform:
-    """Sample one built-in gprMax waveform as the selected source would."""
+    """Sample one built-in waveform using the source's evaluation offset.
+
+    Activation is tested at update indices ``n*dt`` with inclusive start/stop
+    bounds. Active values are evaluated at ``n*dt-start_time+evaluation_offset``.
+    Using the physical output offset instead would shift hard-source values.
+    """
 
     if not np.isfinite(start_time) or start_time < 0:
         raise ValueError("start_time must be finite and non-negative")
@@ -290,7 +314,13 @@ def load_csv_waveforms(
     *,
     start_time: float = 0.0,
 ) -> tuple[TargetWaveform, ...]:
-    """Load named waveforms from a CSV time column and linearly resample them."""
+    """Resample named CSV waveforms at source evaluation times.
+
+    The first column is time in seconds; subsequent columns are driving
+    values in the selected source's units. Times must increase strictly.
+    Linear interpolation uses zero outside the CSV interval, and updates
+    before ``start_time`` remain zero regardless of the evaluation offset.
+    """
 
     path = Path(filename)
     table = np.genfromtxt(path, delimiter=",", names=True, dtype=np.float64, encoding="utf-8")
@@ -336,17 +366,39 @@ def load_csv_waveforms(
 
 
 def waveform_energy_above(samples: npt.ArrayLike, dt: float, frequency: float) -> float:
-    """Return the fraction of discrete spectral energy above a frequency."""
+    """Return the fraction of real-signal discrete energy above a frequency.
 
-    values = np.asarray(samples, dtype=np.float64)
+    ``samples`` is a finite, real, non-empty one-dimensional history; ``dt``
+    is in seconds and the cutoff is in Hz. Positive-frequency RFFT bins are
+    doubled to include their negative-frequency partners, except for DC and
+    the even-length Nyquist bin. The fraction uses bins strictly above the
+    cutoff and is zero for an all-zero waveform. It is not an estimate of
+    FDTD accuracy within the retained band.
+    """
+
+    raw = np.asarray(samples)
+    if raw.ndim != 1 or raw.size == 0 or np.iscomplexobj(raw):
+        raise ValueError("samples must contain one finite real one-dimensional time history")
+    values = np.asarray(raw, dtype=np.float64)
+    if not np.all(np.isfinite(values)):
+        raise ValueError("samples must contain one finite real one-dimensional time history")
+    if not np.isfinite(dt) or dt <= 0:
+        raise ValueError("sample interval must be finite and positive")
     if not np.isfinite(frequency) or frequency <= 0 or frequency > 1 / (2 * dt):
         raise ValueError("valid maximum frequency must lie in (0, Nyquist]")
-    spectrum = np.fft.rfft(values)
+    peak = float(np.max(np.abs(values)))
+    if peak == 0:
+        return 0.0
+    # A common amplitude scale cancels in the energy ratio and avoids squaring
+    # very large or very small input amplitudes in their original units.
+    spectrum = np.fft.rfft(values / peak)
     frequencies = np.fft.rfftfreq(values.size, d=dt)
     energy = np.abs(spectrum) ** 2
+    if values.size % 2 == 0:
+        energy[1:-1] *= 2
+    else:
+        energy[1:] *= 2
     total = float(np.sum(energy))
-    if total == 0:
-        return 0.0
     return float(np.sum(energy[frequencies > frequency]) / total)
 
 
@@ -357,7 +409,15 @@ def synthesise_receiver(
     *,
     tail_taper_fraction: float = 0.0,
 ) -> tuple[SynthesisedReceiver, int, float]:
-    """Causally convolve one stored receiver impulse response with a waveform."""
+    """Convolve a receiver's discrete impulse response along time axis 0.
+
+    Receiver arrays are ``(nt,)`` or ``(nt, ntraces)``. Division by the stored
+    impulse amplitude defines a discrete convolution kernel, so no extra
+    ``dt`` factor is applied. The full convolution is sliced from the source
+    impulse index to remove its original delay and retain the receiver's
+    sample count. Receiver timing metadata remains unchanged; source waveform
+    evaluation has already been handled when sampling the target waveform.
+    """
 
     source = impulse_source.signal
     if not np.isclose(source.dt, receiver.dt, rtol=0, atol=32 * np.finfo(float).eps * source.dt):
@@ -479,15 +539,9 @@ def _copy_group_attrs(filename: str | Path, path: str, destination) -> None:
 
 
 def write_synthesised_output(filename: str | Path, result: SynthesisResult) -> Path:
-    """Write one waveform result using receiver paths compatible with gprMax output."""
+    """Write a receiver-compatible HDF5 file, rejecting aliases of either input."""
 
-    path = Path(filename)
-    resolved_output = path.resolve()
-    if resolved_output in {
-        Path(result.receiver_file).resolve(),
-        Path(result.source_file).resolve(),
-    }:
-        raise ValueError("the synthesised output must not overwrite an input HDF5 file")
+    path = _validate_output_path(filename, (result.receiver_file, result.source_file))
     path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(result.receiver_file, "r") as original, h5py.File(path, "w") as output:
         _copy_attrs(original, output)

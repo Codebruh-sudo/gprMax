@@ -17,8 +17,8 @@
 
 from __future__ import annotations
 
-import logging
 import itertools
+import logging
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Generic, List
@@ -317,15 +317,18 @@ class Snapshot(Generic[GridType]):
                 )
 
     def store(self):
-        """Store (in memory) electric and magnetic field values for snapshot.
-
-        Args:
-            G: FDTDGrid class describing a grid in a model.
-        """
+        """Store spatially collocated fields without changing their time levels."""
         self._store_native(self.grid_view.size)
 
     def _store_native(self, size):
-        """Collocate a safe prefix directly into the allocated output buffers."""
+        """Collocate a native-data-backed prefix into existing output buffers.
+
+        ``size`` counts output cells along each axis, not native grid cells.
+        It may be smaller than the allocated buffers when an MPI snapshot
+        handles the remaining cells through remote sampling. ``grid_view.step``
+        gives output-cell widths in native cells; the input views must retain
+        the intervening native samples, rather than stride over them first.
+        """
 
         # Interpolate native samples, not already-strided coarse corners.
         end = self.grid_view.start + (size - 1) * self.grid_view.step
@@ -446,6 +449,10 @@ class SnapshotMPIGridView(MPIGridView):
     Coarse lower corners retain ownership of output cells. A rank with no
     output cells can still own native samples needed by another rank. This
     does not change the general geometry-view decomposition or file format.
+
+    Offsets/sizes count coarse output cells; starts/stops are local native
+    grid indices. The communicator is the full grid communicator, not a
+    subset selected by ownership of coarse output cells.
     """
 
     def __init__(self, grid, xs, ys, zs, xf, yf, zf, dx=1, dy=1, dz=1):
@@ -514,7 +521,15 @@ class MPISnapshot(Snapshot["MPIGrid"]):
         return self.neighbours[dimension][direction] >= 0
 
     def store(self):
-        """Fetch only native samples needed at this snapshot's current time level."""
+        """Collectively collocate native samples at the current E/H time levels.
+
+        Every grid rank must enter with the same snapshot definition and
+        selected components, including ranks owning no output cells. A local
+        prefix uses only uniquely owned native samples, not potentially stale
+        halos. Remaining samples are requested from their owning ranks in
+        batches of output cells; all ranks perform the same collective batch
+        count. This is spatial interpolation, not temporal E/H averaging.
+        """
         logger.debug(f"Saving snapshot for iteration: {self.iteration}")
         view = self.grid_view
         shape = tuple(int(value) for value in view.size)

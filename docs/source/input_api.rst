@@ -132,6 +132,12 @@ Time Step Stability Factor
 --------------------------
 .. autoclass:: gprMax.user_objects.cmds_singleuse.TimeStepStabilityFactor
 
+Dispersive materials also undergo the :ref:`dispersive_timestep_check` before
+time stepping. If it fails, the run stops without changing the chosen timestep
+or material parameters. Use ``TimeStepStabilityFactor(f=...)`` to explicitly
+request a smaller timestep; the diagnostic gives a checked candidate when
+one is found.
+
 Output Directory
 ----------------
 .. autoclass:: gprMax.user_objects.cmds_singleuse.OutputDir
@@ -1071,6 +1077,11 @@ Geometry Objects Read
 ----------------------
 .. autoclass:: gprMax.user_objects.cmds_geometry.geometry_objects_read.GeometryObjectsRead
 
+The ``matfile`` argument is no longer supported. To reuse an old HDF5 geometry
+with text material commands, follow :ref:`legacy_geometry_conversion`, then
+use ``geofile="geometry_converted.h5", material_database="geometry_materials"``.
+The insertion coordinates and averaging option remain unchanged.
+
 Geometry Objects Write
 ----------------------
 .. autoclass:: gprMax.user_objects.cmds_output.GeometryObjectsWrite
@@ -1118,6 +1129,28 @@ Material density and cell-centred geometry tags remain discrete per cell.
 
 Source and output functions
 ===========================
+
+Sources sharing a field component
+---------------------------------
+
+Hertzian dipoles or magnetic dipoles assigned to the same discretised Yee
+component add their contributions in source-list order. This also applies
+when different physical coordinates round to the same component. Different
+polarisations address different component arrays.
+
+CPU and accelerator solvers use the same conventional-source ordering:
+voltage sources, then transmission lines, then Hertzian dipoles for the
+electric update; magnetic dipoles precede magnetic frills for the magnetic
+update. Within each family, input order is preserved. The accelerator
+kernels process ordinary source lists and transmission-line electric
+updates sequentially, so coincident writes do not race.
+
+Not every source adds to the field. An active hard voltage source or
+transmission line assigns its electric component; a later assignment to
+that component takes precedence. This reproduces the CPU update rules,
+not a combined circuit model of several feeds sharing one terminal.
+Existing restrictions on overlapping magnetic-frill stencils and duplicate
+network-terminal edges still apply.
 
 Waveform
 --------
@@ -2450,6 +2483,9 @@ temporal interpolation is performed. It inherits ``cpu_precision`` from the
 main grid. This mode is useful, for example, for confining dispersive material
 storage and updates to a local part of a larger model.
 
+Only the auxiliary PML around the embedded region is disabled at ``ratio=1``.
+Explicitly added ``PMLSlab`` absorbers remain active at each local time step.
+
 .. note::
 
     The HSG formulation fixes ``pml_separation`` at ``ratio // 2 + 2``. The
@@ -2605,7 +2641,8 @@ invariant through the slab.
 When ``id`` is omitted, gprMax assigns ``internal_pml_1``,
 ``internal_pml_2``, and so on. Internal slabs support the CPU, CUDA, OpenCL,
 and Metal solvers on the main 3D grid. A slab may also be added to an HSG
-subgrid, where it uses the CPU solver and the fine-grid update cycle. A
+subgrid, where it uses the CPU solver and the local-grid update cycle,
+including equal-resolution regions with ``ratio=1``. A
 subgrid-owned slab must lie wholly within the working region: overlap with its
 HSG coupling or auxiliary-PML regions is rejected.
 

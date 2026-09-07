@@ -266,6 +266,7 @@ class TestEdge:
         assert e.kwargs["p1"] == (0, 0, 0)
         assert e.kwargs["material_id"] == "free_space"
 
+
 class TestPlate:
     def test_constructor_kwargs(self):
         p = Plate(p1=(0, 0, 0), p2=(0.1, 0.1, 0), material_id="free_space")
@@ -374,11 +375,11 @@ class TestGeometryObjectsRead:
         g = GeometryObjectsRead(
             p1=(0, 0, 0),
             geofile="objs.h5",
-            matfile="objs_materials.txt",
+            material_database="objs_materials",
             averaging="y",
         )
         assert g.kwargs["geofile"] == "objs.h5"
-        assert g.kwargs["matfile"] == "objs_materials.txt"
+        assert g.kwargs["material_database"] == "objs_materials"
         assert g.kwargs["averaging"] == "y"
 
 

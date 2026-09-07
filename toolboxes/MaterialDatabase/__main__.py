@@ -39,15 +39,23 @@ def main():
     args = parser.parse_args()
 
     if args.command == "convert-geometry":
-        geometry, database = convert_geometry(
-            args.geometry,
-            args.materials,
-            output_geometry=args.output_geometry,
-            output_database=args.output_database,
-        )
+        try:
+            geometry, database = convert_geometry(
+                args.geometry,
+                args.materials,
+                output_geometry=args.output_geometry,
+                output_database=args.output_database,
+            )
+        except (ValueError, OSError) as exc:
+            parser.error(str(exc))
         print(f"Converted geometry: {geometry}")
         print(f"Material database: {database}")
         print(f"Use database name: {database.stem}")
+        print("Original files were not changed. Keep the converted HDF5 and JSON files together.")
+        print(
+            f"API import arguments: geofile={str(geometry)!r}, "
+            f"material_database={database.stem!r} (keep your existing p1 and averaging)."
+        )
     elif args.command in {"list", "validate"}:
         catalogue = validate_material_database(
             args.database,

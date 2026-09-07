@@ -106,7 +106,9 @@ class Source:
 
     def _cache_waveform_values(self, G, names):
         self._waveform_cache = (
-            self._waveform_cache_key(G), names, tuple(getattr(self, name) for name in names)
+            self._waveform_cache_key(G),
+            names,
+            tuple(getattr(self, name) for name in names),
         )
 
     @property
@@ -2278,7 +2280,9 @@ class EigenmodeSource(Source):
                 material_id = int(G.ID[(component, *local_coordinate)])
                 material = materials_by_id[material_id]
                 local_values[u, v] = (
-                    self._complex_er(material, G.dt) if electric else self._complex_mur(material, G.dt)
+                    self._complex_er(material, G.dt)
+                    if electric
+                    else self._complex_mur(material, G.dt)
                 )
                 local_count[u, v] = 1
 
@@ -2482,13 +2486,20 @@ class EigenmodeSource(Source):
                 # Replace only that term; inclusive conductivity belongs to
                 # the analytic Drude pole representation and stays with it.
                 physical_factor = 1 / (2 * np.pi * self.frequency)
-                er = er - 1j * conductivity * (
-                    self._conductivity_frequency_factor(fdtd_dt) - physical_factor
-                ) / config.e0
+                er = (
+                    er
+                    - 1j
+                    * conductivity
+                    * (self._conductivity_frequency_factor(fdtd_dt) - physical_factor)
+                    / config.e0
+                )
         else:
             er = material.er
             if conductivity != 0:
-                er = er - 1j * conductivity * self._conductivity_frequency_factor(fdtd_dt) / config.e0
+                er = (
+                    er
+                    - 1j * conductivity * self._conductivity_frequency_factor(fdtd_dt) / config.e0
+                )
         return er
 
     def _complex_mur(self, material, fdtd_dt=None):
@@ -3301,18 +3312,11 @@ def transmission_line_host_arrays(transmissionlines, G):
     voltage = np.zeros(nstate, dtype=real)
     current = np.zeros(nstate, dtype=real)
     times = G.dt * np.arange(G.iterations, dtype=np.float64)
-    used_ports = set()
     offset = 0
 
     for i, tl in enumerate(transmissionlines):
-        port = (int(tl.xcoord), int(tl.ycoord), int(tl.zcoord), tl.polarisation)
-        if port in used_ports:
-            raise ValueError(
-                "More than one transmission line is attached to the same Yee "
-                f"electric-field edge at {port[:3]} with {port[3]} polarisation."
-            )
-        used_ports.add(port)
-
+        # Keep coincident lines as independent state records. The electric
+        # device kernel applies their field writes in the CPU's list order.
         if tl.nl <= tl.antpos or tl.srcpos <= 0 or tl.srcpos >= tl.nl:
             raise ValueError(f"Invalid internal transmission-line layout for {tl.ID}.")
 
@@ -5277,9 +5281,7 @@ class DiscretePlaneWave(Source):
                     for r in range(self.m[3]):
                         time2 = (
                             G.dt * (iteration)
-                            - (r + np.abs(self.m[dimension]) * 0.5)
-                            * self.ds
-                            / self.speed
+                            - (r + np.abs(self.m[dimension]) * 0.5) * self.ds / self.speed
                         )
                         if time2 >= self.start and time2 <= self.stop:
                             # Electric fields at whole time steps

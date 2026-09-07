@@ -50,7 +50,15 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class KSIRTimeDomainResult:
-    """In-memory time histories reconstructed at exterior points."""
+    """In-memory time histories reconstructed at exterior points.
+
+    ``points`` is ``(npoints, 3)`` in Cartesian metres; each component field
+    array is ``(npoints, nstored_times)``. ``times`` is a shared relative axis
+    in seconds, with each point's physical origin in ``time_origins``.
+    ``valid_lengths`` excludes storage padding, whereas
+    ``fully_supported_lengths`` also excludes the partial retarded tail.
+    The point accessors apply these limits and the corresponding time origin.
+    """
 
     name: str
     times: npt.NDArray[np.floating]
@@ -122,7 +130,13 @@ def _terminal_field_ratios(
 
 
 class _ComponentAccumulator:
-    """Streaming time derivative and advanced-time deposition for one component."""
+    """Streaming time derivative and advanced-time deposition for one component.
+
+    A three-sample history supplies centred time derivatives, with one-sided
+    derivatives at the endpoints. Propagation delays include the component's
+    E/H time offset and are split into integer bins and fractional weights;
+    each patch contribution is accumulated into two adjacent output bins.
+    """
 
     def __init__(
         self,
@@ -379,7 +393,12 @@ class _ComponentAccumulator:
         self._deposit(centre[0], centre[1], centre[2], centred_derivative)
 
     def finalise(self) -> None:
-        """Deposit the final endpoint using a second-order backward derivative."""
+        """Complete deposition, using a backward derivative at the last sample.
+
+        Three or more samples use the second-order endpoint formula. A
+        two-sample record uses its sole slope at both endpoints, and a
+        one-sample record supplies a zero time derivative.
+        """
 
         if self._finalised:
             return

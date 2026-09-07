@@ -15,7 +15,13 @@
 # You should have received a copy of the GNU General Public License
 # along with gprMax. If not, see <https://www.gnu.org/licenses/>.
 
-"""Sparse device-resident electric-field DFT collection for SAR."""
+"""Sparse device-resident electric-field DFT collection for SAR.
+
+The SAR monitor supplies C-order Yee-edge indices and one complex multiplier
+per frequency and electric timestep. Backend kernels accumulate separate
+real and imaginary buffers; finalisation reconstructs the monitor's complex
+arrays. Cell collocation, material loss and normalisation remain host-side.
+"""
 
 from __future__ import annotations
 
@@ -28,6 +34,12 @@ from gprMax.cuda_opencl.knl_sar import build_sar_kernel_source
 
 @dataclass
 class _ComponentRecord:
+    """One component's flat field indices and backend-owned DFT buffers.
+
+    Device DFT storage is flattened from ``(nfrequencies, nedges)`` in
+    C order. Indices and work-item counts must fit signed 32-bit integers.
+    """
+
     component: str
     indices: np.ndarray
     device: dict
@@ -49,7 +61,13 @@ class _MonitorRecord:
 
 
 class _DeviceSARCollector:
-    """Backend-neutral sequencing for sparse electric-field DFTs."""
+    """Backend-neutral sequencing for sparse electric-field DFTs.
+
+    CUDA and OpenCL explicitly transfer the completed accumulators to the
+    host; Metal copies from shared buffers after its completed dispatches.
+    All three reconstruct the same frequency-first array layout expected by
+    ``SARMonitor.load_device_component_dfts``.
+    """
 
     backend = "device"
 

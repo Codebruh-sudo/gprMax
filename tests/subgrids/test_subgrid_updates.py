@@ -165,8 +165,12 @@ class TestSubgridUpdaterState:
         calls = []
         parent = type(u).__mro__[1]
         monkeypatch.setattr(parent, "store_outputs", lambda self, it: calls.append(("rx", it)))
-        monkeypatch.setattr(parent, "store_snapshots", lambda self, it: calls.append(("snapshot", it)))
-        monkeypatch.setattr(parent, "observe_sar_electric", lambda self, it: calls.append(("sar", it)))
+        monkeypatch.setattr(
+            parent, "store_snapshots", lambda self, it: calls.append(("snapshot", it))
+        )
+        monkeypatch.setattr(
+            parent, "observe_sar_electric", lambda self, it: calls.append(("sar", it))
+        )
 
         u.iteration = 2
         u.store_outputs()
@@ -248,12 +252,16 @@ class TestHsgPhaseOne:
         assert "update_electric_pml" in calls
         assert "update_magnetic_pml" in calls
 
-    def test_equal_resolution_uses_no_temporal_interpolation_or_pml(self, phase):
+    def test_equal_resolution_dispatches_electric_pml_without_interpolation(self, phase):
         u, calls, _ = phase(ratio=1)
         u.hsg_1()
         assert "precursors.interpolate_magnetic_in_time" not in calls
         assert "precursors.interpolate_electric_in_time" not in calls
-        assert "update_electric_pml" not in calls
+        # Auxiliary slabs are absent at ratio one, but explicit internal
+        # absorbers must still receive the ordinary electric correction.
+        assert calls.count("update_electric_pml") == 1
+        assert calls.index("update_electric_a") < calls.index("update_electric_pml")
+        assert calls.index("update_electric_pml") < calls.index("sub.update_electric_is")
         assert "update_magnetic_pml" not in calls
 
     def test_outer_surface_is_pushed_exactly_once(self, phase):
@@ -315,9 +323,7 @@ class TestHsgPhaseTwo:
         # The first store is E(0), H(-1/2). Later stores must follow the
         # completed electric update rather than the preceding H update.
         assert calls[stores[0] - 1] == "precursors.update_magnetic"
-        assert all(
-            calls[index - 1] == "update_network_terminals" for index in stores[1:]
-        )
+        assert all(calls[index - 1] == "update_network_terminals" for index in stores[1:])
 
     @pytest.mark.parametrize("ratio,expected", [(3, 1), (5, 2), (7, 3)])
     def test_interpolated_step_count_is_half_the_ratio(self, phase, ratio, expected):
@@ -325,13 +331,15 @@ class TestHsgPhaseTwo:
         u.hsg_2()
         assert calls.count("precursors.interpolate_electric_in_time") == expected
 
-    def test_equal_resolution_uses_no_temporal_interpolation_or_pml(self, phase):
+    def test_equal_resolution_dispatches_magnetic_pml_without_interpolation(self, phase):
         u, calls, _ = phase(ratio=1)
         u.hsg_2()
         assert "precursors.interpolate_magnetic_in_time" not in calls
         assert "precursors.interpolate_electric_in_time" not in calls
         assert "update_electric_pml" not in calls
-        assert "update_magnetic_pml" not in calls
+        assert calls.count("update_magnetic_pml") == 1
+        assert calls.index("update_magnetic") < calls.index("update_magnetic_pml")
+        assert calls.index("update_magnetic_pml") < calls.index("sub.update_magnetic_is")
 
     @pytest.mark.parametrize("ratio,expected", [(3, 2), (5, 3), (7, 4)])
     def test_magnetic_substeps_equal_interpolated_plus_one(self, phase, ratio, expected):
@@ -387,7 +395,9 @@ class TestSubgridUpdatesFanOut:
 
 
 @pytest.mark.parametrize("ratio,filtered", [(1, False), (3, False), (3, True), (5, True)])
-def test_transmission_line_samples_once_per_completed_fine_h_step(coupled_grids, monkeypatch, ratio, filtered):
+def test_transmission_line_samples_once_per_completed_fine_h_step(
+    coupled_grids, monkeypatch, ratio, filtered
+):
     """Cover both interpolated H paths and the final exact H path together."""
 
     c = coupled_grids(ratio=ratio, filtered=filtered)

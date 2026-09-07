@@ -73,6 +73,9 @@ class FractalVolume:
         )
         self.weighting = np.array([1, 1, 1], dtype=np.float64)
         self.nbins = 0
+        # Grid-local material IDs indexed by this volume's fractal bin number.
+        # Keep them independent of later evaluations of the same mixing model.
+        self.material_ids: tuple[int, ...] = ()
         self.mixingmodel: Optional[
             Union[PeplinskiSoil, RangeMaterial, ListMaterial, CrimMixture]
         ] = None

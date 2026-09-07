@@ -15,7 +15,14 @@
 # You should have received a copy of the GNU General Public License
 # along with gprMax. If not, see <https://www.gnu.org/licenses/>.
 
-"""Frequency-domain specific absorption rate from tagged FDTD cells."""
+"""Frequency-domain specific absorption rate from tagged FDTD cells.
+
+Geometry tags select cell-centred material and density data. The monitor
+collects only the Yee electric edges needed by those cells, then collocates
+their complex DFTs before computing absorbed power. Source normalisation and
+mass-based spatial averaging follow collection; radiometry reuses the same
+electric-field and absorbed-power path without requiring mass density.
+"""
 
 from __future__ import annotations
 
@@ -175,7 +182,16 @@ class SARSpec:
 
 @dataclass(frozen=True)
 class SARResult:
-    """Final frequency-domain SAR data for selected tagged cells."""
+    """Final frequency-domain SAR data for selected tagged cells.
+
+    ``frequency`` is a vector in Hz; frequency-dependent cell data have shape
+    ``(nfrequencies, ncells)``. ``cell_indices`` has shape ``(ncells, 3)`` in
+    x/y/z index order, while tags, materials and density have shape
+    ``(ncells,)``. The monitor's cell-index frame and origin distinguish
+    main-grid indices from subgrid-local indices in the output metadata.
+    Density is in kg/m3, absorbed power density in W/m3, and SAR in W/kg.
+    Invalid frequency rows of the power-density and SAR arrays contain NaN.
+    """
 
     frequency: npt.NDArray[np.floating]
     cell_indices: npt.NDArray[np.integer]
@@ -214,7 +230,14 @@ class SARSpatialAverageResult:
 
 @dataclass(frozen=True)
 class SARLocalPayload:
-    """Rank-local SAR data independent of source or port normalisation."""
+    """Selected-cell data before normalisation.
+
+    Serial payloads already contain absorbed power density. MPI payloads instead
+    carry uniquely owned electric-edge DFTs and global cell indices; their
+    power-density array remains zero until the gathered edges are collocated
+    on the coordinator. Each component's edge coordinates have shape
+    ``(nedges, 3)`` and its DFT has shape ``(nfrequencies, nedges)``.
+    """
 
     cell_indices: npt.NDArray[np.integer]
     tag_id: npt.NDArray[np.integer]
@@ -291,7 +314,12 @@ def _material_relative_permittivity(material, frequencies: npt.NDArray[np.floati
 
 
 def _material_loss_conductivity(grid: "FDTDGrid", numeric_ids, frequencies):
-    """Return effective electric loss conductivity for material IDs."""
+    """Return electric loss in S/m, shaped ``(nfrequencies, nmaterial_ids)``.
+
+    With the ``exp(+j omega t)`` convention, loss is obtained from the
+    negative imaginary part of relative permittivity. Repeated material IDs
+    retain their input ordering so the result aligns with selected cells.
+    """
 
     numeric_ids = np.asarray(numeric_ids, dtype=np.int64)
     material_by_id = {int(material.numID): material for material in grid.materials}
@@ -323,7 +351,14 @@ def _material_loss_conductivity(grid: "FDTDGrid", numeric_ids, frequencies):
 
 
 class SARMonitor:
-    """Sparse on-the-fly electric-field DFT over selected tagged cells."""
+    """Sparse on-the-fly electric-field DFT over selected tagged cells.
+
+    Boundary and internal PML cells are excluded. Each active electric
+    component has a deduplicated edge list and an inverse map back to the
+    four entries of each cell's collocation stencil. DFT arrays are frequency
+    first; their second axis enumerates that component's unique edges.
+    CPU and device collectors share the same sampling multiplier sequence.
+    """
 
     schema_version = 1
 
@@ -529,6 +564,8 @@ class SARMonitor:
         else:
             self.density = np.empty(0, dtype=np.float64)
 
+        # Adjacent cells share Yee edges. The inverse map restores each
+        # cell's four stencil entries, including repeated entries in TE mode.
         self.edge_flat_indices = {}
         self.cell_edge_indices = {}
         self.edge_coordinates = {}
@@ -795,7 +832,11 @@ class SARMonitor:
         self.result = None
 
     def observe_electric(self, iteration: int, Ex, Ey, Ez) -> None:
-        """Collect one CPU electric-field sample."""
+        """Collect E at ``iteration * dt`` from CPU Yee field arrays.
+
+        Arrays use x/y/z order and shape ``(nx + 1, ny + 1, nz + 1)``;
+        component-specific sparse indices refer to their C-order flattening.
+        """
 
         multiplier = self.device_sampling_multiplier(iteration)
         fields = {"Ex": Ex, "Ey": Ey, "Ez": Ez}
@@ -814,7 +855,12 @@ class SARMonitor:
                 self.accumulators[component] += multiplier[:, np.newaxis] * samples[np.newaxis, :]
 
     def device_sampling_multiplier(self, iteration: int):
-        """Return the next DFT multiplier and advance shared sampling state."""
+        """Return ``dt * window * exp(-j omega t)`` for the next E sample.
+
+        This advances shared state once per monitor, not once per component.
+        Samples must arrive in iteration order, starting at time zero. The
+        recursive phase is recomputed every 1024 samples to limit drift.
+        """
 
         if iteration != self._next_iteration:
             raise RuntimeError(
@@ -845,7 +891,12 @@ class SARMonitor:
         self.accumulators[component][...] = data
 
     def local_payload(self) -> SARLocalPayload:
-        """Return owned-cell absorbed power before source normalisation."""
+        """Return pre-normalisation cell data, or owned edge DFTs under MPI.
+
+        Collocation averages complex edge fields before taking their squared
+        magnitude. Averaging edge powers instead would discard the relative
+        phases within the stencil and would not implement this calculation.
+        """
 
         if self._next_iteration != self.grid_iterations:
             raise RuntimeError("SAR monitor cannot be finalised before every timestep is observed")
@@ -980,7 +1031,13 @@ class SARMonitor:
         )
 
     def _collocate_mpi_payload(self, payload: SARLocalPayload, global_shape) -> SARLocalPayload:
-        """Collocate gathered global Yee-edge DFTs at gathered cell centres."""
+        """Collocate gathered global Yee-edge DFTs at gathered cell centres.
+
+        A cell stencil can cross rank boundaries. Gathered, uniquely owned
+        edges supply the complete stencil without treating halo copies as
+        additional contributions. The merged coordinates are in C-order
+        global-index order, as required by the search below.
+        """
 
         if payload.edge_coordinates is None or payload.edge_dft is None:
             raise RuntimeError("MPI SAR payload does not contain electric-edge DFTs")
@@ -1434,6 +1491,9 @@ class SARMonitor:
                 np.nansum(result.absorbed_power_density[:, selection], axis=1) * self.cell_measure,
                 dtype=self.real_dtype,
             )
+            # An all-NaN invalid row must not become a reported zero after
+            # nansum. Valid zero-loss and empty-tag sums remain zero.
+            absorbed_power[~result.valid] = np.nan
             tag_group = summaries.create_group(name)
             tag_group.attrs["TagID"] = int(tag_id)
             tag_group.attrs["CellCount"] = int(np.count_nonzero(selection))
@@ -1447,7 +1507,9 @@ class SARMonitor:
                 tag_group.attrs["MassPerLengthUnits"] = "kg/m"
                 tag_group["absorbed_power_per_length"] = absorbed_power
                 tag_group.attrs["AbsorbedPowerPerLengthUnits"] = "W/m"
-            tag_group["mass_average_sar"] = absorbed_power / mass
+            tag_group["mass_average_sar"] = (
+                np.full_like(absorbed_power, np.nan) if mass == 0 else absorbed_power / mass
+            )
             peak_sar = np.full(result.frequency.shape, np.nan, dtype=self.real_dtype)
             for frequency_index in np.flatnonzero(result.valid):
                 peak_sar[frequency_index] = np.max(
@@ -1581,8 +1643,11 @@ class RadiometryMonitor(SARMonitor):
             integrated_units = "m" if self.mode2d is not None else "m2"
         else:
             invariant = "/m" if self.mode2d is not None else ""
-            normalised_units = f"W/m3/({self._source_units})2"
-            integrated_units = f"W{invariant}/({self._source_units})2"
+            amplitude_units = (
+                "A m" if self.normalisation == "current_moment" else self._source_units
+            )
+            normalised_units = f"W/m3/({amplitude_units})2"
+            integrated_units = f"W{invariant}/({amplitude_units})2"
         group.attrs["NormalisedAbsorptionDensityUnits"] = normalised_units
         group.attrs["IntegratedNormalisedAbsorptionUnits"] = integrated_units
         group.attrs["PhasorAmplitude"] = "peak"
@@ -1643,6 +1708,8 @@ class RadiometryMonitor(SARMonitor):
                 * self.cell_measure,
                 dtype=self.real_dtype,
             )
+            absorbed_power[~result.valid] = np.nan
+            integrated[~result.valid] = np.nan
             tag_group = summaries.create_group(name)
             tag_group.attrs["TagID"] = int(tag_id)
             tag_group.attrs["CellCount"] = int(np.count_nonzero(selection))

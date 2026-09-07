@@ -30,10 +30,7 @@ and mask dispatch, and the material-ID offsetting.
 import numpy as np
 import pytest
 
-from gprMax.cython.geometry_primitives import (
-    build_voxels_from_array,
-    build_voxels_from_array_mask,
-)
+from gprMax.cython.geometry_primitives import build_voxels_from_array, build_voxels_from_array_mask
 
 from .conftest import nonzero_set
 
@@ -174,9 +171,10 @@ class TestBuildVoxelsFromArray:
 
 
 class TestBuildVoxelsFromArrayMask:
-    def test_mask_selects_data_water_grass_or_skip(self, grid_arrays):
+    @pytest.mark.parametrize("dtype", (np.int16, np.int32))
+    def test_mask_selects_data_water_grass_or_skip(self, grid_arrays, dtype):
         g = grid_arrays()
-        data = make_data(4, 1, 1, fill=7)
+        data = np.full((4, 1, 1), 7, dtype=dtype)
         mask = make_mask(4, 1, 1)
         mask[0, 0, 0] = 1  # use the data value
         mask[1, 0, 0] = 2  # water
@@ -205,6 +203,37 @@ class TestBuildVoxelsFromArrayMask:
         assert g.solid[3, 3, 4] == 20  # mask 2 -> waternumID
         assert g.solid[4, 3, 4] == 30  # mask 3 -> grassnumID
         assert g.solid[5, 3, 4] == 0  # mask 0 -> untouched
+
+    @pytest.mark.parametrize("material_id", (32768, 40000, 65536))
+    def test_wide_ids_preserve_mask_dispatch_and_skipped_cells(self, grid_arrays, material_id):
+        g = grid_arrays()
+        data = np.array([material_id, -1, -1, -1], dtype=np.int32).reshape(4, 1, 1)
+        mask = np.array([1, 2, 3, 0], dtype=np.int8).reshape(4, 1, 1)
+        lookup_size = material_id + 3
+        g.solid[5, 3, 4] = 42
+        g.ID[:, 5, 3, 4] = 42
+
+        build_voxels_from_array_mask(
+            2,
+            3,
+            4,
+            material_id + 1,
+            material_id + 2,
+            True,
+            np.zeros(lookup_size, dtype=np.uint8),
+            np.ones(lookup_size, dtype=np.uint8),
+            mask,
+            data,
+            g.solid,
+            g.rigidE,
+            g.rigidH,
+            g.ID,
+        )
+
+        np.testing.assert_array_equal(
+            g.solid[2:6, 3, 4], (material_id, material_id + 1, material_id + 2, 42)
+        )
+        np.testing.assert_array_equal(g.ID[:, 5, 3, 4], np.full(6, 42))
 
     def test_masked_out_cells_keep_their_rigid_flags(self, grid_arrays):
         g = grid_arrays()

@@ -34,6 +34,7 @@ from toolboxes.SFCW.processing import (
     process_output,
     reconstruct_time_response,
     tail_relative_db,
+    write_sfcw_output,
 )
 
 
@@ -114,6 +115,26 @@ def test_homodyne_route_matches_direct_impulse_response():
     assert_allclose(homodyne.response, direct.response, rtol=2e-10, atol=2e-10)
 
 
+@pytest.mark.parametrize("source_offset_factor", [0.0, 0.5, 1.0])
+@pytest.mark.parametrize("receiver_offset_factor", [-0.5, 0.0])
+def test_homodyne_rejects_nyquist_but_direct_response_supports_it(
+    source_offset_factor, receiver_offset_factor
+):
+    dt = 1e-10
+    frequency = np.array([0.5 / dt])
+    source_offset = source_offset_factor * dt
+    receiver_offset = receiver_offset_factor * dt
+    source = SampledSignal("/srcs/src1", np.r_[1.0, np.zeros(31)], dt, source_offset)
+    receiver = SampledSignal("/rxs/rx1/Ez", np.r_[0.0, 1.0, np.zeros(30)], dt, receiver_offset)
+
+    with pytest.raises(ValueError, match="strictly below.*Nyquist"):
+        homodyne_frequency_response(source, receiver, frequency)
+
+    direct = direct_frequency_response(source, receiver, frequency)
+    expected = np.exp(-2j * np.pi * frequency * (dt + receiver_offset - source_offset))
+    assert_allclose(direct.response, expected, atol=1e-14)
+
+
 def test_reconstruction_places_uniform_delay_at_correct_time():
     count = 64
     df = 10e6
@@ -164,10 +185,12 @@ def test_direct_response_and_reconstruction_preserve_bscan_trace_axis():
     assert tail_relative_db(receiver_samples) == float("-inf")
 
 
-def test_hdf5_loader_uses_stored_source_and_receiver_time_offsets(tmp_path):
+@pytest.mark.parametrize("ancestor_dt", [None, 2e-12, 1e-9])
+def test_hdf5_loader_uses_stored_source_and_receiver_time_offsets(tmp_path, ancestor_dt):
     output = tmp_path / "model.h5"
     with h5py.File(output, "w") as file:
-        file.attrs["dt"] = 2e-12
+        if ancestor_dt is not None:
+            file.attrs["dt"] = ancestor_dt
         source = file.create_group("srcs/src1")
         source.attrs["Type"] = "HertzianDipole"
         excitation = source.create_group("excitation")
@@ -187,10 +210,32 @@ def test_hdf5_loader_uses_stored_source_and_receiver_time_offsets(tmp_path):
     assert list_receivers(output) == {"/rxs/rx1": ("Ez",)}
     loaded_source = load_source(output)
     loaded_receiver = load_receiver(output)
+    assert loaded_source.dt == 2e-12
+    assert loaded_receiver.dt == 2e-12
     assert loaded_source.time_offset == 1e-12
     assert loaded_source.spatial_scale == 0.001
     assert loaded_receiver.time_offset == 0.0
     assert loaded_receiver.path == "/rxs/rx1/Ez"
+
+
+@pytest.mark.parametrize("grid_path", ["/", "subgrids/fine"])
+def test_hdf5_loader_falls_back_to_nearest_grid_interval(tmp_path, grid_path):
+    path = tmp_path / "legacy.h5"
+    with h5py.File(path, "w") as output:
+        output.attrs["dt"] = 1e-9
+        grid = output if grid_path == "/" else output.create_group(grid_path)
+        grid.attrs["dt"] = 2e-12
+        source = grid.create_group("srcs/src1/excitation")
+        source.attrs["TimeSampleOffset"] = 1e-12
+        source.create_dataset("samples", data=np.r_[1.0, np.zeros(7)])
+        grid.create_dataset("rxs/rx1/Hy", data=np.arange(8))
+
+    source = load_source(path)
+    receiver = load_receiver(path)
+
+    assert source.dt == 2e-12
+    assert receiver.dt == 2e-12
+    assert receiver.time_offset == -1e-12
 
 
 def test_merged_bscan_can_use_source_history_from_original_ascan(tmp_path):
@@ -222,3 +267,45 @@ def test_merged_bscan_can_use_source_history_from_original_ascan(tmp_path):
     assert result.response.shape == (20, 2)
     assert result.source.filename == str(source_file)
     assert result.receiver.filename == str(receiver_file)
+
+
+@pytest.mark.parametrize("input_role", ["source", "receiver"])
+@pytest.mark.parametrize("alias_kind", ["same_path", "symlink", "hardlink"])
+def test_sfcw_output_cannot_overwrite_an_input(tmp_path, input_role, alias_kind):
+    files = {role: tmp_path / f"{role}.h5" for role in ("source", "receiver")}
+    for role, path in files.items():
+        with h5py.File(path, "w") as output:
+            output.attrs["original_input"] = role
+    before = {role: path.read_bytes() for role, path in files.items()}
+    source = SampledSignal(
+        "/srcs/src1",
+        np.r_[1.0, np.zeros(31)],
+        1e-10,
+        0.0,
+        filename=str(files["source"]),
+    )
+    receiver = SampledSignal(
+        "/rxs/rx1/Ez",
+        np.r_[0.0, 1.0, np.zeros(30)],
+        1e-10,
+        0.0,
+        filename=str(files["receiver"]),
+    )
+    response = direct_frequency_response(source, receiver, [1e8, 2e8, 3e8])
+    destination = files[input_role]
+    if alias_kind != "same_path":
+        destination = tmp_path / "alias.h5"
+        if alias_kind == "symlink":
+            destination.symlink_to(files[input_role])
+        else:
+            destination.hardlink_to(files[input_role])
+
+    with pytest.raises(ValueError, match="must not overwrite an input"):
+        write_sfcw_output(destination, response)
+
+    for role, path in files.items():
+        assert path.read_bytes() == before[role]
+    processed = tmp_path / "processed.h5"
+    write_sfcw_output(processed, response)
+    with h5py.File(processed, "r") as output:
+        assert_allclose(output["response"], response.response)

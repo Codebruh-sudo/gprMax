@@ -60,9 +60,7 @@ def test_engineering_dft_uses_physical_time_offset_and_arbitrary_axis():
     signal = np.cos(2 * np.pi * frequency * times + phase)
     samples = np.stack((signal, 3 * signal), axis=0)
 
-    actual = engineering_dft(
-        samples, [frequency], dt, time_offset=time_offset, axis=1
-    )
+    actual = engineering_dft(samples, [frequency], dt, time_offset=time_offset, axis=1)
     expected = 0.5 * nsamples * dt * np.exp(1j * phase) * np.array([1, 3])
 
     assert actual.shape == (1, 2)
@@ -90,6 +88,72 @@ def test_engineering_dft_preserves_configured_single_precision():
     result = engineering_dft(samples, np.asarray([2e8], dtype=np.float32), 1e-10)
 
     assert result.dtype == np.complex64
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.complex64, np.float64, np.complex128])
+@pytest.mark.parametrize("offset_fraction", [0.0, 0.35])
+def test_long_source_record_preserves_analytical_notch(dtype, offset_fraction):
+    dt = 2e-12
+    offset = offset_fraction * dt
+    samples = np.zeros(40000, dtype=dtype)
+    amplitude = 1.0 if np.dtype(dtype).kind == "f" else 0.5 + 0.75j
+    samples[[0, 32775]] = amplitude
+
+    result = engineering_dft(samples, [5e9, 10e9], dt, time_offset=offset)
+
+    # At 5 GHz the separation is 327.75 cycles: the second phasor is +j.
+    # At 10 GHz it is 655.5 cycles: the two phasors cancel exactly.
+    supported = dt * amplitude * (1 + 1j) * np.exp(-2j * np.pi * 5e9 * offset)
+    expected_dtype = np.complex64 if samples.real.dtype.itemsize == 4 else np.complex128
+    tolerance = 2e-7 if expected_dtype is np.complex64 else 2e-12
+    assert result.dtype == expected_dtype
+    assert_allclose(result[0], supported, rtol=tolerance)
+    # Absolute error is scaled by the impulse amplitude, not by the zero.
+    assert abs(result[1]) / (dt * abs(amplitude)) < tolerance
+    assert abs(result[1]) / abs(result[0]) < 10 ** (-100 / 20)
+
+
+def test_single_precision_samples_do_not_round_requested_frequencies():
+    dt = 2e-12
+    index = 32775
+    samples = np.zeros(40000, dtype=np.float32)
+    samples[index] = 1.0
+    frequency_shift = 123.0  # Smaller than a float32 frequency step at 10 GHz.
+
+    result = engineering_dft(samples, [10e9, 10e9 + frequency_shift], dt)
+
+    # Remove the known integer 655 cycles before evaluating the reference.
+    cycles = np.array([0.5, 0.5 + frequency_shift * index * dt])
+    expected = dt * np.exp(-2j * np.pi * cycles)
+    assert result.dtype == np.complex64
+    assert_allclose(result, expected, rtol=2e-7)
+    assert result[0] != result[1]
+
+
+@pytest.mark.parametrize("complex_input", [False, True])
+@pytest.mark.parametrize("windowed", [False, True])
+def test_single_precision_long_dft_matches_fft_with_offset_and_axis(complex_input, windowed):
+    rng = np.random.default_rng(7)
+    samples = rng.normal(size=(2, 4096))
+    if complex_input:
+        samples = samples + 1j * rng.normal(size=samples.shape)
+    samples = samples.astype(np.complex64 if complex_input else np.float32)
+    before = samples.copy()
+    weights = np.hanning(samples.shape[1]).astype(np.float32) if windowed else None
+    dt = 2e-12
+    offset = 0.35 * dt
+    bins = np.array([0, 379, 1777])
+    frequencies = bins / (samples.shape[1] * dt)
+    weighted = samples if weights is None else samples * weights
+    expected = dt * np.fft.fft(weighted.astype(np.complex128), axis=1)[:, bins].T
+    expected *= np.exp(-2j * np.pi * frequencies * offset)[:, None]
+
+    result = engineering_dft(samples, frequencies, dt, time_offset=offset, window=weights, axis=-1)
+
+    assert result.dtype == np.complex64
+    assert result.shape == (3, 2)
+    assert_allclose(result, expected, rtol=3e-6, atol=1e-6 * np.max(abs(expected)))
+    np.testing.assert_array_equal(samples, before)
 
 
 @pytest.mark.parametrize(

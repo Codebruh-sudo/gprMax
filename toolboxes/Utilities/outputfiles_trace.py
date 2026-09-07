@@ -7,7 +7,13 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
-"""Shared trace collection for gprMax interchange-format exporters."""
+"""Load acquisition traces shared by the SEG-Y, SEG-2 and DT1 exporters.
+
+Collection validates original A-scans and their common timing, without
+resampling or amplitude scaling. Each format writer handles its own storage
+conversion. A legacy merged array is rejected because this interface needs
+the source/receiver positions from every original run.
+"""
 
 from __future__ import annotations
 
@@ -21,7 +27,6 @@ import h5py
 import numpy as np
 
 from gprMax.utilities.utilities import natural_keys
-
 
 TIME_DOMAIN_QUANTITIES = {
     "Ex",
@@ -43,7 +48,12 @@ TIME_DOMAIN_QUANTITIES = {
 
 @dataclass(frozen=True)
 class TraceRecord:
-    """One scalar time series and the acquisition geometry that produced it."""
+    """One real ``(nt,)`` trace with stored Cartesian positions in metres.
+
+    Sample units depend on the selected component. The common sample
+    interval and physical sample-zero time are returned by ``collect_traces``
+    separately from these per-run values.
+    """
 
     samples: np.ndarray
     source_position: tuple[float, float, float]
@@ -82,13 +92,16 @@ def _resolve_source_path(grid: h5py.Group, requested: str | None) -> str:
         requested = requested.strip("/")
         if requested not in candidates:
             choices = ", ".join(candidates) if candidates else "none"
-            raise ValueError(f"Source {requested!r} is not available; sources with positions: {choices}")
+            raise ValueError(
+                f"Source {requested!r} is not available; sources with positions: {choices}"
+            )
         return requested
     if not candidates:
         raise ValueError("No source with position metadata was found in the selected grid")
     if len(candidates) > 1:
         raise ValueError(
-            "More than one source has position metadata; select one with source_path " f"({', '.join(candidates)})"
+            "More than one source has position metadata; select one with source_path "
+            f"({', '.join(candidates)})"
         )
     return candidates[0]
 
@@ -101,7 +114,11 @@ def _position(group: h5py.Group, description: str) -> tuple[float, float, float]
 
 
 def default_time_offset(component: str, dt: float) -> float:
-    """Return the physical time of sample zero for a Yee-grid quantity."""
+    """Infer sample-zero time in seconds when dataset metadata is absent.
+
+    E/voltage defaults to zero; H/current defaults to ``-dt/2``. Explicit
+    dataset offsets override this fallback, including source-specific timing.
+    """
 
     if component.startswith("E"):
         return 0.0
@@ -124,6 +141,23 @@ def quantity_units(component: str) -> str:
     return "gprMax native SI units"
 
 
+def validate_float32_traces(records: Iterable[TraceRecord]) -> None:
+    """Reject traces whose storage conversion would produce non-finite samples.
+
+    Writers call this before opening an output file. The temporary cast checks
+    the actual float32 rounding boundary without rescaling or changing the
+    caller's arrays; endian-specific packing remains with each format writer.
+    """
+
+    for record in records:
+        with np.errstate(over="ignore", invalid="ignore"):
+            stored = np.asarray(record.samples, dtype=np.float32)
+        if not np.all(np.isfinite(stored)):
+            raise ValueError(
+                f"Trace samples cannot be represented as finite float32 values: {record.filename}"
+            )
+
+
 def collect_traces(
     outputfiles: Iterable[str | Path],
     rxnumber: int,
@@ -133,8 +167,13 @@ def collect_traces(
     source_path: str | None = None,
     trace_group: str | None = None,
 ) -> tuple[list[TraceRecord], float, float, str, str]:
-    """Read and validate a naturally ordered series of gprMax A-scan files.
+    """Read original A-scans in the supplied order; this function does not sort.
 
+    ``rxnumber`` is one-based. Source and trace-group paths are relative to
+    ``grid_path``; a supplied trace group replaces the default ``rxs/rxN``.
+    Only finite, real, one-dimensional histories with matching sample counts,
+    intervals and time offsets are accepted. Stored positions are copied
+    without another coordinate transform.
     Returns the trace records, sample interval in seconds, sample-zero time
     offset in seconds, resolved source path, and model title.
     """
@@ -163,7 +202,9 @@ def collect_traces(
     for filename in files:
         with h5py.File(filename, "r") as output:
             grid = _grid_group(output, grid_path)
-            receiver_path = trace_group.strip("/") if trace_group is not None else f"rxs/rx{rxnumber}"
+            receiver_path = (
+                trace_group.strip("/") if trace_group is not None else f"rxs/rx{rxnumber}"
+            )
             dataset_path = f"{receiver_path}/{rxcomponent}"
             if receiver_path not in grid:
                 raise ValueError(f"Trace group {receiver_path!r} is not available in {filename}")
@@ -190,7 +231,9 @@ def collect_traces(
             dt = float(dataset.attrs.get("SampleInterval", grid.attrs.get("dt", math.nan)))
             if not math.isfinite(dt) or dt <= 0:
                 raise ValueError(f"Invalid or missing sample interval in {filename}")
-            offset = float(dataset.attrs.get("TimeSampleOffset", default_time_offset(rxcomponent, dt)))
+            offset = float(
+                dataset.attrs.get("TimeSampleOffset", default_time_offset(rxcomponent, dt))
+            )
             if not math.isfinite(offset):
                 raise ValueError(f"Invalid sample-zero time offset in {filename}")
 
@@ -205,15 +248,24 @@ def collect_traces(
                 expected_samples = samples.size
                 expected_offset = offset
                 title_value = output.attrs.get("Title", "")
-                title = title_value.decode(errors="replace") if isinstance(title_value, bytes) else str(title_value)
+                title = (
+                    title_value.decode(errors="replace")
+                    if isinstance(title_value, bytes)
+                    else str(title_value)
+                )
             else:
                 if not math.isclose(dt, expected_dt, rel_tol=1e-12, abs_tol=0.0):
-                    raise ValueError(f"Sample interval in {filename} is {dt}, expected {expected_dt} seconds")
+                    raise ValueError(
+                        f"Sample interval in {filename} is {dt}, expected {expected_dt} seconds"
+                    )
                 if samples.size != expected_samples:
-                    raise ValueError(f"Trace in {filename} has {samples.size} samples, expected {expected_samples}")
+                    raise ValueError(
+                        f"Trace in {filename} has {samples.size} samples, expected {expected_samples}"
+                    )
                 if not math.isclose(offset, expected_offset, rel_tol=1e-12, abs_tol=1e-30):
                     raise ValueError(
-                        f"Sample-zero time offset in {filename} is {offset}, " f"expected {expected_offset} seconds"
+                        f"Sample-zero time offset in {filename} is {offset}, "
+                        f"expected {expected_offset} seconds"
                     )
 
             records.append(
@@ -237,6 +289,10 @@ def discover_files(basefilename: str) -> list[Path]:
     base = Path(basefilename)
     if base.is_file():
         return [base]
-    matches = [Path(filename) for filename in glob.glob(basefilename + "*.h5") if "_merged" not in Path(filename).stem]
+    matches = [
+        Path(filename)
+        for filename in glob.glob(basefilename + "*.h5")
+        if "_merged" not in Path(filename).stem
+    ]
     matches.sort(key=lambda path: natural_keys(str(path)))
     return matches

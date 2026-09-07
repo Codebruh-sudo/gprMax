@@ -47,6 +47,11 @@ ObjectType = TypeVar("ObjectType")
 class MPIGrid(FDTDGrid):
     HALO_SIZE = 1
     COORDINATOR_RANK = 0
+    # A rank with no objects to receive can enter halo exchange while another
+    # rank is still migrating sources/receivers. Separate both message types
+    # so raw field bytes cannot be consumed by a pickled-object receive.
+    HALO_MESSAGE_TAG = 0
+    MIGRATION_MESSAGE_TAG = 1
     is_distributed = True
     pml_type = MPIPML
 
@@ -494,10 +499,12 @@ class MPIGrid(FDTDGrid):
         ]
 
     def _halo_swap(self, array: ndarray, dim: Dim, dir: Dir):
-        """Perform a halo swap in the specifed dimension and direction.
+        """Post a halo send/receive in the specified dimension and direction.
 
-        If no neighbour exists for the current rank in the specifed
-        dimension and direction, the halo swap is skipped.
+        No request is posted when that neighbour is absent. Otherwise the
+        requests are retained on the grid: posting does not make the receive
+        buffer ready or release the send buffer for modification. Completion
+        belongs to the field-family exchange methods below.
 
         Args:
             array: Array to perform the halo swap with.
@@ -506,17 +513,20 @@ class MPIGrid(FDTDGrid):
         """
         neighbour = self.neighbours[dim][dir]
         if neighbour >= 0:
-            send_request = self.comm.Isend([array, self.send_halo_map[dim][dir]], neighbour)
-            recv_request = self.comm.Irecv([array, self.recv_halo_map[dim][dir]], neighbour)
+            send_request = self.comm.Isend(
+                [array, self.send_halo_map[dim][dir]], neighbour, tag=self.HALO_MESSAGE_TAG
+            )
+            recv_request = self.comm.Irecv(
+                [array, self.recv_halo_map[dim][dir]], neighbour, tag=self.HALO_MESSAGE_TAG
+            )
             self.send_requests.append(send_request)
             self.recv_requests.append(recv_request)
 
     def _halo_swap_by_dimension(self, array: ndarray, dim: Dim):
-        """Perform halo swaps in the specifed dimension.
+        """Post both directional halo swaps in the specified dimension.
 
-        Perform a halo swaps in the positive and negative direction for
-        the specified dimension. The order of the swaps is determined by
-        the current rank's MPI grid coordinate to prevent deadlock.
+        Even Cartesian rank coordinates post negative then positive; odd
+        coordinates reverse that order. Neither branch waits for completion.
 
         Args:
             array: Array to perform the halo swaps with.
@@ -530,7 +540,7 @@ class MPIGrid(FDTDGrid):
             self._halo_swap(array, dim, Dir.NEG)
 
     def _halo_swap_array(self, array: ndarray):
-        """Perform halo swaps for the specified array.
+        """Post halo swaps along all three axes without waiting for completion.
 
         Args:
             array: Array to perform the halo swaps with.
@@ -540,7 +550,12 @@ class MPIGrid(FDTDGrid):
         self._halo_swap_by_dimension(array, Dim.Z)
 
     def halo_swap_electric(self):
-        """Perform halo swaps for electric field arrays."""
+        """Complete prior H sends, then exchange E and wait for E receives.
+
+        On return, received E halos can be read. E sends remain outstanding:
+        their buffers must stay unchanged until the next magnetic exchange
+        or ``complete_halo_swaps`` drains the requests.
+        """
 
         # Ensure send requests for the magnetic field have completed
         # The magnetic field arrays may change after this halo swap in
@@ -561,7 +576,12 @@ class MPIGrid(FDTDGrid):
             self.recv_requests = []
 
     def halo_swap_magnetic(self):
-        """Perform halo swaps for magnetic field arrays."""
+        """Complete prior E sends, then exchange H and wait for H receives.
+
+        On return, received H halos can be read. H sends remain outstanding:
+        their buffers must stay unchanged until the next electric exchange
+        or ``complete_halo_swaps`` drains the requests.
+        """
 
         # Ensure send requests for the electric field have completed
         # The electric field arrays will change after this halo swap in
@@ -653,6 +673,16 @@ class MPIGrid(FDTDGrid):
         overlap is intentional: it lets the rank on the positive side of a
         partition own an internal slab's terminal electric plane, exactly as
         it owns the ordinary Yee electric field on that partition.
+
+        Returns:
+            None for no cell overlap; otherwise (local_spec, profile_offset,
+            global_thickness, profile_endpoint). Bounds are half-open cell
+            indices relative to the local array. Offset and thickness count
+            cells along the slab normal: the offset is measured from the
+            global lower bound for plus slabs, from the upper bound for minus
+            slabs. Clipping therefore does not restart the global CFS profile.
+            The endpoint flag describes the complete global profile, not
+            whether this particular shard owns the terminal electric plane.
         """
 
         global_lower, global_upper = self._internal_pml_bounds(spec)
@@ -733,13 +763,10 @@ class MPIGrid(FDTDGrid):
         local_count = 0
         local_er = 0.0
         local_mr = 0.0
-        if (
-            owned_lower[axis] <= entrance < owned_upper[axis]
-            and all(
-                transverse_lower[dimension] < transverse_upper[dimension]
-                for dimension in Dim
-                if dimension != axis
-            )
+        if owned_lower[axis] <= entrance < owned_upper[axis] and all(
+            transverse_lower[dimension] < transverse_upper[dimension]
+            for dimension in Dim
+            if dimension != axis
         ):
             local_lower = transverse_lower - self.lower_extent
             local_upper = transverse_upper - self.lower_extent
@@ -816,9 +843,7 @@ class MPIGrid(FDTDGrid):
         for spec in self.pmls["internal_specs"]:
             axis = "xyz".index(spec.maximum_face[0])
             lower, upper = self._internal_pml_bounds(spec)
-            maximum_coordinate = (
-                lower[axis] if spec.maximum_face.endswith("0") else upper[axis]
-            )
+            maximum_coordinate = lower[axis] if spec.maximum_face.endswith("0") else upper[axis]
             if maximum_coordinate in (0, self.global_size[axis]) and self.touches_global_face(
                 spec.maximum_face
             ):
@@ -850,10 +875,7 @@ class MPIGrid(FDTDGrid):
 
         local_min = np.full(cross_shape, np.iinfo(np.uint32).max, dtype=np.uint32)
         local_max = np.zeros(cross_shape, dtype=np.uint32)
-        if (
-            all(size > 0 for size in cross_shape)
-            and overlap_lower[axis] < overlap_upper[axis]
-        ):
+        if all(size > 0 for size in cross_shape) and overlap_lower[axis] < overlap_upper[axis]:
             local_lower = overlap_lower - self.lower_extent
             local_upper = overlap_upper - self.lower_extent
             volume = self.solid[
@@ -961,9 +983,7 @@ class MPIGrid(FDTDGrid):
             for normal, coordinate in lateral_faces:
                 if coordinate in (0, limits[normal]):
                     continue
-                if not self._distributed_pml_surface_is_pec(
-                    spec, normal, coordinate, pec_numids
-                ):
+                if not self._distributed_pml_surface_is_pec(spec, normal, coordinate, pec_numids):
                     message = (
                         f"Internal PML slab '{spec.ID}' has an exposed transverse {normal}="
                         f"{coordinate} face. Enclose it with a continuous Yee-aligned PEC wall "
@@ -1143,7 +1163,7 @@ class MPIGrid(FDTDGrid):
         for rank, items in itertools.groupby(
             items_to_send, lambda x: self.get_rank_from_coordinate(x.coord)
         ):
-            requests.append(self.comm.isend(list(items), rank))
+            requests.append(self.comm.isend(list(items), rank, tag=self.MIGRATION_MESSAGE_TAG))
             send_count_by_rank[rank] += 1
 
         # Communicate the number of messages sent to each rank
@@ -1161,7 +1181,7 @@ class MPIGrid(FDTDGrid):
 
         # Receive new items for this rank
         for _ in range(messages_to_receive[0]):
-            new_items = self.comm.recv(None, MPI.ANY_SOURCE)
+            new_items = self.comm.recv(None, MPI.ANY_SOURCE, tag=self.MIGRATION_MESSAGE_TAG)
             for item in new_items:
                 item.coord = self.global_to_local_coordinate(item.coord)
                 item.coordorigin = self.global_to_local_coordinate(item.coordorigin)
@@ -1236,7 +1256,14 @@ class MPIGrid(FDTDGrid):
         }
 
     def set_halo_map(self):
-        """Create MPI DataTypes for field array halo exchanges."""
+        """Create committed subarray datatypes for one-plane field exchanges.
+
+        Array extents are ``size + 1`` in native grid indices. In the normal
+        direction, negative sends/receives use indices 1/0; positive ones use
+        the penultimate/final indices. Transverse extents exclude neighbouring
+        ranks' halo planes, so these maps do not exchange halo-edge/corner
+        values. Datatype lifetimes are managed by ``free_halo_maps``.
+        """
 
         if self._halo_maps_initialised and not self._halo_maps_freed:
             self.free_halo_maps()
@@ -1279,7 +1306,14 @@ class MPIGrid(FDTDGrid):
                 self.recv_halo_map[dim][Dir.POS].Commit()
 
     def calculate_local_extents(self):
-        """Calculate size and extents of the local grid"""
+        """Partition global cells and include the local negative halo.
+
+        All extents are integer cell indices, not metres. After partitioning,
+        ``lower_extent`` includes the negative halo and ``upper_extent`` is
+        exclusive; their difference is ``size``. Uniquely owned cells begin
+        at ``lower_extent + negative_halo_offset``. Field arrays allocate
+        ``size + 1`` to include the positive halo or global terminal plane.
+        """
 
         self.size = self.global_size // self.mpi_tasks
         overflow = self.global_size % self.mpi_tasks
@@ -1308,7 +1342,12 @@ class MPIGrid(FDTDGrid):
         )
 
     def within_bounds(self, local_point: npt.NDArray[np.int32]) -> bool:
-        """Check a local point is within the grid.
+        """Check whether this rank owns a local grid point.
+
+        Internal halo planes belong to neighbouring ranks. On an axis with
+        no positive neighbour, however, the extra field-array plane at
+        ``size`` is the global terminal plane and belongs to this rank.
+        This is point ownership, not cell occupancy or component validity.
 
         Args:
             local_point: Point to check.
@@ -1330,7 +1369,10 @@ class MPIGrid(FDTDGrid):
         if gz < 0 or gz > self.gz:
             raise ValueError("z")
 
-        return all(local_point >= self.negative_halo_offset) and all(local_point < self.size)
+        upper_owned = (local_point < self.size) | (
+            (local_point == self.size) & (self.neighbours[:, Dir.POS] < 0)
+        )
+        return all(local_point >= self.negative_halo_offset) and all(upper_owned)
 
     def within_pml(self, local_point: npt.NDArray[np.int32]) -> bool:
         """Check if the provided point is within a PML.
@@ -1342,9 +1384,7 @@ class MPIGrid(FDTDGrid):
         Returns:
             within_pml: True if the point is within a PML.
         """
-        if not (
-            all(local_point >= self.negative_halo_offset) and all(local_point <= self.size)
-        ):
+        if not (all(local_point >= self.negative_halo_offset) and all(local_point <= self.size)):
             return False
 
         within_boundary_pml = (

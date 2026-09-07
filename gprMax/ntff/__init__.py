@@ -15,7 +15,19 @@
 # You should have received a copy of the GNU General Public License
 # along with gprMax. If not, see <https://www.gnu.org/licenses/>.
 
-"""Solver-independent near-to-far-field transformation utilities."""
+"""Near-to-far-field geometry, collection and transformation utilities.
+
+``surfaces`` defines the component-specific Yee sampling geometry, while
+``closures`` resolves omitted faces and symmetry images. Frequency- and
+time-domain monitors collect those samples through CPU or device backends;
+``mpi`` partitions surface patches for distributed CPU collection.
+
+``evaluator`` reconstructs individual Cartesian components with KSIR.
+The equivalent-current transforms instead collocate tangential E and H on
+common faces before forming Love currents; ``layered`` and ``layered_time``
+provide propagation through planar backgrounds. ``interface`` connects
+declarative surface and output requests to the required monitors and results.
+"""
 
 from .closures import (
     ExperimentalMask,
@@ -51,14 +63,10 @@ from .frequency_domain import (
     surface_compatibility_signature,
     validate_nyquist_frequencies,
 )
-from .interface import (
-    KSIRFarFieldResult,
-    KSIRFrequencyReceiverResult,
-    KSIRTimeReceiverResult,
-)
+from .interface import KSIRFarFieldResult, KSIRFrequencyReceiverResult, KSIRTimeReceiverResult
 from .surfaces import (
-    COMPONENTS,
     COMPONENT_OFFSETS,
+    COMPONENTS,
     FACES,
     KSIRComponentSurface,
     KSIRSurfaceFace,

@@ -263,6 +263,62 @@ def test_general_poles_round_trip_exactly(tmp_path, fake_grid):
     assert exported["inclusive_conductivity_s_per_m"] == 0.03
 
 
+@pytest.mark.parametrize("attribute", ("er", "se", "mr", "sm", "mass_density"))
+def test_nearby_scalar_properties_are_not_the_same_material(tmp_path, fake_grid, attribute):
+    entry = _constant(mass_density=1000)
+    (tmp_path / "local.json").write_text(json.dumps(_database({"sample": entry})))
+    spec = load_material_spec("local", "sample", search_directory=tmp_path)
+    material = build_material_from_spec(fake_grid(), spec, "sample")
+    assert material_matches_spec(material, spec)
+    setattr(material, attribute, np.nextafter(getattr(material, attribute), np.inf))
+    assert not material_matches_spec(material, spec)
+
+
+@pytest.mark.parametrize(
+    "model, poles, attributes",
+    (
+        (
+            "debye",
+            [{"relative_permittivity_difference": 2, "relaxation_time_s": 1e-11}],
+            ("deltaer", "tau"),
+        ),
+        (
+            "lorentz",
+            [
+                {
+                    "relative_permittivity_difference": 2,
+                    "resonance_frequency_hz": 1e9,
+                    "damping_coefficient_per_s": 1e8,
+                }
+            ],
+            ("deltaer", "tau", "alpha"),
+        ),
+        (
+            "drude",
+            [{"plasma_frequency_hz": 1e9, "collision_frequency_per_s": 1e8}],
+            ("tau", "alpha"),
+        ),
+        ("general", [{"w_per_s": [2, 1], "q_per_s": [-1, 1]}], ("inclusive_w", "inclusive_q")),
+    ),
+)
+def test_nearby_pole_parameters_are_not_the_same_material(
+    tmp_path, fake_grid, model, poles, attributes
+):
+    entry = _constant()
+    entry.update(model=model, poles=poles)
+    (tmp_path / "local.json").write_text(json.dumps(_database({"sample": entry})))
+    spec = load_material_spec("local", "sample", search_directory=tmp_path)
+    for attribute in attributes:
+        material = build_material_from_spec(fake_grid(dt=1e-13), spec, "sample")
+        assert material_matches_spec(material, spec)
+        values = getattr(material, attribute)
+        value = values[0]
+        values[0] = np.nextafter(np.real(value), np.inf) + (
+            1j * np.imag(value) if np.iscomplexobj(value) else 0
+        )
+        assert not material_matches_spec(material, spec)
+
+
 def test_alias_cycles_are_rejected(tmp_path):
     document = _database(
         {

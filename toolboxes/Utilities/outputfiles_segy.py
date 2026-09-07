@@ -48,8 +48,8 @@ from toolboxes.Utilities.outputfiles_trace import (
     collect_traces,
     discover_files,
     quantity_units,
+    validate_float32_traces,
 )
-
 
 TEXTUAL_HEADER_BYTES = 3200
 BINARY_HEADER_BYTES = 400
@@ -91,7 +91,12 @@ def _legacy_unsigned(value: float, maximum: int = 65_535) -> int:
 
 
 def _gpr_sampling(sample_count: int, dt: float) -> tuple[float, int, int]:
-    """Return compatible interval, sample count, and stored picoseconds."""
+    """Choose an integer-picosecond interval and a count within the input span.
+
+    The input span is ``(sample_count-1)*dt`` seconds. Flooring its duration
+    in new sample intervals avoids requesting an interpolated sample beyond
+    the last input sample; the output count can differ from the input count.
+    """
 
     dt_ps = dt * 1e12
     stored_dt_ps = round(dt_ps)
@@ -141,9 +146,13 @@ def _gpr_resample(records: list[TraceRecord], dt: float) -> tuple[list[TraceReco
 
 
 def _scaled_coordinate(value: float) -> int:
+    """Round metres to integer 0.1 mm units for the negative header scalar."""
+
     scaled = round(float(value) * COORDINATE_MULTIPLIER)
     if not -(2**31) <= scaled < 2**31:
-        raise ValueError(f"Coordinate {value} m exceeds the SEG-Y int32 range at scalar {COORDINATE_SCALE}")
+        raise ValueError(
+            f"Coordinate {value} m exceeds the SEG-Y int32 range at scalar {COORDINATE_SCALE}"
+        )
     return int(scaled)
 
 
@@ -196,13 +205,17 @@ def _build_textual_header(
         interval_lines = [
             _text_line(6, f"EXACT SAMPLE INTERVAL: {dt:.17g} S ({dt_us:.17g} MICROSECONDS)"),
             _text_line(7, "EXACT INTERVAL IS IN BINARY HEADER BYTES 3273-3280 (IEEE FLOAT64)"),
-            _text_line(16, "LEGACY INTEGER-MICROSECOND INTERVAL IS ZERO WHEN NOT EXACTLY REPRESENTABLE"),
+            _text_line(
+                16, "LEGACY INTEGER-MICROSECOND INTERVAL IS ZERO WHEN NOT EXACTLY REPRESENTABLE"
+            ),
         ]
     lines = [
         _text_line(1, heading),
         _text_line(2, f"MODEL TITLE: {title or 'UNTITLED'}"),
         _text_line(3, f"TRACE COUNT: {len(records)}  SAMPLES/TRACE: {records[0].samples.size}"),
-        _text_line(4, f"RECEIVER: RX{receiver}  COMPONENT: {component}  UNITS: {quantity_units(component)}"),
+        _text_line(
+            4, f"RECEIVER: RX{receiver}  COMPONENT: {component}  UNITS: {quantity_units(component)}"
+        ),
         _text_line(5, f"SOURCE POSITION PATH: {source_path}"),
         *interval_lines[:2],
         _text_line(8, f"PHYSICAL TIME OF SAMPLE ZERO: {time_offset:.17g} S"),
@@ -235,7 +248,9 @@ def _build_binary_header(
     if sample_count < 1 or sample_count >= 2**32:
         raise ValueError("SEG-Y sample count must be in the range 1 to 2^32-1")
     if profile == GPR_PROFILE and sample_count > 65_535:
-        raise ValueError("The GPR SEG-Y revision 1 profile supports at most 65535 samples per trace")
+        raise ValueError(
+            "The GPR SEG-Y revision 1 profile supports at most 65535 samples per trace"
+        )
     dt_us = dt * 1e6
     legacy_dt = int(round(dt * 1e12)) if profile == GPR_PROFILE else _legacy_unsigned(dt_us)
     header = bytearray(BINARY_HEADER_BYTES)
@@ -280,6 +295,13 @@ def _build_trace_header(
     component: str,
     profile: str,
 ) -> bytes:
+    """Pack one trace header using zero-based byte offsets below.
+
+    Stored x/y coordinates retain the gprMax axes; z is written as elevation.
+    Separation is the unsigned 3D source/receiver distance rounded to metres,
+    whereas coordinates use the finer shared coordinate scalar.
+    """
+
     header = bytearray(TRACE_HEADER_BYTES)
     source = record.source_position
     receiver = record.receiver_position
@@ -331,7 +353,15 @@ def write_segy(
     overwrite: bool = False,
     profile: str = STANDARD_PROFILE,
 ) -> Path:
-    """Write validated traces using a standard or GPR compatibility profile."""
+    """Write traces in the supplied order with big-endian float32 samples.
+
+    ``dt`` and ``time_offset`` are in seconds. The standard profile leaves
+    sampling unchanged; the GPR profile may linearly resample at an integer-
+    picosecond interval. Float32 storage can round amplitudes in either case.
+    Conversions producing non-finite samples are rejected before file writing.
+    The physical sample-zero offset is recorded in the textual header, not
+    applied as a shift to the samples.
+    """
 
     if not records:
         raise ValueError("No traces were supplied")
@@ -341,7 +371,9 @@ def write_segy(
     if not math.isfinite(dt) or dt <= 0:
         raise ValueError("Sample interval must be finite and positive")
     if profile not in SUPPORTED_PROFILES:
-        raise ValueError(f"Unknown SEG-Y profile {profile!r}; choose from {', '.join(SUPPORTED_PROFILES)}")
+        raise ValueError(
+            f"Unknown SEG-Y profile {profile!r}; choose from {', '.join(SUPPORTED_PROFILES)}"
+        )
     if not -(2**31) <= int(line_number) < 2**31:
         raise ValueError("Line number must fit in a signed 32-bit SEG-Y field")
 
@@ -355,6 +387,7 @@ def write_segy(
     if profile == GPR_PROFILE:
         output_records, dt, _ = _gpr_resample(records, dt)
         sample_count = int(output_records[0].samples.size)
+    validate_float32_traces(output_records)
 
     textual = _build_textual_header(
         title=title,
@@ -375,7 +408,9 @@ def write_segy(
             stream.write(textual)
             stream.write(binary)
             for trace_number, record in enumerate(output_records, start=1):
-                stream.write(_build_trace_header(record, trace_number, sample_count, dt, component, profile))
+                stream.write(
+                    _build_trace_header(record, trace_number, sample_count, dt, component, profile)
+                )
                 stream.write(np.asarray(record.samples, dtype=">f4").tobytes(order="C"))
         os.replace(temporary, destination)
     finally:
@@ -447,12 +482,18 @@ def _default_output_name(basefilename: str, component: str) -> Path:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Export a naturally ordered gprMax A-scan series as SEG-Y.",
-        usage=("python -m toolboxes.Utilities.outputfiles_segy " "basefilename component [options]"),
+        usage=(
+            "python -m toolboxes.Utilities.outputfiles_segy " "basefilename component [options]"
+        ),
     )
     parser.add_argument("basefilename", help="base name of the gprMax .h5 A-scan series")
     parser.add_argument("component", help="receiver component to export, e.g. Ez or Ey")
-    parser.add_argument("-r", "--receiver", type=int, default=1, help="receiver number (default: 1)")
-    parser.add_argument("-o", "--output-file", type=Path, default=None, help="destination .sgy file")
+    parser.add_argument(
+        "-r", "--receiver", type=int, default=1, help="receiver number (default: 1)"
+    )
+    parser.add_argument(
+        "-o", "--output-file", type=Path, default=None, help="destination .sgy file"
+    )
     parser.add_argument(
         "--grid",
         default="/",

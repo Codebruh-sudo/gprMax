@@ -42,11 +42,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+import gprMax.user_objects.cmds_geometry.fractal_box as fractal_box_module
 from gprMax.geometry_tags import GeometryTagMap, GeometryTagRegistry
 from gprMax.user_objects.cmds_geometry.add_surface_roughness import AddSurfaceRoughness
 from gprMax.user_objects.cmds_geometry.fractal_box import FractalBox
 
-from .conftest import add_mixing_model, nonzero_set
+from .conftest import add_mixing_model, make_material, nonzero_set
 
 # The box spans cells 2..10 in every axis on a 16-cell grid.
 P1 = (0.002, 0.002, 0.002)
@@ -459,6 +460,57 @@ class TestBuildWithASurface:
             box.build(g)
             solids.append(g.solid.copy())
         assert np.array_equal(*solids)
+
+
+@pytest.mark.parametrize("material_start", (32768, 40000, 65535, 65536))
+@pytest.mark.parametrize("mode", ("plain_mixed", "rough_mixed", "rough_single"))
+@pytest.mark.parametrize("averaging", ("n", "y"))
+@pytest.mark.parametrize("precision", (np.float32, np.float64))
+def test_fractal_global_material_ids_are_not_narrowed(
+    fractal_grid, fractal_config, monkeypatch, material_start, mode, averaging, precision
+):
+    fractal_config.sim_config.dtypes["float_or_double"] = precision
+    masked_builder = fractal_box_module.build_voxels_from_array_mask
+
+    def checked_masked_builder(*args, **kwargs):
+        # Reject an invalid narrowed ID before the unchecked Cython lookup.
+        # This makes the old-code failure deterministic instead of allowing
+        # negative indices to read outside the material-property tables.
+        mask, data = args[8:10]
+        assert np.all(data[mask == 1] >= 0), "Fractal material IDs became negative"
+        return masked_builder(*args, **kwargs)
+
+    monkeypatch.setattr(fractal_box_module, "build_voxels_from_array_mask", checked_masked_builder)
+
+    def build(start):
+        grid = fractal_grid()
+        if start != 2:
+            grid.materials.extend(
+                make_material(index, f"material_{index}")
+                for index in range(len(grid.materials), start + 2)
+            )
+        names = tuple(grid.materials[index].ID for index in (start, start + 1))
+        if mode == "rough_single":
+            box = make_box(n_materials=1, mixing_model_id=names[0], averaging=averaging)
+        else:
+            add_mixing_model(grid, materials=names)
+            box = make_box(n_materials=2, averaging=averaging)
+        box.build(grid)
+        if mode != "plain_mixed":
+            roughen_zplus(grid)
+        box.build(grid)
+        return grid
+
+    reference = build(2)
+    actual = build(material_start)
+    assert np.count_nonzero(reference.solid) > 0
+    for name in ("solid", "ID"):
+        expected = getattr(reference, name).copy()
+        occupied = expected != 0
+        expected[occupied] += material_start - 2
+        np.testing.assert_array_equal(getattr(actual, name), expected)
+    np.testing.assert_array_equal(actual.rigidE, reference.rigidE)
+    np.testing.assert_array_equal(actual.rigidH, reference.rigidH)
 
 
 pytestmark = pytest.mark.unit

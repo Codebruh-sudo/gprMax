@@ -195,6 +195,61 @@ Allows you to alter the value of the time step :math:`\Delta t` used by gprMax. 
 
 where ``f1`` can take values :math:`0 < \textrm{f1} \leq 1`. Then the actual time step used will be :math:`\textrm{f1} \times \Delta t`, where :math:`\Delta t` is calculated using the equality from the CFL condition.
 
+.. _dispersive_timestep_check:
+
+Dispersive-material timestep check
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ordinary spatial CFL limit is not sufficient for every dispersive material.
+After geometry construction has resolved the component materials, gprMax checks
+the chosen timestep against each defined dispersive material, including imported
+and averaged mixtures. All poles of a material are checked together. The check
+uses each grid's timestep and spatial steps; an invariant direction in a 2D
+TM or TE model does not contribute a spatial derivative.
+
+If the check fails, gprMax stops before time stepping. It reports the grid,
+material, timestep, and failed condition. **It does not change the timestep or
+the material parameters automatically.** Where possible, the error gives a
+smaller timestep that passes the check for that material, and a multiplier to
+apply to your existing ``#time_step_stability_factor``. For example, if your
+current factor is ``0.8`` and the reported multiplier is ``0.5``, use ``0.4``.
+Rerun to check all the materials: another material may require a smaller step.
+The suggestion is a checked candidate, not a computed maximum stable timestep.
+
+The check follows the current-density recurrence of [GIA2014]_. It tests the
+discrete material response for passivity and applies a conservative dispersive
+extension of the spatial CFL bound. In particular, for positive lossless Lorentz
+poles in the principal interval :math:`0 < 2\pi f_p\Delta t < \pi`, the bound is
+
+.. math::
+
+    \frac{c_0^2\Delta t^2}{\mu_{r,\min}}
+       \sum_{j\in\mathcal D}\frac{1}{\Delta_j^2}
+    +\sum_p\Delta\epsilon_{rp}\left[\sec(\pi f_p\Delta t)-1\right]
+    <\epsilon_{r\infty}.
+
+Here :math:`\mathcal D` contains the varying spatial directions and
+:math:`\mu_{r,\min}` is a common lower permeability bound across the grid's
+material definitions. Damped Lorentz, Debye, Drude, and inclusive mixed poles
+are checked through their discrete exponential representation; the required
+Drude equivalent conductivity is included. No pole-count-dependent work is
+added to the field-update loop. MPI ranks exchange setup diagnostics so a
+failure is reported consistently.
+
+.. important::
+
+    A failed conservative certificate is not, by itself, proof that a particular
+    finite geometry is unstable. The diagnostic distinguishes the material
+    passivity test from the spatial bound. Passing these checks is also not a
+    guarantee of accuracy or of stability of every PML, subgrid, or source-device
+    coupling. Continue to check physical resolution, precision, and convergence.
+
+    First check units and material parameters for mistakes. Reducing the timestep
+    preserves the intended physical material; changing pole strengths, frequencies,
+    or damping changes that material and should not be done merely to bypass the
+    check. A positive-growth or non-passive fit may need a corrected material
+    representation rather than an arbitrarily small timestep.
+
 #title:
 -------
 
@@ -495,6 +550,8 @@ The syntax of the command is:
     * You can continue to add triplets of values for :math:`\Delta \epsilon_{rp}`, :math:`f_p` and :math:`\delta_p` for as many Lorentz poles as you have specified with ``i1``.
     * The relative permittivity in the ``#material`` command should be given as the relative permittivity at infinite frequency, i.e. :math:`\epsilon_{r \infty}`.
     * The recursive formulation requires :math:`f_p < 1/\Delta t`, :math:`\delta_p < 1/\Delta t`, and the underdamped condition :math:`\delta_p < 2\pi f_p`. These coefficient limits do not replace the stricter Nyquist and spatial-resolution limits on useful simulation output.
+    * These per-pole input limits do not establish coupled-update stability.
+      The complete material must also pass the :ref:`dispersive_timestep_check`.
 
 
 #add_dispersion_drude:
@@ -526,6 +583,7 @@ The syntax of the command is:
 
     * You can continue to add pairs of values for :math:`f_p` and :math:`\gamma_p` for as many Drude poles as you have specified with ``i1``.
     * The recursive formulation requires :math:`f_p < 1/\Delta t` and :math:`\gamma_p < 1/\Delta t`. These coefficient limits do not replace the stricter Nyquist and spatial-resolution limits on useful simulation output.
+    * The complete material must also pass the :ref:`dispersive_timestep_check`.
 
 
 .. _material_range:
@@ -548,6 +606,14 @@ Allows you to create a series of materials with properties specified by ranges o
 * ``f7`` is the lower end of the range of magnetic loss values.
 * ``f8`` is the upper end of the range of magnetic loss values.
 * ``str1`` is an identifier for the material range.
+
+The number of bins is set by ``#fractal_box``. Each bin uses the midpoint of
+the corresponding interval in each property range. Material reuse compares
+the full computed values, not rounded display values: small differences in
+conductivity or other properties remain distinct. Bins with exactly identical
+properties can share a generated material, including across material ranges.
+Generated material names are internal identifiers; use ``str1`` to select the
+range rather than constructing those names yourself.
 
 For example to create a series of 10 materials with relative permittivity ranging between 2 and 6, :math:`\sigma=0`, :math:`\mu_r=1`, and :math:`\sigma_*=0`, distributed using a fractal approach, use: ``#material_range: 2 6 0 0 1 1 0 0 er2_6`` and ``#fractal_box: 0 0 0 0.15 0.15 0.15 1.5 1 1 1 10 er2_6 my_frac_box``.
 
@@ -1154,6 +1220,13 @@ Allows you to introduce an orthogonal parallelepiped with fractal distributed pr
 
 For example, to create an orthogonal parallelepiped with fractal distributed properties using a Peplinski mixing model for soil, with 50 different materials over a range of water volumetric fractions from 0.001 - 0.25, you should first define the mixing model using: ``#soil_peplinski: 0.5 0.5 2.0 2.66 0.001 0.25 my_soil`` and then specify the fractal box using ``#fractal_box: 0 0 0 0.1 0.1 0.1 1.5 1 1 1 50 my_soil my_fractal_box``.
 
+Several fractal boxes may reference the same mixing model with different bin
+counts. Each box retains the bin-to-material mapping calculated for its own
+``i1`` value, including when surface modifiers are applied. Reusing a mixing
+model does not change the materials assigned to previously prepared boxes.
+For a material list, each box uses the first ``i1`` entries of the list; ``i1``
+must not exceed the list length.
+
 .. note::
 
     * We are not aware of a formulation of Perfectly Matched Layer (PML) absorbing boundary that can specifically handle distributions of material properties (such as those created by fractals) throughout the thickness of the PML, i.e. this is a required area of research. Our PML formulations can work to an extent depending on your modelling scenario and requirements. You may need to increase the thickness of the PML and/or consider tuning the parameters of the PML (:ref:`pml-tuning`) to improve performance for your specific model.
@@ -1257,7 +1330,10 @@ database. The syntax of the command is:
       objects without overwriting the surrounding cells.
     * The spatial resolution of the geometry objects must match the spatial resolution defined in the model.
     * The spatial resolution must be specified as a root attribute of the HDF5 file with the name ``dx_dy_dz`` equal to a tuple of floats, e.g. (0.002, 0.002, 0.002)
-    * Legacy material command files remain supported. Supply the ``.txt`` filename as ``file2``; files ending in ``.txt`` select the legacy reader.
+    * Legacy ``.txt`` material files are not accepted by the simulator.
+      First convert the original HDF5/text pair using the
+      :ref:`legacy_geometry_conversion` utility, then supply the converted
+      HDF5 file and its JSON database name. Do not simply rename a text file.
     * Averaging is applied only when the imported file contains cell material
       indices but no complete Yee-component arrays. A file containing
       ``/ID``, ``/rigidE``, and ``/rigidH`` records an authoritative component

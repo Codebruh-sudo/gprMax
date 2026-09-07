@@ -62,13 +62,18 @@ class TestGeometryObjectsRead:
     def test_six_token_form(self):
         from gprMax.user_objects.cmds_geometry.geometry_objects_read import GeometryObjectsRead
 
-        objs = process_geometrycmds(["#geometry_objects_read: 0 0 0 geo.bin mat.txt"])
+        objs = process_geometrycmds(["#geometry_objects_read: 0 0 0 geo.h5 materials"])
         gor = objs[0]
         assert isinstance(gor, GeometryObjectsRead)
         assert gor.kwargs["p1"] == (0.0, 0.0, 0.0)
-        assert gor.kwargs["geofile"] == "geo.bin"
-        assert gor.kwargs["matfile"] == "mat.txt"
+        assert gor.kwargs["geofile"] == "geo.h5"
+        assert gor.kwargs["material_database"] == "materials"
         assert gor.kwargs["averaging"] == "n"
+
+    @pytest.mark.parametrize("suffix", ("txt", "TXT"))
+    def test_text_materials_require_explicit_conversion(self, suffix):
+        with pytest.raises(ValueError, match="convert-geometry geo.h5"):
+            process_geometrycmds([f"#geometry_objects_read: 0 0 0 geo.h5 mat.{suffix}"])
 
     def test_optional_averaging_flag(self):
         from gprMax.user_objects.cmds_geometry.geometry_objects_read import GeometryObjectsRead
@@ -186,9 +191,7 @@ class TestBox:
             process_geometrycmds(["#box: 0 0 0 0.1 0.1 0.1 mx my mz extra"])
 
     def test_trailing_positional_tag_is_unambiguous_and_preserves_averaging(self):
-        box = process_geometrycmds(
-            ["#box: 0 0 0 0.1 0.1 0.1 m1 n housing"]
-        )[0]
+        box = process_geometrycmds(["#box: 0 0 0 0.1 0.1 0.1 m1 n housing"])[0]
         assert box.kwargs["averaging"] == "n"
         assert box.kwargs["tag"] == "housing"
 

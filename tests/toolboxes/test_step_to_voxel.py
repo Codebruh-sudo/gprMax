@@ -29,7 +29,10 @@ from toolboxes.STEPtoVoxel.markers import classify_marker_name, load_markers, ma
 from toolboxes.STEPtoVoxel.step_metadata import StepMetadata, parse_step_entities
 from toolboxes.STEPtoVoxel.voxeliser import (
     GridSpec,
+    TriangleMesh,
+    compute_scene_bbox,
     resolve_sweep_axis,
+    voxelise_material_grid,
     voxelise_solid_scanline,
     write_gprmax_hdf5,
 )
@@ -77,6 +80,88 @@ def _box_mesh(lower=(1.2, 1.2, 1.2), upper=(4.2, 4.2, 4.2)):
     unit_vertices[:, 1] = (vertices[:, 1] - 1.0) / 3.0
     unit_vertices[:, 2] = (vertices[:, 2] - 2.0) / 0.25
     return lower + unit_vertices * (upper - lower), triangles
+
+
+@pytest.mark.parametrize("sign", (-1, 1))
+def test_scene_bbox_preserves_fine_extents_at_translated_origin(sign):
+    spacing = 2.0**-10
+    origin = sign * np.array((2.0**20, 2.0**19, 2.0**18))
+    lower = origin + spacing * np.array((1.25, 1.25, 1.25))
+    upper = origin + spacing * np.array((4.25, 6.25, 3.25))
+    vertices, triangles = _box_mesh(lower, upper)
+
+    actual_lower, actual_upper = compute_scene_bbox([TriangleMesh(vertices, triangles, 7)])
+
+    assert actual_lower.dtype == actual_upper.dtype == np.dtype(np.float64)
+    np.testing.assert_array_equal(actual_lower, lower)
+    np.testing.assert_array_equal(actual_upper, upper)
+
+
+@pytest.mark.parametrize("sweep_axis", ("x", "y", "z"))
+def test_translated_fine_mesh_keeps_voxel_grid_and_occupancy(sweep_axis):
+    # Binary-exact coordinates isolate bounding-box narrowing from ordinary
+    # decimal round-off at lattice boundaries. Float32 cannot retain this box.
+    spacing = 2.0**-10
+    translation = np.array((2.0**20, -(2.0**19), 2.0**18))
+    vertices, triangles = _box_mesh(
+        spacing * np.array((1.25, 1.25, 1.25)),
+        spacing * np.array((4.25, 6.25, 3.25)),
+    )
+    options = dict(dx=spacing, pad=2, sweep_axis=sweep_axis, preserve_thin_features=False)
+    reference, reference_grid = voxelise_material_grid(
+        [TriangleMesh(vertices, triangles, 7)], **options
+    )
+    translated, translated_grid = voxelise_material_grid(
+        [TriangleMesh(vertices + translation, triangles, 7)], **options
+    )
+
+    np.testing.assert_array_equal(translated_grid.nxyz, reference_grid.nxyz)
+    np.testing.assert_array_equal(
+        translated_grid.origin_world - translation, reference_grid.origin_world
+    )
+    np.testing.assert_array_equal(translated_grid.dxyz_world, reference_grid.dxyz_world)
+    np.testing.assert_array_equal(translated, reference)
+    np.testing.assert_array_equal(reference_grid.nxyz, (8, 10, 7))
+    assert np.count_nonzero(reference == 7) == 30
+
+
+@pytest.mark.parametrize("sweep_axis", ("x", "y", "z"))
+@pytest.mark.parametrize("supersample", (1, 2))
+@pytest.mark.parametrize("outside_side", ("lower", "upper"))
+def test_cropped_mesh_component_does_not_hide_in_grid_component(
+    sweep_axis, supersample, outside_side
+):
+    vertices, triangles = _box_mesh()
+    outside_lower = np.full(3, 1.2)
+    outside_upper = np.full(3, 4.2)
+    axis = "xyz".index(sweep_axis)
+    outside_lower[axis], outside_upper[axis] = (
+        (-4.2, -1.2) if outside_side == "lower" else (7.2, 10.2)
+    )
+    outside_vertices, outside_triangles = _box_mesh(outside_lower, outside_upper)
+    # A single mesh can contain disjoint closed components. Cropping one
+    # component away must not prevent the sweep from visiting the other.
+    combined = TriangleMesh(
+        np.concatenate((vertices, outside_vertices)),
+        np.concatenate((triangles, outside_triangles + len(vertices))),
+        7,
+    )
+    options = dict(
+        dx=1.0,
+        pad=0,
+        bbox_world=(np.zeros(3), np.full(3, 6.0)),
+        sweep_axis=sweep_axis,
+        supersample=supersample,
+        preserve_thin_features=False,
+    )
+    reference, reference_grid = voxelise_material_grid(
+        [TriangleMesh(vertices, triangles, 7)], **options
+    )
+    actual, actual_grid = voxelise_material_grid([combined], **options)
+
+    np.testing.assert_array_equal(actual_grid.nxyz, reference_grid.nxyz)
+    np.testing.assert_array_equal(actual, reference)
+    assert np.count_nonzero(actual == 7) == 27
 
 
 def test_thin_closed_solid_is_preserved_when_between_slice_centres():

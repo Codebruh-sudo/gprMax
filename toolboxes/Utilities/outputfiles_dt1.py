@@ -7,7 +7,12 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
-"""Export a series of gprMax A-scans as Sensors & Software DT1/HD files."""
+"""Export gprMax A-scans as paired Sensors & Software DT1/HD files.
+
+The shared collector supplies SI traces and per-run positions. DT1 stores
+quantised int16 samples and binary trace headers; the text HD companion
+records timing, survey metadata and the common count-to-SI amplitude scale.
+"""
 
 from __future__ import annotations
 
@@ -28,7 +33,6 @@ from toolboxes.Utilities.outputfiles_trace import (
     discover_files,
     quantity_units,
 )
-
 
 TRACE_HEADER_BYTES = 128
 TRACE_HEADER_FORMAT = "<8f3d11f28s"
@@ -59,6 +63,12 @@ def _output_pair(outputfile: str | Path) -> tuple[Path, Path]:
 
 
 def _survey_positions(records: list[TraceRecord]) -> np.ndarray:
+    """Accumulate 3D receiver-path length in metres, starting at zero.
+
+    This follows record order, not a signed displacement along an assumed
+    survey axis; repeated receiver positions add no distance.
+    """
+
     positions = np.zeros(len(records), dtype=np.float64)
     for index in range(1, len(records)):
         positions[index] = positions[index - 1] + math.dist(
@@ -69,9 +79,20 @@ def _survey_positions(records: list[TraceRecord]) -> np.ndarray:
 
 
 def _quantise(records: list[TraceRecord]) -> tuple[list[np.ndarray], float]:
+    """Round all traces to int16 counts using one shared peak-based scale.
+
+    Approximate SI values are recovered as ``count * scale``. A common scale
+    retains relative amplitudes across traces up to quantisation; independent
+    per-trace normalisation would remove that relationship. All-zero data use
+    scale one, and counts are clipped to [-32767, 32767].
+    """
+
     peak = max(float(np.max(np.abs(record.samples), initial=0.0)) for record in records)
     scale = peak / INT16_PEAK if peak > 0 else 1.0
-    quantised = [np.rint(record.samples / scale).clip(-INT16_PEAK, INT16_PEAK).astype("<i2") for record in records]
+    quantised = [
+        np.rint(record.samples / scale).clip(-INT16_PEAK, INT16_PEAK).astype("<i2")
+        for record in records
+    ]
     return quantised, scale
 
 
@@ -87,7 +108,9 @@ def _trace_header(
 ) -> bytes:
     receiver = record.receiver_position
     source = record.source_position
-    comment = f"gprMax {component} trace {trace_number}".encode("ascii", errors="replace")[:28].ljust(28, b"\x00")
+    comment = f"gprMax {component} trace {trace_number}".encode("ascii", errors="replace")[
+        :28
+    ].ljust(28, b"\x00")
     values = (
         float(trace_number),
         float(position),
@@ -132,10 +155,19 @@ def _hd_text(
     nominal_frequency_mhz: float,
     stacks: int,
 ) -> str:
+    """Build HD metadata with nanosecond windows and a one-based time zero.
+
+    The window duration is ``sample_count*dt`` seconds, stored in nanoseconds,
+    not the time between first and last samples. ``1-time_offset/dt`` places
+    physical time zero on the one-based axis without moving the trace samples.
+    """
+
     sample_count = records[0].samples.size
     window_ns = dt * sample_count * 1e9
     step = float(np.mean(np.diff(positions))) if len(positions) > 1 else 0.0
-    separations = [math.dist(record.source_position, record.receiver_position) for record in records]
+    separations = [
+        math.dist(record.source_position, record.receiver_position) for record in records
+    ]
     antenna_separation = float(np.mean(separations))
     timezero_point = 1.0 - time_offset / dt
     lines = [
@@ -181,7 +213,13 @@ def write_dt1(
     stacks: int = 1,
     overwrite: bool = False,
 ) -> tuple[Path, Path, float]:
-    """Write validated traces as a DT1 data file and paired HD header."""
+    """Write traces in supplied order as DT1 data and its required HD companion.
+
+    ``dt`` and ``time_offset`` are in seconds. Sampling is unchanged, but
+    amplitudes are quantised to little-endian int16 with the returned shared
+    scale. Keep both output files: the HD header carries the scale and timing
+    needed to interpret the binary counts.
+    """
 
     if not records:
         raise ValueError("No traces were supplied")
@@ -202,7 +240,9 @@ def write_dt1(
     dt1_destination, hd_destination = _output_pair(outputfile)
     existing = [path for path in (dt1_destination, hd_destination) if path.exists()]
     if existing and not overwrite:
-        raise FileExistsError("DT1/HD output already exists: " + ", ".join(str(path) for path in existing))
+        raise FileExistsError(
+            "DT1/HD output already exists: " + ", ".join(str(path) for path in existing)
+        )
     dt1_destination.parent.mkdir(parents=True, exist_ok=True)
 
     positions = _survey_positions(records)
@@ -315,11 +355,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("basefilename", help="base name of the gprMax .h5 A-scan series")
     parser.add_argument("component", help="receiver component to export, e.g. Ez or Ey")
-    parser.add_argument("-r", "--receiver", type=int, default=1, help="receiver number (default: 1)")
-    parser.add_argument("-o", "--output-file", type=Path, default=None, help="destination base, .DT1, or .HD name")
+    parser.add_argument(
+        "-r", "--receiver", type=int, default=1, help="receiver number (default: 1)"
+    )
+    parser.add_argument(
+        "-o", "--output-file", type=Path, default=None, help="destination base, .DT1, or .HD name"
+    )
     parser.add_argument("--grid", default="/", help="HDF5 grid path (default: /)")
     parser.add_argument("--source", default=None, help="source position path, e.g. srcs/src1")
-    parser.add_argument("--trace-group", default=None, help="position-bearing trace group, e.g. tls/tl1")
+    parser.add_argument(
+        "--trace-group", default=None, help="position-bearing trace group, e.g. tls/tl1"
+    )
     parser.add_argument(
         "--nominal-frequency",
         type=float,
@@ -327,7 +373,9 @@ def main(argv: list[str] | None = None) -> int:
         metavar="MHZ",
         help="nominal antenna frequency in MHz when known (default: 0, unspecified)",
     )
-    parser.add_argument("--stacks", type=int, default=1, help="number of stacks recorded in HD metadata")
+    parser.add_argument(
+        "--stacks", type=int, default=1, help="number of stacks recorded in HD metadata"
+    )
     parser.add_argument("--overwrite", action="store_true", help="replace an existing DT1/HD pair")
     args = parser.parse_args(argv)
 

@@ -79,8 +79,12 @@ def test_export_seg2_exact_sampling_geometry_and_float_data(tmp_path):
         assert float(strings["SAMPLE_INTERVAL"]) == 4.7e-12
         assert strings["TRACE_TYPE"] == "RADAR_DATA"
         assert strings["GPRMAX_UNITS"] == "V/m"
-        assert np.fromstring(strings["SOURCE_LOCATION"], sep=" ")[0] == pytest.approx(0.1 + 0.001 * index)
-        assert np.fromstring(strings["RECEIVER_LOCATION"], sep=" ")[0] == pytest.approx(0.4 + 0.002 * index)
+        assert np.fromstring(strings["SOURCE_LOCATION"], sep=" ")[0] == pytest.approx(
+            0.1 + 0.001 * index
+        )
+        assert np.fromstring(strings["RECEIVER_LOCATION"], sep=" ")[0] == pytest.approx(
+            0.4 + 0.002 * index
+        )
         samples = np.frombuffer(raw, dtype="<f4", count=6, offset=pointer + descriptor_size)
         np.testing.assert_allclose(samples, np.linspace(-index, index, 6), rtol=1e-7)
 
@@ -112,3 +116,42 @@ def test_export_seg2_refuses_overwrite(tmp_path):
     with pytest.raises(FileExistsError):
         export_seg2([filename], destination, 1, "Ez")
     export_seg2([filename], destination, 1, "Ez", overwrite=True)
+
+
+@pytest.mark.parametrize("value", [1e100, -1e100])
+@pytest.mark.parametrize("existing_destination", [False, True])
+def test_export_seg2_rejects_float32_overflow_without_touching_files(
+    tmp_path, value, existing_destination
+):
+    filename = tmp_path / "scan1.h5"
+    _write_output(filename)
+    with h5py.File(filename, "r+") as output:
+        output["rxs/rx1/Ez"][...] = value
+    original = filename.read_bytes()
+    destination = tmp_path / "scan.sg2"
+    if existing_destination:
+        destination.write_bytes(b"previous export")
+
+    with pytest.raises(ValueError, match="finite float32"):
+        export_seg2([filename], destination, 1, "Ez", overwrite=existing_destination)
+
+    assert filename.read_bytes() == original
+    if existing_destination:
+        assert destination.read_bytes() == b"previous export"
+    else:
+        assert not destination.exists()
+    assert not destination.with_name(destination.name + ".tmp").exists()
+
+
+def test_export_seg2_accepts_largest_finite_float32_amplitudes(tmp_path):
+    filename = tmp_path / "scan1.h5"
+    _write_output(filename, samples=2)
+    samples = np.array([np.finfo(np.float32).max, -np.finfo(np.float32).max], dtype=np.float64)
+    with h5py.File(filename, "r+") as output:
+        output["rxs/rx1/Ez"][...] = samples
+    destination = tmp_path / "scan.sg2"
+
+    export_seg2([filename], destination, 1, "Ez")
+
+    stored = np.frombuffer(destination.read_bytes()[-8:], dtype="<f4")
+    np.testing.assert_array_equal(stored, samples)

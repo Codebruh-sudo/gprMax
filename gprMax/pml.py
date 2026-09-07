@@ -44,6 +44,12 @@ class InternalPMLSpec:
     material IDs, so a user-defined internal slab is recorded first and the
     backend-specific :class:`PML` instance is constructed during
     :meth:`FDTDGrid.build`.
+
+    Bounds xs/xf, ys/yf and zs/zf are half-open intervals in grid cells,
+    not metres. ``direction`` selects the slab normal and profile direction;
+    ``maximum_face`` names the maximum-stretch face. An MPI
+    shard retains the global profile through separate offset/thickness data
+    on its PML instance, rather than regrading this local interval from zero.
     """
 
     ID: str
@@ -171,12 +177,17 @@ class CFS:
         Args:
             thickness: int of thickness of PML in cells.
             parameter: instance of CFSParameter
+            include_e_endpoint: retain the terminal E sample for an embedded
+                slab whose terminating plane is inside the global domain.
+                A boundary-replacement slab omits that sample.
 
         Returns:
             Evalues: float array holding profile value for electric
-                        PML update.
+                        PML update; length thickness + 1 when the endpoint
+                        is retained, otherwise thickness.
             Hvalues: float array holding profile value for magnetic
-                        PML update.
+                        PML update; length thickness in either case. The
+                        E/H samples follow their staggered native positions.
         """
 
         # Extra cell of thickness added to allow correct scaling of electric and
@@ -327,7 +338,13 @@ class PML:
             raise ValueError
 
     def initialise_field_arrays(self):
-        """Initialise arrays to store fields in PML."""
+        """Allocate slab-local convolution histories, not full-grid fields.
+
+        Phi axes are (CFS term, x, y, z). The two histories per field family
+        correspond to different tangential components, so their Yee padding
+        and spatial volumes can differ. The leading CFS axis is independent
+        of those spatial extents; kernels update all terms for each location.
+        """
 
         if self.direction[0] == "x":
             self.EPhi1 = np.zeros(
@@ -488,7 +505,13 @@ class PML:
                 self.HRF[x, :] = (2 * Hsigma * self.G.dt) / tmp
 
     def _updates_terminal_e_plane(self):
-        """Return whether an embedded slab has an ordinary terminal E plane."""
+        """Return whether this slab has an ordinary interior terminal E plane.
+
+        Native boundary slabs and internal slabs terminating on an outer
+        grid boundary do not require the extra tangential-E update. This is
+        a local update-bound decision, distinct from the global profile flag
+        retained when MPI clips a slab into shards.
+        """
         if not self.internal:
             return False
         return {
@@ -507,7 +530,12 @@ class PML:
         return bool(self.profile_updates_terminal_e_plane)
 
     def _electric_update_bounds(self):
-        """Return bounds including an embedded slab's terminal E plane."""
+        """Return directional kernel bounds including an interior terminal E.
+
+        Extend only the slab-normal bound when that terminal plane is an
+        ordinary grid plane. Magnetic updates continue to use the original
+        slab bounds; this E-only extension does not add a magnetic layer.
+        """
         xs, xf, ys, yf, zs, zf = self.xs, self.xf, self.ys, self.yf, self.zs, self.zf
         if self._updates_terminal_e_plane():
             if self.direction == "xminus":
@@ -719,7 +747,13 @@ class OpenCLPML(PML):
         self.queue = queue
 
     def htod_field_arrays(self):
-        """Initialises PML field and coefficient arrays on compute device."""
+        """Upload PML histories/coefficients and cache their E/H launch ranges.
+
+        Each range covers the larger spatial Phi volume in its field family,
+        excluding the leading CFS-term axis. Individual history bounds are
+        checked by the kernel. Re-uploading recomputes both ranges, so a new
+        allocation cannot inherit a previous setup's spatial extent.
+        """
 
         import pyopencl.array as clarray
 
@@ -740,8 +774,12 @@ class OpenCLPML(PML):
         # argument), which spans the entire grid. Each work item updates all
         # CFS terms at one spatial history index, so exclude the order axis.
         # The two staggered Phi arrays have different pitches; cover both.
-        self._electric_update_range = slice(0, max(prod(self.EPhi1.shape[1:]), prod(self.EPhi2.shape[1:])))
-        self._magnetic_update_range = slice(0, max(prod(self.HPhi1.shape[1:]), prod(self.HPhi2.shape[1:])))
+        self._electric_update_range = slice(
+            0, max(prod(self.EPhi1.shape[1:]), prod(self.EPhi2.shape[1:]))
+        )
+        self._magnetic_update_range = slice(
+            0, max(prod(self.HPhi1.shape[1:]), prod(self.HPhi2.shape[1:]))
+        )
 
     def update_electric(self):
         """Updates electric field components with the PML correction on the

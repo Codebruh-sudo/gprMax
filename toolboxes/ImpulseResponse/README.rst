@@ -232,6 +232,13 @@ spectral energy above it. It does not silently filter the waveform. Choose
 the limit using the shortest wavelength and material properties in the
 model, normally requiring at least ten cells per wavelength.
 
+The diagnostic counts both members of each positive/negative FFT-frequency
+pair. DC and, for an even sample count, the Nyquist bin are counted once.
+Only bins strictly above the limit contribute to the numerator, and an
+all-zero waveform reports zero. The ratio is therefore the fraction of the
+finite real waveform's discrete energy in those bins, not an error estimate
+for the FDTD solution. Rescaling the waveform does not change that fraction.
+
 End-to-end verification
 =======================
 

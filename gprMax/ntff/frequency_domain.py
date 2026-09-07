@@ -60,11 +60,12 @@ def _readonly(array: npt.NDArray) -> npt.NDArray:
 def _dft_phase_at_time(
     frequencies: npt.ArrayLike, time: float, dtype: npt.DTypeLike
 ) -> npt.NDArray[np.complexfloating]:
-    """Return ``exp(-j omega t)`` without large-argument float32 drift.
+    """Evaluate ``exp(-j omega t)`` with double-precision phase inputs.
 
-    Frequencies and the returned oscillator retain the configured simulation
-    types. Only the transcendental argument reduction uses float64, then the
-    result is cast to the configured complex dtype.
+    Phase evaluation uses float64 frequency and time values, then casts the
+    result to the configured complex dtype. This avoids forming a large phase
+    argument in float32; it does not recover precision already lost when the
+    requested frequencies were stored in the simulation dtype.
     """
 
     phase_frequencies = np.asarray(frequencies, dtype=np.float64)
@@ -180,7 +181,13 @@ def surface_compatibility_signature(
 
 @dataclass(frozen=True)
 class KSIRComponentPhasors:
-    """Collocated surface phasors for one Cartesian field component."""
+    """Collocated surface DFTs for one Cartesian field component.
+
+    ``field`` and ``normal_derivative`` have shape ``(nfrequencies, npatches)``
+    in the surface's concatenated face order. The field DFT includes the time
+    integration factor in seconds; its outward derivative has those same
+    units divided by metres. These are not amplitude-normalised FFT bins.
+    """
 
     component: str
     surface: KSIRComponentSurface
@@ -294,7 +301,14 @@ def _evaluate_component_with_closure(
 
 
 class _ComponentDFTAccumulator:
-    """Running raw inside/outside DFTs for one component surface."""
+    """Running raw inside/outside DFTs for one component surface.
+
+    Arrays have shape ``(nfrequencies, npatches)``. The monitor supplies sample
+    offsets of zero steps for E and half a step for H, so both DFTs refer to
+    their physical Yee time levels. CPU and device collection use the same
+    stateful multiplier sequence; midpoint collocation is deferred until all
+    samples have been accumulated.
+    """
 
     def __init__(
         self,
@@ -338,7 +352,12 @@ class _ComponentDFTAccumulator:
         self._finalised = False
 
     def sampling_multiplier(self, iteration: int) -> npt.NDArray[np.complexfloating]:
-        """Return this sample's configured-precision DFT multiplier and advance."""
+        """Return this sample's configured-precision DFT multiplier and advance.
+
+        Recursive phase updates are periodically reanchored at the physical
+        sample time. Call exactly once per component and iteration, including
+        when a device kernel performs the actual field accumulation.
+        """
 
         if self._finalised:
             raise RuntimeError("cannot observe a finalised KSIR DFT accumulator")

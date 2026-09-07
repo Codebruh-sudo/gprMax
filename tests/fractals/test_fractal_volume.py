@@ -79,6 +79,7 @@ class TestConstruction:
         assert volume.operatingonID is None
         assert volume.averaging is False
         assert volume.nbins == 0
+        assert volume.material_ids == ()
         assert volume.mixingmodel is None
         assert volume.fractalsurfaces == []
         assert np.array_equal(volume.weighting, [1, 1, 1])
@@ -167,7 +168,7 @@ class TestGenerateFractalVolume:
 
     @pytest.mark.parametrize("nbins", [2, 4, 8])
     def test_values_are_bin_indices_in_range(self, nbins):
-        # These are indices into mixingmodel.matID, so anything outside
+        # These are indices into the volume's material_ids, so anything outside
         # [0, nbins - 1] would index past the end of the material table.
         volume = make_volume(nbins=nbins)
         volume.generate_fractal_volume()

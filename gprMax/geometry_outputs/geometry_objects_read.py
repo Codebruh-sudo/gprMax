@@ -25,7 +25,42 @@ import numpy as np
 import numpy.typing as npt
 
 from gprMax.geometry_outputs.grid_view import GridView, MPIGridView
+from gprMax.geometry_tags import UNTAGGED_NAME, validate_geometry_tag, validate_geometry_tag_ids
 from gprMax.grid.fdtd_grid import FDTDGrid
+
+
+def read_geometry_tag_names(geometry: h5py.File) -> tuple[str, ...]:
+    """Validate tag metadata before map allocation or rank-local slicing.
+
+    Legacy untagged files omit both datasets. A tagged file must pair a
+    cell-shaped integer array with a one-dimensional, unique name catalogue.
+    This only reads the small catalogue; ID bounds are checked on each local
+    tag slice before remapping. Invariant-axis resizing happens afterwards
+    and must not disguise a malformed on-disk shape by broadcasting it.
+    """
+    has_data = "tag_data" in geometry
+    has_names = "tag_names" in geometry
+    if not has_data and not has_names:
+        return ()
+    if not has_data or not has_names:
+        raise ValueError("Geometry tag metadata requires both /tag_data and /tag_names")
+    data, names = geometry["tag_data"], geometry["tag_names"]
+    if not isinstance(data, h5py.Dataset) or not isinstance(names, h5py.Dataset):
+        raise ValueError("Geometry tag metadata must contain datasets")
+    if data.ndim != 3 or data.shape != geometry["data"].shape:
+        raise ValueError("Geometry /tag_data must have the same cell shape as /data")
+    if data.dtype.kind not in "iu":
+        raise ValueError("Geometry tag IDs must be integers")
+    if names.ndim != 1 or h5py.check_string_dtype(names.dtype) is None:
+        raise ValueError("Geometry /tag_names must be a one-dimensional string catalogue")
+    catalogue = tuple(names.asstr(encoding="utf-8")[:])
+    if not catalogue or catalogue[0] != UNTAGGED_NAME:
+        raise ValueError("Geometry /tag_names must start with 'untagged' at ID 0")
+    if len(set(catalogue)) != len(catalogue):
+        raise ValueError("Geometry /tag_names must contain unique names")
+    for name in catalogue[1:]:
+        validate_geometry_tag(name)
+    return catalogue
 
 
 class ReadGeometryObject(AbstractContextManager):
@@ -66,6 +101,11 @@ class ReadGeometryObject(AbstractContextManager):
         self.material_id_map = material_id_map.astype(np.int32, copy=False)
 
         self.file_handler = h5py.File(filename)
+        try:
+            self.tag_names = read_geometry_tag_names(self.file_handler)
+        except Exception:
+            self.file_handler.close()
+            raise
 
         data = self.file_handler["/data"]
         assert isinstance(data, h5py.Dataset)
@@ -163,6 +203,10 @@ class ReadGeometryObject(AbstractContextManager):
         written - most commonly the implicit background material (e.g.
         free_space) of the written region, if the user only listed the
         material(s) they specifically cared about.
+
+        Validation precedes any signed conversion: an unsigned positive code
+        is still a file-local index, never an encoded negative sentinel.
+        Only -1 is transparent; every non-negative index must address the map.
         """
         if data.dtype.kind not in "iu":
             raise ValueError("Geometry material indices must be integers")
@@ -309,15 +353,21 @@ class ReadGeometryObject(AbstractContextManager):
         return rigidE_class == h5py.Dataset and rigidH_class == h5py.Dataset
 
     def has_tag_data(self) -> bool:
-        return (
-            self.file_handler.get("tag_data", getclass=True) == h5py.Dataset
-            and self.file_handler.get("tag_names", getclass=True) == h5py.Dataset
-        )
+        return bool(self.tag_names)
 
     def read_tags(self) -> None:
         """Import or clear semantic tags wherever the geometry writes cells."""
 
-        if self.grid_view is None or self.grid_view.grid.geometry_tag_map is None:
+        if self.grid_view is None:
+            return
+        if self.grid_view.grid.geometry_tag_map is None:
+            # An all-untagged catalogue does not allocate a map, but its
+            # on-disk labels still must be valid IDs rather than sentinels.
+            if self.has_tag_data():
+                validate_geometry_tag_ids(
+                    self._read_spatial_dataset(self.file_handler["/tag_data"]),
+                    len(self.tag_names),
+                )
             return
 
         raw_data = self.file_handler["/data"]
@@ -333,12 +383,7 @@ class ReadGeometryObject(AbstractContextManager):
             tag_data = self.file_handler["/tag_data"]
             assert isinstance(tag_data, h5py.Dataset)
             tag_data = self._read_spatial_dataset(tag_data)
-            raw_names = self.file_handler["/tag_names"][:]
-            names = tuple(
-                value.decode("utf-8") if isinstance(value, bytes) else str(value)
-                for value in raw_names
-            )
-            imported = self.grid_view.grid.geometry_tag_map.remap_file_ids(tag_data, names)
+            imported = self.grid_view.grid.geometry_tag_map.remap_file_ids(tag_data, self.tag_names)
         else:
             imported = np.zeros(raw_data.shape, dtype=existing.dtype)
 
@@ -361,6 +406,11 @@ class ReadGeometryObject(AbstractContextManager):
         (rather than substituted, as read_data()/read_ID() do via _remap()),
         since the caller (build_voxels_from_array) already implements "-1
         means leave this cell alone" itself by skipping negative values.
+
+        The returned signed int32 array may start in a rank's negative halo;
+        pair it with ``get_local_data_start()``, not the original placement
+        coordinate. Entries are already target-grid material IDs, so the voxel
+        builder's additional material offset must be zero for this path.
         """
         if self.grid_view is None:
             return None
@@ -371,7 +421,7 @@ class ReadGeometryObject(AbstractContextManager):
 
         self._check_material_coverage(data)
         # The on-disk indices are compact, but the target catalogue may
-        # already contain more than 32768 materials. Keep global IDs wide
+        # already contain more than 32768 materials. Keep target-grid IDs wide
         # and signed so -1 remains distinct from every valid material ID.
         present = data >= 0
         mapped = np.full(data.shape, -1, dtype=np.int32)
@@ -393,9 +443,15 @@ class ReadGeometryObject(AbstractContextManager):
         assert isinstance(dataset, h5py.Dataset)
         rigid = self._read_spatial_dataset(dataset, component_axis=True)
         if self.has_ID_array():
-            component_ids = self._read_spatial_dataset(self.file_handler["/ID"], component_axis=True, edge_based=True)
+            component_ids = self._read_spatial_dataset(
+                self.file_handler["/ID"], component_axis=True, edge_based=True
+            )
             self._check_material_coverage(component_ids)
             existing = self._get_assignment_region(getattr(self.grid_view.grid, f"rigid{family}"))
+            # Each tuple is (ID component, x offset, y offset, z offset),
+            # with offsets in cells relative to the cell owning this bit.
+            # Component order is Ex/Ey/Ez/Hx/Hy/Hz; tuple order is rigidity-bit
+            # order, so a shared component can protect several cells' claims.
             if family == "E":
                 positions = (
                     (0, 0, 0, 0),
@@ -421,7 +477,9 @@ class ReadGeometryObject(AbstractContextManager):
                     (5, 0, 0, 1),
                 )
             for bit, (component, *offset) in enumerate(positions):
-                spatial = tuple(slice(start, start + size) for start, size in zip(offset, rigid.shape[1:]))
+                spatial = tuple(
+                    slice(start, start + size) for start, size in zip(offset, rigid.shape[1:])
+                )
                 transparent = component_ids[(component, *spatial)] == -1
                 rigid[bit] = np.where(transparent, existing[bit], rigid[bit])
         getattr(self.grid_view, f"set_rigid{family}")(rigid)

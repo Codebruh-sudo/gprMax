@@ -24,9 +24,10 @@ and propagation contributes only a delay.  The four scalar Green responses
 used by the layered equivalent-current transform can therefore be represented
 as sparse trains of weighted Dirac impulses.
 
-The small impulse-train engine is kept independent of the streaming monitor
-so it can be verified directly against the established frequency-domain
-layered kernel before it is coupled to the Yee-surface sampler below.
+The impulse-train engine is separate from the streaming monitor. The monitor
+combines these propagation responses with sampled Yee-surface currents, while
+the train's frequency response can be evaluated independently for comparison
+with the frequency-domain layered kernel.
 """
 
 from __future__ import annotations
@@ -56,7 +57,7 @@ except ImportError:  # Source-tree use before extensions are rebuilt.
 class ImpulseTrain:
     """A real causal or reduced-time impulse train.
 
-    ``delays`` are measured relative to the layered NTFF origin.  They may be
+    ``delays`` are in seconds, relative to the layered NTFF origin. They may be
     negative because the far-zone response is range normalised to that origin;
     physical surface-current causality is recovered after the lateral and Yee
     time offsets are included.
@@ -73,7 +74,10 @@ class ImpulseTrain:
             raise ValueError("impulse-train delays and amplitudes must be matching vectors")
         if not np.all(np.isfinite(delays)) or not np.all(np.isfinite(amplitudes)):
             raise ValueError("impulse-train delays and amplitudes must be finite")
-        if not np.isfinite(self.discarded_path_amplitude_sum) or self.discarded_path_amplitude_sum < 0:
+        if (
+            not np.isfinite(self.discarded_path_amplitude_sum)
+            or self.discarded_path_amplitude_sum < 0
+        ):
             raise ValueError("discarded path amplitude sum must be finite and non-negative")
         delays.setflags(write=False)
         amplitudes.setflags(write=False)
@@ -128,7 +132,9 @@ def _validate_lossless_stack(
         raise ValueError("layered interfaces must be a vector")
     if eps.ndim != 1 or mu.shape != eps.shape or eps.size != interfaces.size + 1:
         raise ValueError("layered interfaces and constitutive vectors are inconsistent")
-    if interfaces.size and (not np.all(np.isfinite(interfaces)) or not np.all(np.diff(interfaces) < 0)):
+    if interfaces.size and (
+        not np.all(np.isfinite(interfaces)) or not np.all(np.diff(interfaces) < 0)
+    ):
         raise ValueError("layered interfaces must be finite and strictly descending")
     if np.any(np.abs(np.imag(eps)) > 1e-13) or np.any(np.abs(np.imag(mu)) > 1e-13):
         raise ValueError("direct time-domain layered NTFF requires lossless materials")
@@ -246,7 +252,9 @@ def _line_response_train(
 
         if layer == exterior and direction == outward_direction:
             reference_delay = (
-                -axial_slowness[layer] * position if upper_observation else axial_slowness[layer] * position
+                -axial_slowness[layer] * position
+                if upper_observation
+                else axial_slowness[layer] * position
             )
             total_delay = delay + reference_delay
             if maximum_delay is None or total_delay <= maximum_delay:
@@ -320,18 +328,23 @@ def build_layered_impulse_responses(
 ) -> LayeredImpulseResponses:
     """Build the four scalar lossless layered Green impulse responses.
 
+    Unlike the frequency-domain layered kernel, this construction requires
+    real, frequency-independent properties and propagating waves in every
+    layer for the requested direction. Evanescent and grazing cases are
+    rejected rather than represented by these delayed impulses.
+
     Args:
         interfaces: Strictly descending interface coordinates relative to the
-            NTFF origin.
+            NTFF origin, in metres.
         relative_permittivity: Real, frequency-independent relative values.
         relative_permeability: Real, frequency-independent relative values.
         local_direction: Unit observation direction in the stack's ``u,v,n``
             basis.
-        source_position: Source/surface-patch coordinate along ``n``.
+        source_position: Source/surface-patch coordinate along ``n`` in metres.
         source_layer: Optional precomputed layer index.
         impulse_tolerance: Relative per-path truncation threshold.
         max_impulses: Safety bound on processed path states.
-        maximum_delay: Optional reduced-time cutoff.
+        maximum_delay: Optional reduced-time cutoff in seconds.
         grazing_tolerance: Minimum absolute observation normal cosine.
     """
 
@@ -459,8 +472,12 @@ class LayeredEquivalentCurrentTimeMonitor(EquivalentCurrentTimeMonitor):
         # keeps all existing surface-stencil code in one authoritative place;
         # a later performance-only refactor can split the sampler into a base
         # class without changing this monitor's numerical behaviour.
-        open_exterior = -1 if medium.termination is not None and medium.termination.side == "positive" else 0
-        exterior_speed = c / np.sqrt(float(np.real(eps_absolute[open_exterior] * mu_absolute[open_exterior])))
+        open_exterior = (
+            -1 if medium.termination is not None and medium.termination.side == "positive" else 0
+        )
+        exterior_speed = c / np.sqrt(
+            float(np.real(eps_absolute[open_exterior] * mu_absolute[open_exterior]))
+        )
         exterior_impedance = np.sqrt(
             mu_0
             * float(np.real(mu_absolute[open_exterior]))
@@ -490,7 +507,11 @@ class LayeredEquivalentCurrentTimeMonitor(EquivalentCurrentTimeMonitor):
         self.collection_backend = (
             f"{device_backend}_device_layered"
             if device_backend is not None
-            else ("cython_openmp_layered" if _deposit_layered_impulse_time is not None else "numpy_layered_reference")
+            else (
+                "cython_openmp_layered"
+                if _deposit_layered_impulse_time is not None
+                else "numpy_layered_reference"
+            )
         )
         if self.mpi_comm is not None:
             self.collection_backend = f"mpi_{self.collection_backend}"
@@ -515,8 +536,12 @@ class LayeredEquivalentCurrentTimeMonitor(EquivalentCurrentTimeMonitor):
                 else relative_positions[:, 2] < termination.position
             )
             if np.any(outside):
-                raise ValueError("equivalent-current surface cannot extend beyond the PEC termination")
-        layer_index = np.searchsorted(-interfaces, -relative_positions[:, 2], side="left").astype(np.int64)
+                raise ValueError(
+                    "equivalent-current surface cannot extend beyond the PEC termination"
+                )
+        layer_index = np.searchsorted(-interfaces, -relative_positions[:, 2], side="left").astype(
+            np.int64
+        )
         self.local_positions = _readonly(relative_positions, self.real_dtype)
         self.local_directions = _readonly(local_directions, self.real_dtype)
         self.layer_index = _readonly(layer_index, np.int64)
@@ -542,7 +567,10 @@ class LayeredEquivalentCurrentTimeMonitor(EquivalentCurrentTimeMonitor):
             exterior = 0 if direction[2] > 0 else self.eps_absolute.size - 1
             direction_speed = c / np.sqrt(self.eps_absolute[exterior] * self.mu_absolute[exterior])
             lateral_delays = (
-                -(direction[0] * self.local_positions[:, 0] + direction[1] * self.local_positions[:, 1])
+                -(
+                    direction[0] * self.local_positions[:, 0]
+                    + direction[1] * self.local_positions[:, 1]
+                )
                 / direction_speed
             )
             lateral_coordinates = lateral_delays / self.dt
@@ -596,7 +624,9 @@ class LayeredEquivalentCurrentTimeMonitor(EquivalentCurrentTimeMonitor):
                     train = getattr(item, response_name)
                     delays = train.delays + lateral_delays[patch]
                     impulse_counts[direction_number, response_number] += train.delays.size
-                    discarded_sums[direction_number, response_number] += train.discarded_path_amplitude_sum
+                    discarded_sums[
+                        direction_number, response_number
+                    ] += train.discarded_path_amplitude_sum
                     if delays.size:
                         minimum_delay = min(minimum_delay, float(np.min(delays / self.dt)))
                         maximum_delay = max(maximum_delay, float(np.max(delays / self.dt)))
@@ -631,7 +661,9 @@ class LayeredEquivalentCurrentTimeMonitor(EquivalentCurrentTimeMonitor):
                 _readonly(offsets, np.int64),
                 _readonly(np.concatenate(integers) if integers else np.empty(0), np.int64),
                 _readonly(np.concatenate(fractions) if fractions else np.empty(0), self.real_dtype),
-                _readonly(np.concatenate(amplitudes) if amplitudes else np.empty(0), self.real_dtype),
+                _readonly(
+                    np.concatenate(amplitudes) if amplitudes else np.empty(0), self.real_dtype
+                ),
             )
 
         self._response_csr = tuple(pack_response(index) for index in range(4))
@@ -679,8 +711,12 @@ class LayeredEquivalentCurrentTimeMonitor(EquivalentCurrentTimeMonitor):
             self.impedance * epsilon_0 * exterior_eps * dyadic_sign,
             self.real_dtype,
         )
-        self._inverse_eps_ratio = _readonly(exterior_eps[:, np.newaxis] / patch_eps[np.newaxis, :], self.real_dtype)
-        self._inverse_mu_ratio = _readonly(exterior_mu[:, np.newaxis] / patch_mu[np.newaxis, :], self.real_dtype)
+        self._inverse_eps_ratio = _readonly(
+            exterior_eps[:, np.newaxis] / patch_eps[np.newaxis, :], self.real_dtype
+        )
+        self._inverse_mu_ratio = _readonly(
+            exterior_mu[:, np.newaxis] / patch_mu[np.newaxis, :], self.real_dtype
+        )
 
         self._time_origin_step = int(np.floor(minimum_delay)) - 2
         last_step = self.iterations - 1 + int(np.ceil(maximum_delay)) + 2
@@ -694,7 +730,9 @@ class LayeredEquivalentCurrentTimeMonitor(EquivalentCurrentTimeMonitor):
         self._complete_start_step = int(np.ceil(maximum_delay + 1))
         self._complete_stop_step = int(np.floor(minimum_delay + self.iterations - 1))
         if self._complete_stop_step < self._complete_start_step:
-            raise ValueError("time window is too short to contain one complete layered retarded history")
+            raise ValueError(
+                "time window is too short to contain one complete layered retarded history"
+            )
         self._previous_electric = None
         self._previous_magnetic = None
         self._next_electric = 0
@@ -785,7 +823,10 @@ class LayeredEquivalentCurrentTimeMonitor(EquivalentCurrentTimeMonitor):
             sample_index,
             offset,
             1,
-            area_common * (-self._sin_theta[:, np.newaxis]) * self._inverse_eps_ratio * local[np.newaxis, :, 2],
+            area_common
+            * (-self._sin_theta[:, np.newaxis])
+            * self._inverse_eps_ratio
+            * local[np.newaxis, :, 2],
         )
         self._deposit_response(
             self._phi_output,

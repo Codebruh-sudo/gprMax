@@ -25,15 +25,16 @@ from gprMax.grid.axes import Dim, Dir
 
 
 def mpi_datatype_for_dtype(dtype: npt.DTypeLike) -> MPI.Datatype:
-    """Return the MPI datatype matching a supported gprMax field dtype."""
+    """Return the MPI datatype matching a native float32/float64 field dtype.
+
+    The item-size check guards the array/MPI memory-layout contract; it does
+    not convert array values. Integer and complex field dtypes are rejected.
+    """
 
     numpy_dtype = np.dtype(dtype)
     supported_dtypes = (np.dtype(np.float32), np.dtype(np.float64))
     if numpy_dtype not in supported_dtypes:
-        raise TypeError(
-            "MPI field data require a float32 or float64 dtype; "
-            f"got {numpy_dtype}"
-        )
+        raise TypeError("MPI field data require a float32 or float64 dtype; " f"got {numpy_dtype}")
 
     mpi_dtype = MPI.Datatype.fromcode(numpy_dtype.char)
     if mpi_dtype.Get_size() != numpy_dtype.itemsize:
@@ -46,6 +47,11 @@ def mpi_datatype_for_dtype(dtype: npt.DTypeLike) -> MPI.Datatype:
 
 
 def get_neighbours(comm: MPI.Cartcomm) -> npt.NDArray[np.int32]:
+    """Return rank IDs indexed by [x/y/z axis, negative/positive direction].
+
+    Missing neighbours retain MPI's negative PROC_NULL value. Callers should
+    test for a negative rank rather than require the literal sentinel -1.
+    """
     neighbours = np.full((3, 2), -1, dtype=np.int32)
     neighbours[Dim.X] = comm.Shift(direction=Dim.X, disp=1)
     neighbours[Dim.Y] = comm.Shift(direction=Dim.Y, disp=1)
@@ -55,6 +61,7 @@ def get_neighbours(comm: MPI.Cartcomm) -> npt.NDArray[np.int32]:
 
 
 def get_neighbour(comm: MPI.Cartcomm, dim: Dim, dir: Dir) -> int:
+    """Return the adjacent rank, or MPI.PROC_NULL at a non-periodic boundary."""
     neighbours = comm.Shift(direction=dim, disp=1)
     return neighbours[dir]
 
@@ -62,6 +69,12 @@ def get_neighbour(comm: MPI.Cartcomm, dim: Dim, dir: Dir) -> int:
 def get_relative_neighbour(
     comm: MPI.Cartcomm, dirs: npt.NDArray[np.int32], disp: Union[int, npt.NDArray[np.int32]] = 1
 ) -> int:
+    """Find a rank displaced in Cartesian rank coordinates, not grid cells.
+
+    ``disp`` is scalar or per-axis; entries of ``dirs`` other than NEG/POS
+    leave that axis unchanged. Coordinates outside the communicator dimensions
+    return -1 without periodic wrapping, unlike a periodic ``comm.Shift``.
+    """
     offset = np.select([dirs == Dir.NEG, dirs == Dir.POS], [-disp, disp], default=0)
 
     coord = comm.coords + offset

@@ -46,7 +46,9 @@ def _write_output(
             0.5,
             0.6,
         )
-        data = receiver.create_dataset(component, data=np.arange(samples, dtype=np.float64) + 10 * trace_number)
+        data = receiver.create_dataset(
+            component, data=np.arange(samples, dtype=np.float64) + 10 * trace_number
+        )
         data.attrs["SampleInterval"] = dt
         data.attrs["TimeSampleOffset"] = 0.0
 
@@ -223,3 +225,45 @@ def test_export_accepts_real_time_domain_voltage_but_rejects_s_parameters(tmp_pa
 
     with pytest.raises(ValueError, match="not a supported real time-domain quantity"):
         export_segy([filename], tmp_path / "s11.sgy", 1, "S11")
+
+
+@pytest.mark.parametrize("profile", ["standard", "gpr"])
+@pytest.mark.parametrize("value", [1e100, -1e100])
+@pytest.mark.parametrize("existing_destination", [False, True])
+def test_export_rejects_float32_overflow_without_touching_files(
+    tmp_path, profile, value, existing_destination
+):
+    filename = tmp_path / "scan1.h5"
+    _write_output(filename)
+    with h5py.File(filename, "r+") as output:
+        output["rxs/rx1/Ez"][...] = value
+    original = filename.read_bytes()
+    destination = tmp_path / "scan.sgy"
+    if existing_destination:
+        destination.write_bytes(b"previous export")
+
+    with pytest.raises(ValueError, match="finite float32"):
+        export_segy(
+            [filename], destination, 1, "Ez", profile=profile, overwrite=existing_destination
+        )
+
+    assert filename.read_bytes() == original
+    if existing_destination:
+        assert destination.read_bytes() == b"previous export"
+    else:
+        assert not destination.exists()
+    assert not destination.with_name(destination.name + ".tmp").exists()
+
+
+def test_export_accepts_largest_finite_float32_amplitudes(tmp_path):
+    filename = tmp_path / "scan1.h5"
+    _write_output(filename, samples=2)
+    samples = np.array([np.finfo(np.float32).max, -np.finfo(np.float32).max], dtype=np.float64)
+    with h5py.File(filename, "r+") as output:
+        output["rxs/rx1/Ez"][...] = samples
+    destination = tmp_path / "scan.sgy"
+
+    export_segy([filename], destination, 1, "Ez")
+
+    stored = np.frombuffer(destination.read_bytes()[-8:], dtype=">f4")
+    np.testing.assert_array_equal(stored, samples)

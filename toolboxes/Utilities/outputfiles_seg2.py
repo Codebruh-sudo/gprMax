@@ -33,8 +33,8 @@ from toolboxes.Utilities.outputfiles_trace import (
     collect_traces,
     discover_files,
     quantity_units,
+    validate_float32_traces,
 )
-
 
 FILE_DESCRIPTOR_ID = 0x3A55
 TRACE_DESCRIPTOR_ID = 0x4422
@@ -63,7 +63,11 @@ def _clean_text(value: object) -> str:
 
 
 def _free_form(strings: Iterable[tuple[str, object]]) -> bytes:
-    """Build a four-byte-aligned SEG-2 free-format string block."""
+    """Build a four-byte-aligned SEG-2 free-format string block.
+
+    Each uint16 length includes its own two bytes and the string's trailing
+    NUL. A zero length ends the block before alignment padding is added.
+    """
 
     result = bytearray()
     for keyword, value in strings:
@@ -91,6 +95,12 @@ def _trace_block(
     time_offset: float,
     component: str,
 ) -> bytes:
+    """Pack one descriptor, metadata block and little-endian float32 trace.
+
+    ``SAMPLE_INTERVAL`` and ``DELAY`` store seconds. Delay locates sample
+    zero without shifting data; source/receiver locations are x, y, z metres.
+    """
+
     sample_count = int(record.samples.size)
     data = np.asarray(record.samples, dtype="<f4").tobytes(order="C")
     strings = _free_form(
@@ -131,7 +141,13 @@ def write_seg2(
     title: str = "",
     overwrite: bool = False,
 ) -> Path:
-    """Write validated traces as a little-endian SEG-2 file."""
+    """Write traces in the supplied order without temporal resampling.
+
+    Samples are converted to little-endian float32, which can round their
+    amplitudes; non-finite conversions are rejected before file writing.
+    The file descriptor's pointers are absolute byte offsets to
+    each trace descriptor, including the variable-length metadata blocks.
+    """
 
     if not records:
         raise ValueError("No traces were supplied")
@@ -146,6 +162,7 @@ def write_seg2(
         raise ValueError("Sample interval must be finite and positive")
     if not math.isfinite(time_offset):
         raise ValueError("Sample-zero time offset must be finite")
+    validate_float32_traces(records)
 
     destination = Path(outputfile)
     if destination.exists() and not overwrite:
@@ -271,11 +288,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("basefilename", help="base name of the gprMax .h5 A-scan series")
     parser.add_argument("component", help="receiver component to export, e.g. Ez or Ey")
-    parser.add_argument("-r", "--receiver", type=int, default=1, help="receiver number (default: 1)")
-    parser.add_argument("-o", "--output-file", type=Path, default=None, help="destination .sg2 file")
+    parser.add_argument(
+        "-r", "--receiver", type=int, default=1, help="receiver number (default: 1)"
+    )
+    parser.add_argument(
+        "-o", "--output-file", type=Path, default=None, help="destination .sg2 file"
+    )
     parser.add_argument("--grid", default="/", help="HDF5 grid path (default: /)")
     parser.add_argument("--source", default=None, help="source position path, e.g. srcs/src1")
-    parser.add_argument("--trace-group", default=None, help="position-bearing trace group, e.g. tls/tl1")
+    parser.add_argument(
+        "--trace-group", default=None, help="position-bearing trace group, e.g. tls/tl1"
+    )
     parser.add_argument("--overwrite", action="store_true", help="replace an existing output file")
     args = parser.parse_args(argv)
 

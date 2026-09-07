@@ -7,7 +7,14 @@
 # developed by Mahdee Abir and distributed under the MIT License. See LICENSE
 # and README.rst in this directory for attribution and licence details.
 
-"""High-level STEP assembly to gprMax voxel conversion workflow."""
+"""Coordinate STEP parsing, component voxelisation and geometry-file output.
+
+The parser supplies placed CAD components and tessellations; assignment CSVs
+select solids and give overlap priorities, materials and tags. Voxelisation
+first records component ownership, then maps that result to material indices
+and independent geometry tags. Reference geometry and marker coordinates are
+written separately from the material cell volume.
+"""
 
 from __future__ import annotations
 
@@ -59,15 +66,19 @@ MATERIAL_COLUMNS = (
     "magnetic_loss",
 )
 
-# ``geometry_tag`` was added after the original grouped assignment format.
-# It is intentionally optional when reading so existing assignment CSV files
-# remain valid.
+# Keep ``geometry_tag`` optional when reading older grouped assignment CSVs.
 GROUPED_REQUIRED_COLUMNS = tuple(column for column in MATERIAL_COLUMNS if column != "geometry_tag")
 
 
 @dataclass(frozen=True)
 class ConversionConfig:
-    """Configuration for parsing, tessellating, and voxelising a STEP file."""
+    """Controls for parsing, tessellating and voxelising a STEP file.
+
+    ``voxel_size`` is ordered x, y, z and the conversion workflow expects
+    metres; by default the parser requests metre-valued CAD coordinates.
+    ``pad_cells`` counts whole cells on each side. If linear deflection is
+    omitted, the parser receives half the smallest voxel size.
+    """
 
     voxel_size: tuple[float, float, float] = (1e-3, 1e-3, 1e-3)
     pad_cells: int = 2
@@ -446,7 +457,15 @@ def convert_step(
     *,
     write_vtk: bool = True,
 ) -> ConversionResult:
-    """Convert a material-assigned STEP assembly into gprMax and VTK files."""
+    """Convert assigned solids to HDF5 geometry and optional VTK previews.
+
+    Components retain separate indices through overlap resolution, even when
+    their material assignments are identical. The HDF5 cell array stores
+    compact material indices, while the VTK preview stores component IDs.
+    Open/zero-volume reference geometry and named markers are not painted
+    as solids. Output grid shape is x, y, z; origin is the CAD-space lower
+    corner and spacing is in metres for the normal metre-import workflow.
+    """
     config = config or ConversionConfig()
     step_file = Path(step_file).expanduser().resolve()
     materials_csv = Path(materials_csv).expanduser().resolve()
@@ -552,6 +571,8 @@ def convert_step(
     if len(materials) > np.iinfo(np.int16).max + 1:
         raise ValueError("Imported geometry exceeds the int16 material-index schema")
     material_grid = component_grid.copy()
+    # Remap only occupied cells: -1 must remain transparent to geometry import.
+    # Keep component_grid for tags and previews, which distinguish equal materials.
     material_map = np.asarray(component_material_ids, dtype=np.int16)
     occupied = component_grid >= 0
     material_grid[occupied] = material_map[component_grid[occupied]]

@@ -15,6 +15,7 @@ from gprMax.cython.geometry_primitives import (
 )
 from gprMax.geometry_outputs.geometry_objects_read import ReadGeometryObject
 from gprMax.geometry_tags import GeometryTagMap, GeometryTagRegistry
+from gprMax.user_objects.cmds_geometry.geometry_objects_read import GeometryObjectsRead
 
 pytestmark = pytest.mark.unit
 
@@ -45,7 +46,9 @@ def _initialise_prior_geometry(grid, rigid_value):
 
 
 def _read_complete(path, grid, start=(1, 2, 3), **kwargs):
-    with ReadGeometryObject(path, grid, np.array(start, np.int32), np.array([9], np.int32), **kwargs) as reader:
+    with ReadGeometryObject(
+        path, grid, np.array(start, np.int32), np.array([9], np.int32), **kwargs
+    ) as reader:
         reader.read_data()
         reader.read_ID()
         reader.read_rigidE()
@@ -82,13 +85,17 @@ def test_partial_component_transparency_preserves_independent_rigid_claims(
     marker.rigidE[:] = 0
     marker.rigidH[:] = 0
     if component < 3:
-        (build_edge_x, build_edge_y, build_edge_z)[component](*position, 9, marker.rigidE, marker.rigidH, marker.ID)
+        (build_edge_x, build_edge_y, build_edge_z)[component](
+            *position, 9, marker.rigidE, marker.rigidH, marker.ID
+        )
     else:
         (build_magnetic_edge_x, build_magnetic_edge_y, build_magnetic_edge_z)[component - 3](
             *position, 9, marker.rigidH, marker.ID
         )
     for family in ("E", "H"):
-        getattr(expected, f"rigid{family}")[getattr(marker, f"rigid{family}").astype(bool)] = rigid_value
+        getattr(expected, f"rigid{family}")[
+            getattr(marker, f"rigid{family}").astype(bool)
+        ] = rigid_value
 
     path = _write_file(tmp_path / "partial.h5", data, ids, rigid_value)
     _read_complete(path, grid)
@@ -101,7 +108,9 @@ def test_partial_component_transparency_preserves_independent_rigid_claims(
 def test_all_transparent_file_is_an_exact_noop(tmp_path, make_view_grid, rigid_value):
     grid = make_view_grid(nx=8, ny=9, nz=10)
     _initialise_prior_geometry(grid, 1 - rigid_value)
-    before = {name: np.asarray(getattr(grid, name)).copy() for name in ("solid", "ID", "rigidE", "rigidH")}
+    before = {
+        name: np.asarray(getattr(grid, name)).copy() for name in ("solid", "ID", "rigidE", "rigidH")
+    }
     tags = grid.geometry_tag_map.data.copy()
     path = _write_file(
         tmp_path / "transparent.h5",
@@ -115,14 +124,118 @@ def test_all_transparent_file_is_an_exact_noop(tmp_path, make_view_grid, rigid_v
     np.testing.assert_array_equal(grid.geometry_tag_map.data, tags)
 
 
+def test_negative_imported_tag_rejected_without_overwriting_existing_tags(tmp_path, make_view_grid):
+    grid = make_view_grid(nx=8, ny=9, nz=10)
+    _initialise_prior_geometry(grid, 0)
+    before = grid.geometry_tag_map.data.copy()
+    path = _write_file(tmp_path / "negative_tags.h5", np.zeros((2, 2, 2), np.int16))
+    with h5py.File(path, "a") as output:
+        output["tag_data"] = np.full((2, 2, 2), -1, np.int16)
+        output["tag_names"] = np.array(["untagged", "imported"], dtype=h5py.string_dtype())
+    with ReadGeometryObject(path, grid, np.ones(3, np.int32), np.array([9], np.int32)) as reader:
+        with pytest.raises(ValueError, match="tag IDs must"):
+            reader.read_tags()
+    np.testing.assert_array_equal(grid.geometry_tag_map.data, before)
+
+
+def test_material_transparency_preserves_tags_and_untagged_writes_clear_them(
+    tmp_path, make_view_grid
+):
+    grid = make_view_grid(nx=8, ny=9, nz=10)
+    _initialise_prior_geometry(grid, 0)
+    before = grid.geometry_tag_map.data.copy()
+    data = np.array([-1, 0], np.int16).reshape(2, 1, 1)
+    path = _write_file(tmp_path / "tag_transparency.h5", data)
+    with h5py.File(path, "a") as output:
+        output["tag_data"] = np.zeros(data.shape, np.uint8)
+        output["tag_names"] = np.array(["untagged", "imported"], dtype=h5py.string_dtype())
+    with ReadGeometryObject(path, grid, np.ones(3, np.int32), np.array([9], np.int32)) as reader:
+        reader.read_tags()
+    expected = before.copy()
+    expected[2, 1, 1] = 0
+    np.testing.assert_array_equal(grid.geometry_tag_map.data, expected)
+
+
+@pytest.mark.parametrize("entry_point", ["reader", "catalogue"])
+@pytest.mark.parametrize(
+    "defect",
+    [
+        "missing_data",
+        "missing_names",
+        "broadcast_shape",
+        "names_rank",
+        "empty_names",
+        "wrong_zero",
+        "duplicate_names",
+    ],
+)
+def test_malformed_tag_metadata_is_rejected_before_geometry_write(
+    tmp_path, make_view_grid, entry_point, defect
+):
+    grid = make_view_grid()
+    _initialise_prior_geometry(grid, 0)
+    before = grid.geometry_tag_map.data.copy()
+    path = _write_file(tmp_path / "malformed_tags.h5", np.zeros((2, 2, 2), np.int16))
+    names = ["untagged", "imported"]
+    if defect == "empty_names":
+        names = []
+    elif defect == "wrong_zero":
+        names = ["wrong", "imported"]
+    elif defect == "duplicate_names":
+        names.append("imported")
+    with h5py.File(path, "a") as output:
+        if defect != "missing_data":
+            shape = (1, 1, 1) if defect == "broadcast_shape" else (2, 2, 2)
+            output["tag_data"] = np.ones(shape, np.uint8)
+        if defect != "missing_names":
+            table = np.array(names, dtype=h5py.string_dtype())
+            output["tag_names"] = table[None, :] if defect == "names_rank" else table
+    with pytest.raises(ValueError, match="[Tt]ag"):
+        if entry_point == "catalogue":
+            GeometryObjectsRead(
+                p1=(0, 0, 0), geofile=str(path), material_database="unused"
+            ).declared_geometry_tags()
+        else:
+            with ReadGeometryObject(
+                path, grid, np.ones(3, np.int32), np.array([9], np.int32)
+            ) as reader:
+                reader.read_tags()
+    np.testing.assert_array_equal(grid.geometry_tag_map.data, before)
+
+
+@pytest.mark.parametrize("tag_id", [-1, 0, 1])
+def test_untagged_catalogue_validates_ids_without_allocating_a_map(
+    tmp_path, make_view_grid, tag_id
+):
+    grid = make_view_grid()
+    assert grid.geometry_tag_map is None
+    path = _write_file(tmp_path / "untagged_catalogue.h5", np.zeros((2, 2, 2), np.int16))
+    with h5py.File(path, "a") as output:
+        output["tag_data"] = np.full((2, 2, 2), tag_id, np.int16)
+        output["tag_names"] = np.array(["untagged"], dtype=h5py.string_dtype())
+    command = GeometryObjectsRead(p1=(0, 0, 0), geofile=str(path), material_database="unused")
+    assert command.declared_geometry_tags() == ()
+    with ReadGeometryObject(path, grid, np.ones(3, np.int32), np.array([9], np.int32)) as reader:
+        if tag_id == 0:
+            reader.read_tags()
+        else:
+            with pytest.raises(ValueError, match="tag ID"):
+                reader.read_tags()
+    assert grid.geometry_tag_map is None
+
+
 @pytest.mark.parametrize("global_id", [32767, 32768, 40000, 65535, 65536])
 @pytest.mark.parametrize("averaging", [False, True])
-def test_compact_index_maps_to_wide_global_id_and_builds_voxel(tmp_path, make_view_grid, global_id, averaging):
+def test_compact_index_maps_to_wide_global_id_and_builds_voxel(
+    tmp_path, make_view_grid, global_id, averaging
+):
     grid = make_view_grid()
     _initialise_prior_geometry(grid, 1)
     data = np.array([-1, 1], np.int16).reshape(2, 1, 1)
     path = _write_file(tmp_path / "compact.h5", data)
-    with ReadGeometryObject(path, grid, np.ones(3, np.int32), np.array([0, global_id], np.int32)) as reader:
+    with ReadGeometryObject(
+        path, grid, np.ones(3, np.int32), np.array([0, global_id], np.int32)
+    ) as reader:
         mapped = reader.get_data()
         np.testing.assert_array_equal(mapped[:, 0, 0], [-1, global_id])
         assert mapped.dtype == np.int32
@@ -148,7 +261,9 @@ def test_compact_index_maps_to_wide_global_id_and_builds_voxel(tmp_path, make_vi
 
 
 @pytest.mark.parametrize("method", ["get_data", "read_data", "read_ID"])
-def test_unsigned_positive_file_index_is_not_reinterpreted_as_negative(tmp_path, make_view_grid, method):
+def test_unsigned_positive_file_index_is_not_reinterpreted_as_negative(
+    tmp_path, make_view_grid, method
+):
     grid = make_view_grid()
     data = np.full((2, 2, 2), 40000, np.uint16)
     ids = np.full((6, 3, 3, 3), 40000, np.uint16)
@@ -173,7 +288,9 @@ def test_unsigned_positive_file_index_is_not_reinterpreted_as_negative(tmp_path,
         (0.5, np.float64, "must be integers"),
     ],
 )
-def test_invalid_file_indices_raise_before_conversion(tmp_path, make_view_grid, method, value, dtype, message):
+def test_invalid_file_indices_raise_before_conversion(
+    tmp_path, make_view_grid, method, value, dtype, message
+):
     path = _write_file(
         tmp_path / "invalid.h5",
         np.full((2, 2, 2), value, dtype),
@@ -205,7 +322,9 @@ def test_empty_material_map_accepts_only_transparent_data(tmp_path, make_view_gr
     np.testing.assert_array_equal(grid.ID, before[1])
 
 
-@pytest.mark.parametrize("mapping", [np.array([-1]), np.array([2**31], np.int64), np.array([1.5]), np.array([[1]])])
+@pytest.mark.parametrize(
+    "mapping", [np.array([-1]), np.array([2**31], np.int64), np.array([1.5]), np.array([[1]])]
+)
 def test_invalid_global_id_maps_raise_without_narrowing(tmp_path, make_view_grid, mapping):
     path = _write_file(tmp_path / "map.h5", np.zeros((1, 1, 1), np.int16))
     with pytest.raises(ValueError, match="Geometry material ID map"):
@@ -214,7 +333,9 @@ def test_invalid_global_id_maps_raise_without_narrowing(tmp_path, make_view_grid
 
 @pytest.mark.parametrize("axis", range(3), ids=("x", "y", "z"))
 @pytest.mark.parametrize("source_size,target_size", [(1, 2), (2, 1)])
-def test_component_transparency_follows_2d_canonical_edge(tmp_path, make_view_grid, axis, source_size, target_size):
+def test_component_transparency_follows_2d_canonical_edge(
+    tmp_path, make_view_grid, axis, source_size, target_size
+):
     shape = [4, 4, 4]
     shape[axis] = source_size
     data = np.full(shape, -1, np.int16)
@@ -230,12 +351,16 @@ def test_component_transparency_follows_2d_canonical_edge(tmp_path, make_view_gr
     expanded_shape = shape.copy()
     expanded_shape[axis] = target_size
     expected_data = np.full(expanded_shape, -1, np.int16)
-    expected_ids = np.repeat(np.take(ids, [canonical], axis=axis + 1), target_size + 1, axis=axis + 1)
+    expected_ids = np.repeat(
+        np.take(ids, [canonical], axis=axis + 1), target_size + 1, axis=axis + 1
+    )
     explicit = _write_file(tmp_path / "explicit.h5", expected_data, expected_ids)
     grid, expected = make_view_grid(), make_view_grid()
     _initialise_prior_geometry(grid, 1)
     _initialise_prior_geometry(expected, 1)
-    _read_complete(path, grid, start=(1, 1, 1), invariant_axis=axis, target_invariant_size=target_size)
+    _read_complete(
+        path, grid, start=(1, 1, 1), invariant_axis=axis, target_invariant_size=target_size
+    )
     _read_complete(explicit, expected, start=(1, 1, 1))
     for name in ("solid", "ID", "rigidE", "rigidH"):
         np.testing.assert_array_equal(getattr(grid, name), getattr(expected, name), err_msg=name)
@@ -243,7 +368,9 @@ def test_component_transparency_follows_2d_canonical_edge(tmp_path, make_view_gr
 
 
 @pytest.mark.parametrize("axis", range(3), ids=("x", "y", "z"))
-def test_transparency_includes_nonleading_mpi_negative_halo(tmp_path, make_view_grid, make_mpi_grid, axis):
+def test_transparency_includes_nonleading_mpi_negative_halo(
+    tmp_path, make_view_grid, make_mpi_grid, axis
+):
     """A real COMM_SELF exercises the nonleading rank's reader slices.
 
     Rank-local index zero is a negative interface halo here; compare it and
@@ -271,12 +398,17 @@ def test_transparency_includes_nonleading_mpi_negative_halo(tmp_path, make_view_
         size=(6, 6, 6),
         negative_halo_offset=halo,
         origin=origin,
-        arrays={name: getattr(local, name) for name in ("solid", "ID", "rigidE", "rigidH", "geometry_tag_map")},
+        arrays={
+            name: getattr(local, name)
+            for name in ("solid", "ID", "rigidE", "rigidH", "geometry_tag_map")
+        },
     )
     _read_complete(path, grid, start=start - origin)
     for name in ("solid", "ID", "rigidE", "rigidH"):
         size = 7 if name == "ID" else 6
         region = tuple(slice(int(offset), int(offset) + size) for offset in origin)
-        np.testing.assert_array_equal(getattr(grid, name), getattr(serial, name)[(..., *region)], err_msg=name)
+        np.testing.assert_array_equal(
+            getattr(grid, name), getattr(serial, name)[(..., *region)], err_msg=name
+        )
     region = tuple(slice(int(offset), int(offset) + 6) for offset in origin)
     np.testing.assert_array_equal(grid.geometry_tag_map.data, serial.geometry_tag_map.data[region])

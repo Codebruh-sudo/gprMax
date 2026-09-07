@@ -1527,7 +1527,7 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 self.grid.Hy_dev.gpudata,
                 self.grid.Hz_dev.gpudata,
                 block=(1, 1, 1),
-                grid=(round32(len(self.grid.magneticdipoles)), 1, 1),
+                grid=(1, 1, 1),
             )
 
         if self.grid.magneticfrillsources:
@@ -1817,6 +1817,10 @@ class CUDAUpdates(Updates[CUDAGrid]):
     def update_electric_sources(self, iteration):
         """Updates electric field components from sources -
         update any Hertzian dipole sources last.
+
+        Each source list is advanced by one work-item in CPU list order.
+        These launches use the same CUDA stream, preserving voltage, TL,
+        then Hertzian precedence when different families share an E edge.
         """
         if self.grid.voltagesources:
             self.update_voltage_source_dev(
@@ -1833,7 +1837,7 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 self.grid.Ey_dev.gpudata,
                 self.grid.Ez_dev.gpudata,
                 block=(1, 1, 1),
-                grid=(round32(len(self.grid.voltagesources)), 1, 1),
+                grid=(1, 1, 1),
             )
 
         if self.grid.transmissionlines:
@@ -1855,8 +1859,8 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 self.grid.Ex_dev.gpudata,
                 self.grid.Ey_dev.gpudata,
                 self.grid.Ez_dev.gpudata,
-                block=self.tl_tpb,
-                grid=self.tl_bpg,
+                block=(1, 1, 1),
+                grid=(1, 1, 1),
             )
 
         if self.grid.hertziandipoles:
@@ -1874,7 +1878,7 @@ class CUDAUpdates(Updates[CUDAGrid]):
                 self.grid.Ey_dev.gpudata,
                 self.grid.Ez_dev.gpudata,
                 block=(1, 1, 1),
-                grid=(round32(len(self.grid.hertziandipoles)), 1, 1),
+                grid=(1, 1, 1),
             )
 
     def update_plane_waves_magnetic(self, iteration):

@@ -3,7 +3,13 @@
 # This file is part of gprMax and is distributed under the GNU General Public
 # License, version 3 or (at your option) any later version.
 
-"""Import labelled medical-image volumes as tagged gprMax geometries."""
+"""Import integer label volumes as material-assigned, tagged cell geometries.
+
+Format readers convert source axes and units to an axis-aligned x-y-z array.
+The assignment CSV selects labels and maps them independently to material
+names and geometry tags; shared writers produce HDF5 and an optional preview.
+Labels are permuted/flipped, not interpolated onto a new spatial lattice.
+"""
 
 from __future__ import annotations
 
@@ -43,6 +49,14 @@ _UNIT_FACTORS = {
 
 @dataclass(frozen=True)
 class LabelVolume:
+    """Canonical labels with shape ``(nx, ny, nz)`` and metre-valued geometry.
+
+    The first-cell centre locates array index (0, 0, 0) in the source physical
+    coordinate system after any axis permutation or reversal. It is distinct
+    from the lower-corner origin needed by geometry-object output.
+    Readers do not reconcile anatomical axis conventions across formats.
+    """
+
     labels: np.ndarray
     spacing_m: tuple[float, float, float]
     # NIfTI, NRRD, and MetaImage define the physical location of the first
@@ -117,7 +131,16 @@ def _canonicalise_axis_aligned(
     unit_factor: float,
     tolerance: float = 1e-5,
 ) -> tuple[np.ndarray, tuple[float, float, float], tuple[float, float, float]]:
-    """Permute/flip an axis-aligned physical volume into x-y-z order."""
+    """Permute/flip source array axes into physical x-y-z order.
+
+    Row i of ``axis_vectors`` is the physical displacement for one index
+    step along source axis i; ``origin`` locates source sample (0, 0, 0).
+    Both use source length units, converted by ``unit_factor``. Reversing an
+    axis also moves the first-sample origin by ``vector*(axis_length-1)``;
+    flipping data alone would put labels at the wrong physical locations.
+    Oblique or sheared axes beyond the direction tolerance are rejected,
+    rather than resampled. The returned origin still denotes a cell centre.
+    """
 
     vectors = np.asarray(axis_vectors, dtype=float)
     if vectors.shape != (3, 3):
@@ -133,9 +156,13 @@ def _canonicalise_axis_aligned(
     residual = directions.copy()
     residual[np.arange(3), physical_for_source] = 0
     if np.max(np.abs(residual)) > tolerance or np.max(np.abs(np.abs(dominant) - 1)) > tolerance:
-        raise ValueError("Oblique or sheared label volumes must be resampled to an axis-aligned grid first")
+        raise ValueError(
+            "Oblique or sheared label volumes must be resampled to an axis-aligned grid first"
+        )
 
-    source_for_physical = tuple(int(np.where(physical_for_source == axis)[0][0]) for axis in range(3))
+    source_for_physical = tuple(
+        int(np.where(physical_for_source == axis)[0][0]) for axis in range(3)
+    )
     canonical = np.transpose(data, source_for_physical)
     shifted_origin = np.asarray(origin, dtype=float).copy()
     spacing = []
@@ -238,7 +265,12 @@ def _load_metaimage(path: Path, unit: str) -> LabelVolume:
 
 
 def load_label_volume(path: str | Path, *, unit: str = "auto") -> LabelVolume:
-    """Load an axis-aligned NIfTI, NRRD, or MetaImage integer label map."""
+    """Load an axis-aligned NIfTI, NRRD, or MetaImage integer label map.
+
+    Explicit ``unit`` overrides encoded units. ``auto`` requires supported
+    unit metadata; the MetaImage reader has no encoded-unit fallback and
+    therefore requires an explicit unit. Output spacing and origin use metres.
+    """
 
     source = Path(path).expanduser().resolve()
     if not source.is_file():
@@ -319,7 +351,13 @@ def convert_label_volume(
     *,
     unit: str = "auto",
 ) -> VolumeConversionResult:
-    """Convert a labelled image volume to reusable tagged gprMax geometry."""
+    """Map included labels to reusable materials and independent geometry tags.
+
+    Excluded labels remain -1 (no cell write). Included labels receive
+    component indices, while repeated material names share a material index.
+    The image's first-cell centre is shifted down by half a cell spacing for
+    the output grid corner; cell labels themselves are not resampled.
+    """
 
     source = Path(source).expanduser().resolve()
     output = Path(output_dir).expanduser().resolve()
@@ -371,7 +409,9 @@ def convert_label_volume(
         materials_file = output / f"{database_id}.json"
     material_metadata = []
     for name in material_names:
-        labels_for_material = [assignment.label for assignment in selected if assignment.material_name == name]
+        labels_for_material = [
+            assignment.label for assignment in selected if assignment.material_name == name
+        ]
         material_metadata.append({"source_labels": labels_for_material})
     material_keys = write_null_material_database(
         materials_file,
@@ -381,7 +421,8 @@ def convert_label_volume(
         metadata=material_metadata,
     )
     grid_origin_m = tuple(
-        centre - 0.5 * spacing for centre, spacing in zip(volume.first_cell_centre_m, volume.spacing_m)
+        centre - 0.5 * spacing
+        for centre, spacing in zip(volume.first_cell_centre_m, volume.spacing_m)
     )
     write_geometry_hdf5(
         geometry_file,

@@ -22,7 +22,7 @@ import pytest
 
 import gprMax
 import gprMax.model as model_mod
-from gprMax.geometry_tags import GeometryTagRegistry, validate_geometry_tag
+from gprMax.geometry_tags import GeometryTagMap, GeometryTagRegistry, validate_geometry_tag
 
 
 def _capture_grid(monkeypatch):
@@ -81,6 +81,45 @@ def test_registry_reuses_ids_and_selects_smallest_dtype():
     registry.register_many(f"part_{i}" for i in range(65536))
     registry.freeze()
     assert registry.dtype == np.dtype(np.uint32)
+
+
+@pytest.mark.parametrize(
+    "values",
+    [np.array([-1], dtype=np.int16), np.array([False]), np.array([0.0])],
+    ids=["negative", "boolean", "floating"],
+)
+def test_imported_tag_ids_reject_invalid_numeric_values(values):
+    registry = GeometryTagRegistry()
+    registry.register("housing")
+    registry.freeze()
+    tags = GeometryTagMap((1, 1, 1), registry)
+    with pytest.raises(ValueError, match="tag IDs must"):
+        tags.remap_file_ids(values, ("untagged", "housing"))
+    np.testing.assert_array_equal(tags.data, 0)
+
+
+@pytest.mark.parametrize("dtype", [np.uint8, np.uint16, np.uint32, np.int16, np.int64])
+def test_imported_tag_ids_are_remapped_by_name_without_changing_shape(dtype):
+    registry = GeometryTagRegistry()
+    registry.register_many(("housing", "screw"))
+    registry.freeze()
+    tags = GeometryTagMap((1, 2, 2), registry)
+    values = np.array([0, 1, 2, 1], dtype=dtype).reshape(1, 2, 2)
+    result = tags.remap_file_ids(values, ("untagged", "screw", "housing"))
+    np.testing.assert_array_equal(result, [[[0, 2], [1, 2]]])
+    assert result.dtype == tags.data.dtype
+    assert result.flags.c_contiguous
+    np.testing.assert_array_equal(tags.data, 0)
+
+
+@pytest.mark.parametrize("value", [2, np.iinfo(np.uint64).max])
+def test_imported_tag_ids_check_upper_bound_before_unsigned_conversion(value):
+    registry = GeometryTagRegistry()
+    registry.register("housing")
+    registry.freeze()
+    tags = GeometryTagMap((1, 1, 1), registry)
+    with pytest.raises(ValueError, match="absent from its tag-name table"):
+        tags.remap_file_ids(np.array([value], dtype=np.uint64), registry.names)
 
 
 def test_no_tags_means_no_registry_or_map_allocation(tmp_path, monkeypatch):

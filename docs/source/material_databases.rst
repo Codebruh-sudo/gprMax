@@ -150,6 +150,36 @@ catalogue. These values are written to the output HDF5
 ``material_database_provenance`` group. This makes a simulation auditable even
 if a local database is later edited.
 
+Database and grid representations
+=================================
+
+The loader first resolves aliases and validates a grid-independent material
+specification. Building that specification assigns the material's numeric grid
+ID and checks dispersion constraints that depend on the model time step.
+Loading a document alone does not allocate dispersion histories. The maximum
+pole count is updated when a dispersive material is built, not when an unused
+entry is encountered in the database.
+
+The JSON pole keys state their units explicitly. Internally, the historical
+``DispersiveMaterial.tau`` array contains relaxation times in seconds for Debye
+materials, but pole frequencies in hertz for Lorentz and Drude materials. It
+must not be interpreted as an array of time constants without first checking
+the material model. The JSON translation preserves these conventions for the
+existing coefficient builders.
+
+Material definitions describe constitutive properties, whereas geometry tags
+describe final cell membership. Neither a tag ID nor a geometry file's compact
+material index is a portable model-wide material ID: import remaps tags by name
+and database-backed geometry imports remap material indices through the file's
+material-key table.
+
+Tagged geometry files pair ``/tag_data`` with a ``/tag_names`` catalogue whose
+first entry is ``untagged``. The tag array must have the same cell shape as
+``/data`` and contain non-negative integer indices into that catalogue. Tag
+ID zero clears a tag wherever the imported geometry writes a cell. In contrast,
+material index ``-1`` in ``/data`` means leave the existing cell and its tag
+unchanged; ``-1`` is not a valid tag ID.
+
 Property limitations
 ====================
 
@@ -195,8 +225,15 @@ database. For example:
 
     #geometry_objects_read: 0 0 0 antenna.h5 antenna_materials
 
-The database is resolved beside the HDF5 geometry file. Legacy text material
-files remain readable when their filename ends in ``.txt``.
+The database is resolved beside the HDF5 geometry file. This is the only
+material-file format accepted by ``GeometryObjectsRead`` in version 4. Legacy
+text files are inputs to the migration utility below, not to the simulator.
+
+An existing model material is reused only when its numerical constitutive
+parameters, pole definitions, and density match the imported definition
+exactly. Otherwise the imported material receives a database-qualified name,
+such as ``tissue{anatomy_materials}``. If that qualified name already exists
+with different properties, the import stops instead of substituting materials.
 
 New PNG-derived geometry should be created with
 ``python -m toolboxes.Utilities.convert_png2h5``. The utility writes both the
@@ -207,20 +244,71 @@ properties cannot be inferred from image colours; complete them before using
 metadata for an auditable colour-to-material mapping. See the
 :doc:`Utilities toolbox <inc_Utilities>` for the complete workflow.
 
-Convert an existing pair non-destructively with:
+.. _legacy_geometry_conversion:
+
+Migrating legacy geometry and text materials
+--------------------------------------------
+
+Convert an existing pair once, without modifying the originals:
 
 .. code-block:: console
 
     python -m toolboxes.MaterialDatabase convert-geometry geometry.h5 materials.txt
 
-The source files are not modified. The converter copies all HDF5 arrays and
-attributes, adds stable material keys, writes JSON, and verifies that every
-non-negative material index is declared. This works with voxel-only v3 files
-and current files containing ``ID``, ``rigidE``, and ``rigidH``.
+For this command the outputs are ``geometry_converted.h5`` and
+``geometry_materials.json``. The utility prints their paths and the database
+name to use. Update the input line, retaining the original insertion position
+and any averaging flag:
 
-The converter's array-preservation check is the evidence that a legacy file
-was migrated without changing its geometry. By contrast, regenerating a
-geometry object with a newer gprMax version can legitimately change material
-catalogues or component IDs because of unrelated developments in geometry
-construction and material averaging. Such differences must not be attributed
-to the database format without a separate numerical comparison.
+.. code-block:: none
+
+    #geometry_objects_read: 0 0 0 geometry_converted.h5 geometry_materials
+
+Or, with the Python API:
+
+.. code-block:: python
+
+    scene.add(gprMax.GeometryObjectsRead(
+        p1=(0, 0, 0), geofile="geometry_converted.h5",
+        material_database="geometry_materials", averaging="n",
+    ))
+
+Custom output names can be supplied with ``--output-geometry`` and
+``--output-database``. Both outputs must be in the same existing directory;
+the database filename must be a valid database name followed by ``.json``.
+When only ``--output-geometry`` is supplied, the JSON file is placed beside
+that output. Existing output files are never overwritten. Keep the pair
+together when copying or sharing it.
+
+The converter copies the HDF5 contents without rebuilding or renumbering
+geometry. It preserves cell and component material indices, ``-1`` transparent
+entries, rigid flags, compression, attributes, and existing cell tags and their
+name table. It adds material keys in the original text-file declaration order,
+including built-ins; it does not assume v3 and v4 have the same built-in
+indices. Historical ``dx, dy, dz`` spacing metadata gains the current
+``dx_dy_dz`` attribute without changing the spacing.
+
+Supported text commands are ``#material``, ``#add_dispersion_debye``,
+``#add_dispersion_lorentz``, ``#add_dispersion_drude``, and
+``#material_density``. Pole parameters and density in kg/m³ are transferred
+without fitting or averaging. Blank lines and ``##`` comments are allowed.
+Other commands are rejected, not executed. The text file must contain the
+complete original material table, including any background or averaged
+materials referenced by the geometry. The utility cannot reconstruct missing
+definitions from numeric indices alone.
+
+Before writing, the converter validates the JSON schema, spacing, material
+index coverage, component-array shapes and any tag catalogue. Large material
+and tag volumes are scanned in bounded blocks. A partial component mesh or
+malformed input stops conversion. Failed writes remove outputs created by that
+call; neither source file is changed. Files must be self-contained: external
+links, external raw storage and HDF5 virtual datasets must be materialised
+before conversion, since moving a file copy can break those dependencies.
+Timestep-dependent material restrictions
+are still checked when the converted model is built for simulation.
+
+Regression tests compare the original and converted datasets and attributes,
+and compare converted voxel-model fields with direct geometry builds. Migration
+is not regeneration: rebuilding an old model with a newer gprMax version can
+change its geometry or interface materials because of separate solver
+developments. Conversion itself does not apply those changes.
