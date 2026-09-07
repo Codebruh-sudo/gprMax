@@ -368,6 +368,51 @@ def test_step_material_database_rejects_stale_keys(tmp_path):
         _write_material_database(path, [_Material("different", None, None, None, None)])
 
 
+@pytest.mark.parametrize("grouped", [False, True])
+@pytest.mark.parametrize("name", ["soil+air", "+soil", "soil+", "Hmag_a+a+b+b"])
+def test_step_assignments_reject_reserved_material_names(tmp_path, grouped, name):
+    path = tmp_path / "materials.csv"
+    prefix = (
+        "group_id,group_confidence,similar_group,part_count,part_names,"
+        if grouped
+        else "part_name,"
+    )
+    row = "G001,exact_instance,,1,part," if grouped else "part,"
+    path.write_text(
+        prefix + "include,priority,material_name,relative_permittivity,conductivity,"
+        "relative_permeability,magnetic_loss\n" + row + f"y,1,{name},4,0,1,0\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="reserved for automatically averaged material"):
+        _read_assignments(path)
+
+
+def test_step_database_writer_rejects_reserved_material_name(tmp_path):
+    path = tmp_path / "materials.json"
+    with pytest.raises(ValueError, match="reserved for automatically averaged material"):
+        _write_material_database(path, [_Material("soil+air", 4, 0, 1, 0)])
+
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("field", ["name", "original_id"])
+def test_step_preserved_database_rejects_reserved_material_names(tmp_path, field):
+    path = tmp_path / "materials.json"
+    material = _Material("soil", 4, 0, 1, 0)
+    keys = _write_material_database(path, [material])
+    document = json.loads(path.read_text(encoding="utf-8"))
+    entry = document["materials"][keys[0]]
+    (entry if field == "name" else entry["metadata"])[field] = "soil+air"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    original = path.read_bytes()
+
+    with pytest.raises(ValueError, match="reserved for automatically averaged material"):
+        _write_material_database(path, [material])
+
+    assert path.read_bytes() == original
+
+
 def _part(name, entity_id, *, volume=1.0, area=6.0, moments=(1.0, 1.0, 1.0)):
     return SimpleNamespace(
         name=name,

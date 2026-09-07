@@ -360,7 +360,7 @@ def test_mpi_sar_payload_collocates_edges_across_partition_corner(monkeypatch):
     monitor.grid = SimpleNamespace()
     monkeypatch.setattr(
         "gprMax.sar._material_loss_conductivity",
-        lambda *args: np.ones((1, 1), dtype=np.float64),
+        lambda *args, **kwargs: np.ones((1, 1), dtype=np.float64),
     )
 
     merged = monitor.merge_local_payloads(payloads)

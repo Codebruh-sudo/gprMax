@@ -45,13 +45,26 @@ Independent PEC image and reflection checks
 dipole configurations with exact image theory and two dielectric-coated PEC
 electric-dipole configurations with an independent short-circuited TE/TM
 plane-wave-spectrum calculation. It retains complex field, power-pattern,
-and maximum-directivity errors at 1.5, 2.0, and 2.5 GHz. The electric cases
-remain below 0.049 percent pointwise complex-field error; the deliberately
-retained worst case is the tangential magnetic source, whose maximum power
-difference is 5.07 percent at this mesh. Halving the cell size from 1.5 mm to
-0.75 mm reduces its 2.5 GHz complex-field, power, and maximum-directivity
-differences from 3.83, 5.07, and 3.19 percent to 1.89, 2.47, and 1.56 percent,
-respectively.
+and maximum-directivity errors at 1.5, 2.0, and 2.5 GHz. Electric sources
+are half-cell shifted along their polarisation axis; magnetic sources are
+shifted along both transverse axes. Both the source height and lateral
+phase centre in the analytical reference use these physical positions.
+
+The stored source samples, spatial scale and electric/magnetic time offsets
+set the absolute complex-field reference without fitted amplitude or phase.
+Across both components in both principal planes, the worst relative L2 error
+is 0.04390 percent for the four bare-PEC cases and 0.13149 percent for the
+two coated cases at 1.5 mm resolution. In particular, the tangential and
+normal magnetic bare-PEC cases give 0.01008 and 0.02717 percent, respectively.
+These are vector L2 errors, not maximum pointwise errors. The benchmark's
+absolute-field acceptance limits are 0.1 percent for bare PEC and 0.2 percent
+for coated PEC; they are regression tolerances, not theoretical error bounds.
+
+Separate fitted pattern-shape and maximum-directivity metrics are retained.
+The worst maximum-directivity differences are 0.09916 percent for bare PEC
+and 0.97664 percent for coated PEC. Earlier larger magnetic-source errors
+used the wrong analytical Yee centre and are not evidence of solver error
+or mesh convergence.
 
 ``validate_grounded_slab_reflection.py`` uses total-minus-incident DPW fields
 to measure the complex normal-incidence reflection of a 12 mm,
@@ -64,10 +77,16 @@ Run both with::
     python -m testing.validation.planar_layered_ntff.validate_grounded_dipoles
     python -m testing.validation.planar_layered_ntff.validate_grounded_slab_reflection
 
-The magnetic-source refinement can be repeated on a CUDA device with::
+For the dipole benchmark, ``--no-run`` regenerates the comparisons from
+existing HDF5 files without solving again. These files must contain the
+stored source excitation, and ``--dl`` must match the simulation spacing.
+
+An optional magnetic-source refinement can be run separately on a CUDA
+device (do not mix resolutions in the same results directory)::
 
     python -m testing.validation.planar_layered_ntff.validate_grounded_dipoles \
-        --case magnetic_tangential_bare --dl 0.00075 --gpu 0
+        --case magnetic_tangential_bare --dl 0.00075 --gpu 0 \
+        --output-directory /tmp/grounded_dipoles_fine
 
 ``validate_point_dipole.py`` compares the production FDTD transform with a
 direct frequency-domain point-current solution in a three-layer medium.  The

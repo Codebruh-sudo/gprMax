@@ -511,6 +511,7 @@ class Study:
                 baseline_coord = self._runtime_baselines[study_id]["coord"]
                 if coord[axis] != baseline_coord[axis]:
                     raise ValueError(f"Study object '{study_id}' cannot move off the active {mode} invariant layer.")
+            grid.validate_point_source_position(item, coord)
             item.coord = coord
         applied["position"] = [float(item.coord[i] * grid.dl[i]) for i in range(3)]
 

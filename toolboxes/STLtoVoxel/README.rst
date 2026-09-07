@@ -65,6 +65,15 @@ separate tags. Higher-priority files overwrite lower-priority files wherever
 closed surfaces overlap. Filename stems become tags when no assignment file is
 provided.
 
+Material names must not contain ``+``: gprMax reserves it for automatically
+averaged material IDs. Use ``_`` instead. Without an assignment CSV, the STL
+filename stem is also the material name; if it contains ``+``, use
+``--prepare`` and edit ``material_name``, then convert with ``--assignments``.
+The source filename itself need not change. The same restriction applies to
+``name`` and ``metadata.original_id`` when the converter reuses an edited
+companion JSON database. This does not restrict averaged materials restored
+from files produced by gprMax's ``GeometryObjectsWrite``.
+
 The physical dimensions of the voxelised object will depend on the size of the object in the original STL file and the spatial discretisation chosen.
 
 Method of rotating STL file

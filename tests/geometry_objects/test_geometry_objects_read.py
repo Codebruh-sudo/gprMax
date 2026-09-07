@@ -91,6 +91,8 @@ def _read_geometry_and_get_grid(
     monkeypatch,
     *,
     averaging="n",
+    custom_materials=(),
+    imports=1,
 ):
     dl = 1e-3
     scene = gprMax.Scene()
@@ -99,14 +101,17 @@ def _read_geometry_and_get_grid(
     scene.add(gprMax.Domain(p1=(0.02, 0.02, 0.02)))
     scene.add(gprMax.PMLThickness(thickness=0))
     scene.add(gprMax.TimeWindow(time=1e-12))
-    scene.add(
-        gprMax.GeometryObjectsRead(
-            p1=(0.0, 0.0, 0.0),
-            geofile=str(geofile),
-            material_database=database_file.stem,
-            averaging=averaging,
+    for material in custom_materials:
+        scene.add(material)
+    for _ in range(imports):
+        scene.add(
+            gprMax.GeometryObjectsRead(
+                p1=(0.0, 0.0, 0.0),
+                geofile=str(geofile),
+                material_database=database_file.stem,
+                averaging=averaging,
+            )
         )
-    )
 
     captured = _capture_built_grid(monkeypatch)
     outfile = tmp_path / "read"
@@ -121,6 +126,54 @@ def _material_histogram(grid):
         name = next(m.ID for m in grid.materials if m.numID == uid)
         by_name[name] = int(cnt)
     return by_name
+
+
+@pytest.mark.parametrize("preexisting_er", (None, 4, 99))
+@pytest.mark.parametrize("imports", (1, 2))
+def test_full_geometry_round_trip_preserves_generated_material_names(
+    tmp_path, monkeypatch, preexisting_er, imports
+):
+    """User-ID restrictions must not reject generated IDs or reuse the wrong properties."""
+    captured = _capture_built_grid(monkeypatch)
+    geofile, database = _write_geometry(
+        tmp_path,
+        boxes=[((0.004,) * 3, (0.016,) * 3, "dielectric")],
+        custom_materials=[gprMax.Material(er=4, se=0, mr=4, sm=0, id="dielectric")],
+    )
+    original = captured["grid"]
+    assert any("+" in material.ID for material in original.materials)
+    assert any(material.ID.startswith("Hmag_") for material in original.materials)
+
+    custom_materials = (
+        []
+        if preexisting_er is None
+        else [gprMax.Material(er=preexisting_er, se=0, mr=4, sm=0, id="dielectric")]
+    )
+    imported = _read_geometry_and_get_grid(
+        tmp_path,
+        geofile,
+        database,
+        monkeypatch,
+        custom_materials=custom_materials,
+        imports=imports,
+    )
+
+    assert any(
+        "+" in material.ID and "imported" in material.type for material in imported.materials
+    )
+    original_properties = np.asarray([(m.er, m.se, m.mr, m.sm) for m in original.materials])
+    imported_properties = np.asarray([(m.er, m.se, m.mr, m.sm) for m in imported.materials])
+    np.testing.assert_array_equal(
+        imported_properties[imported.ID], original_properties[original.ID]
+    )
+    np.testing.assert_array_equal(
+        imported_properties[imported.solid], original_properties[original.solid]
+    )
+    np.testing.assert_array_equal(imported.rigidE, original.rigidE)
+    np.testing.assert_array_equal(imported.rigidH, original.rigidH)
+    assert len({m.ID for m in imported.materials}) == len(imported.materials)
+    if preexisting_er is not None:
+        assert next(m for m in imported.materials if m.ID == "dielectric").er == preexisting_er
 
 
 def _read_voxel_interface(tmp_path, monkeypatch, averaging, *, dispersive=False):

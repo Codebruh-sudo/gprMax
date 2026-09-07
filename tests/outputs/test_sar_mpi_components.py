@@ -33,7 +33,9 @@ def _payload(mode, rank, density=True):
     )
 
 
-@pytest.mark.parametrize("mode", ["3D", "2D TMx", "2D TMy", "2D TMz", "2D TEx", "2D TEy", "2D TEz"])
+@pytest.mark.parametrize(
+    "mode", ["3D", "2D TMx", "2D TMy", "2D TMz", "2D TEx", "2D TEy", "2D TEz"]
+)
 @pytest.mark.parametrize("density", [True, False], ids=["sar", "radiometry"])
 def test_merge_and_collocation_use_only_active_components(monkeypatch, mode, density):
     monitor = SARMonitor.__new__(SARMonitor)
@@ -41,7 +43,9 @@ def test_merge_and_collocation_use_only_active_components(monkeypatch, mode, den
     monitor.frequencies = np.asarray([1e9, 2e9])
     monitor.real_dtype = np.dtype(np.float64)
     monitor.grid = SimpleNamespace()
-    monkeypatch.setattr("gprMax.sar._material_loss_conductivity", lambda *args: np.ones((2, 1)))
+    monkeypatch.setattr(
+        "gprMax.sar._material_loss_conductivity", lambda *args, **kwargs: np.ones((2, 1))
+    )
     merged = monitor.merge_local_payloads([_payload(mode, rank, density) for rank in range(2)])
     assert tuple(merged.edge_coordinates) == tuple(monitor.edge_offsets)
     result = monitor._collocate_mpi_payload(merged, (8, 8, 8))

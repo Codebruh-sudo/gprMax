@@ -21,6 +21,10 @@ jobs:
     timeout-minutes: 30
     env:
       FI_PROVIDER: shm
+      # These tests use local ranks, not RDMA. Avoid probing the hosted
+      # runner's partially supported Azure network device through UCX.
+      OMPI_MCA_pml: ob1
+      OMPI_MCA_btl: self,sm,tcp
 
     steps:
       - name: Check out repository

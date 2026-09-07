@@ -41,6 +41,7 @@ args_defaults = {
     "autotranslate": False,
     "geometry_only": False,
     "geometry_fixed": False,
+    "allow_underresolved": False,
     "study": None,
     "write_processed": False,
     "show_progress_bars": False,
@@ -105,6 +106,11 @@ help_msg = {
     "geometry_fixed": (
         "(bool, opt): Run a series of models where the geometry does not change between models."
     ),
+    "allow_underresolved": (
+        "(bool, opt): Warn instead of stopping when the pre-solve wavelength-sampling check"
+        " finds an under-resolved mesh. For intentional resolution experiments only;"
+        " does not disable stability checks or output-validity limits."
+    ),
     "write_processed": (
         "(bool, opt): Writes another input file after any Python code (#python blocks) and in the"
         " original input file has been processed."
@@ -160,6 +166,7 @@ def run(
     log_level=args_defaults["log_level"],
     log_file=args_defaults["log_file"],
     log_all_ranks=args_defaults["log_all_ranks"],
+    allow_underresolved=args_defaults["allow_underresolved"],
 ):
     """Entry point for application programming interface (API).
 
@@ -230,6 +237,11 @@ def run(
             from all MPI ranks. Default behaviour only provides log
             output from rank 0. When used with --log-file, each ran
             will write to an individual file.
+        allow_underresolved: optional boolean, default False. Warn rather
+            than stop when the pre-solve wavelength-sampling check finds
+            insufficient spatial resolution. This research override does
+            not change the mesh, timestep, material stability checks or
+            frequency-domain output-validity limits.
     """
 
     args = argparse.Namespace(
@@ -257,6 +269,7 @@ def run(
             "log_level": log_level,
             "log_file": log_file,
             "log_all_ranks": log_all_ranks,
+            "allow_underresolved": allow_underresolved,
         }
     )
 
@@ -315,6 +328,12 @@ def cli():
         action="store_true",
         default=args_defaults["geometry_fixed"],
         help=help_msg["geometry_fixed"],
+    )
+    parser.add_argument(
+        "--allow-underresolved",
+        action="store_true",
+        default=args_defaults["allow_underresolved"],
+        help=help_msg["allow_underresolved"],
     )
     parser.add_argument(
         "--write-processed",

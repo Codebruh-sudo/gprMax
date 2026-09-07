@@ -270,8 +270,8 @@ class TestDispersionAnalysisWaveformBranches:
     ):
         g = make_grid(nx=8, ny=8, nz=8)
         g.dt = 1e-12
-        # A material is required: once maxfreq is populated the method looks up
-        # the highest-permittivity material, and does so with a bare next().
+        # Once bandwidth is available, the diagnostic evaluates bulk material
+        # responses to determine wavelength sampling.
         g.materials = [make_material(ID="free_space", numID=1, er=1.0)]
         g.waveforms = [make_waveform(wave_type, freq=1e9)]
         results = g._dispersion_analysis(10)

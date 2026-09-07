@@ -68,10 +68,11 @@ def fields(output):
 
 
 @pytest.mark.parametrize("precision", ("single", "double"))
-def test_unsafe_material_stops_before_output(tmp_path, precision):
+@pytest.mark.parametrize("allow_underresolved", (False, True))
+def test_unsafe_material_stops_before_output(tmp_path, precision, allow_underresolved):
     output = tmp_path / "unsafe"
     with pytest.raises(ValueError, match="Dispersive timestep check failed.*strong_lorentz"):
-        run(output, factor=1, cpu_precision=precision)
+        run(output, factor=1, cpu_precision=precision, allow_underresolved=allow_underresolved)
     assert not output.with_suffix(".h5").exists()
 
 

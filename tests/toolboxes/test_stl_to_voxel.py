@@ -20,6 +20,7 @@ import sys
 
 import h5py
 import numpy as np
+import pytest
 
 from toolboxes.STLtoVoxel import stltovoxel
 from toolboxes.STLtoVoxel.convert import convert_meshes
@@ -151,3 +152,70 @@ def test_prepare_assignments_does_not_require_voxel_size(tmp_path, monkeypatch):
     assert assignments.read_text(encoding="utf-8").startswith(
         "file,include,priority,material_name,geometry_tag\n"
     )
+
+
+@pytest.mark.parametrize("name", ["soil+air", "+soil", "soil+", "Hmag_a+a+b+b"])
+def test_stl_assignments_reject_reserved_material_names(tmp_path, name):
+    source = tmp_path / "part.stl"
+    assignments = tmp_path / "assignments.csv"
+    assignments.write_text(
+        "file,include,priority,material_name,geometry_tag\n" f"part.stl,y,0,{name},part\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="reserved for automatically averaged material"):
+        stltovoxel.read_assignments([source], assignments)
+
+
+def test_default_stl_material_name_requires_assignment_if_stem_contains_plus(tmp_path):
+    with pytest.raises(ValueError, match="reserved for automatically averaged material"):
+        stltovoxel.read_assignments([tmp_path / "part+detail.stl"])
+
+
+def test_stl_filename_can_contain_plus_with_explicit_safe_material(tmp_path):
+    source = tmp_path / "part+detail.stl"
+    assignments = tmp_path / "assignments.csv"
+    assignments.write_text(
+        "file,include,priority,material_name,geometry_tag\n"
+        "part+detail.stl,y,0,plastic,part\n",
+        encoding="utf-8",
+    )
+
+    result = stltovoxel.read_assignments([source], assignments)
+
+    assert result[0].path == source
+    assert result[0].material_name == "plastic"
+
+
+@pytest.mark.parametrize("field", ["name", "original_id"])
+def test_stl_preserved_database_rejects_reserved_material_names(tmp_path, field):
+    path = tmp_path / "materials.json"
+    entry = {"name": "soil", "metadata": {"original_id": "soil"}}
+    stltovoxel._write_or_preserve_database(path, "materials", ["soil"], {"soil": entry})
+    document = json.loads(path.read_text(encoding="utf-8"))
+    material = document["materials"]["soil"]
+    (material if field == "name" else material["metadata"])[field] = "soil+air"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    original = path.read_bytes()
+
+    with pytest.raises(ValueError, match="reserved for automatically averaged material"):
+        stltovoxel._write_or_preserve_database(path, "materials", ["soil"], {"soil": entry})
+
+    assert path.read_bytes() == original
+
+
+def test_stl_invalid_material_stops_before_voxelisation(tmp_path, monkeypatch, capsys):
+    source = tmp_path / "soil+air.stl"
+    source.touch()
+    monkeypatch.setattr(sys, "argv", ["stltovoxel", str(source), "-dxdydz", "0.001"])
+
+    def unexpected_conversion(*args, **kwargs):
+        pytest.fail("An invalid material name reached voxelisation")
+
+    monkeypatch.setattr(stltovoxel, "convert_files", unexpected_conversion)
+    with pytest.raises(SystemExit) as error:
+        stltovoxel.main()
+
+    assert error.value.code == 2
+    assert "reserved for automatically averaged material" in capsys.readouterr().err
+    assert not list(tmp_path.glob("*.h5"))

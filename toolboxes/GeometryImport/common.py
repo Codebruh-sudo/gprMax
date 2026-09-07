@@ -24,6 +24,38 @@ import numpy as np
 
 from gprMax.geometry_tags import UNTAGGED_NAME, validate_geometry_tag
 from gprMax.material_database import create_database_document, write_database
+from gprMax.materials import validate_user_material_id
+
+
+def validate_material_assignment_name(name: str) -> None:
+    """Keep converter-assigned names out of the generated-average namespace.
+
+    This is an assignment check, not a general database-format restriction:
+    geometry exported by gprMax legitimately contains averaged IDs with '+'.
+    """
+
+    validate_user_material_id(name)
+
+
+def validate_material_assignment_entries(entries: dict) -> None:
+    """Check names when converters reuse a user-edited companion database.
+
+    Schema-safe database keys do not protect the material ID: geometry imports
+    restore metadata.original_id. Check that as well as the display name,
+    leaving constitutive and structural validation to the database reader.
+    """
+
+    for key, entry in entries.items():
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name", key)
+        if isinstance(name, str):
+            validate_material_assignment_name(name)
+        metadata = entry.get("metadata", {})
+        if isinstance(metadata, dict):
+            original_id = metadata.get("original_id", key)
+            if isinstance(original_id, str):
+                validate_material_assignment_name(original_id)
 
 
 def normalise_tag_name(name: str, *, fallback: str = "region") -> str:

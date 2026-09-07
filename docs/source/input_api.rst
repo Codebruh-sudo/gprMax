@@ -74,6 +74,12 @@ Running model(s)
 ----------------
 .. autofunction:: gprMax.run
 
+For deliberate mesh-resolution experiments, ``allow_underresolved=True`` changes
+the pre-solve wavelength-sampling rejection into a warning. The default is
+``False``; material stability and output-validity checks remain enabled. See
+:ref:`spatial-resolution diagnostic <spatial-resolution-diagnostic>` for the scope of this override and the
+exclusion of zero-amplitude passive-source waveforms.
+
 Creating a model scene
 ----------------------
 .. autoclass:: gprMax.Scene
@@ -620,6 +626,12 @@ Material
 --------
 .. autoclass:: gprMax.user_objects.cmds_multiuse.Material
 
+User-defined material IDs must not contain ``+``. It is reserved for averaged
+and other internally generated materials; use ``_`` instead. This also applies
+to the optional ``id`` of :class:`gprMax.MaterialFromDatabase`. Generated names
+stored by :class:`gprMax.GeometryObjectsWrite` remain valid when restored with
+:class:`gprMax.GeometryObjectsRead`.
+
 Surface impedance
 -----------------
 .. autoclass:: gprMax.user_objects.cmds_multiuse.SurfaceImpedance
@@ -1129,6 +1141,61 @@ Material density and cell-centred geometry tags remain discrete per cell.
 
 Source and output functions
 ===========================
+
+.. _point-source-bounds:
+
+Point-source positions and boundary components
+----------------------------------------------
+
+After coordinates are rounded to grid indices, a Hertzian dipole, voltage
+source, or transmission line must lie on a physical electric component;
+a magnetic dipole must lie on a physical magnetic component. For a grid
+with ``nx``, ``ny``, and ``nz`` cells, the inclusive index ranges are:
+
+.. list-table:: Physical component indices
+   :header-rows: 1
+
+   * - Component
+     - x index
+     - y index
+     - z index
+   * - Ex
+     - 0 .. nx-1
+     - 0 .. ny
+     - 0 .. nz
+   * - Ey
+     - 0 .. nx
+     - 0 .. ny-1
+     - 0 .. nz
+   * - Ez
+     - 0 .. nx
+     - 0 .. ny
+     - 0 .. nz-1
+   * - Hx
+     - 0 .. nx
+     - 0 .. ny-1
+     - 0 .. nz-1
+   * - Hy
+     - 0 .. nx-1
+     - 0 .. ny
+     - 0 .. nz-1
+   * - Hz
+     - 0 .. nx-1
+     - 0 .. ny-1
+     - 0 .. nz
+
+For example, ``Ex[i,j,k]`` is located at
+``((i+0.5)*dx, j*dy, k*dz)``. Its last physical x index is ``nx-1``,
+although the field array also contains a padded entry at ``nx``. By
+contrast, its transverse terminal indices ``j=ny`` and ``k=nz`` remain
+valid. The boundary condition still determines which components can be
+excited there; the bounds check does not change PEC or PMC enforcement.
+
+The checks also apply to dipole positions reached through ``SrcSteps`` or
+a study. In 2D, sources must remain on the active invariant layer (index
+0 for TM, index 1 for TE). MPI checks use the global physical grid, not
+the edge of an individual rank. Subgrid checks use the translated local
+fine-grid indices. Receiver and extended-source bounds are separate.
 
 Sources sharing a field component
 ---------------------------------
@@ -1771,7 +1838,9 @@ field loop and accounts explicitly for the half-step phase difference from
 the integer-time voltage during transformation.
 
 A finite-resistance source on a dispersive edge includes the background
-material's complete complex permittivity in the Yee-gap correction. A hard
+material's complete complex permittivity in the Yee-gap correction. The same
+correction is used for terminal current and accepted power when calculating
+antenna parameters or normalising SAR. A hard
 source on a dispersive edge is not yet supported because its sampled
 Ampere-loop current requires the discrete polarisation-current contribution
 to be separated explicitly.
@@ -1810,6 +1879,19 @@ Specific absorption rate (SAR)
 ------------------------------
 
 .. autoclass:: gprMax.user_objects.cmds_output.SAR
+
+See the :ref:`electric-only absorption limitation <electric-only-absorption>`
+for the magnetic-material warning and its scope, including directional
+materials and ideal PMC constraints.
+
+Both isotropic and grid-aligned diagonal anisotropic volume materials are
+supported. For a primitive with ``material_ids=(mx, my, mz)``, absorption is
+the sum of the x-, y-, and z-component contributions using each material's
+frequency-dependent electric loss, not the mean of the three conductivities.
+The three constituent materials must have the same positive mass density for
+SAR. Missing or conflicting densities are rejected; ``Radiometry`` uses the
+same electric absorption calculation without density. See :doc:`output` for
+the equations and the supported tensor convention.
 
 ``SAR`` selects the final voxelised cells belonging to one or more semantic
 geometry tags. Every selected material must first have a mass density in
@@ -1900,6 +1982,9 @@ Radiometric absorption weighting
 --------------------------------
 
 .. autoclass:: gprMax.user_objects.cmds_output.Radiometry
+
+The :ref:`electric-only absorption limitation <electric-only-absorption>`
+and its magnetic-material warning apply to every radiometry normalisation.
 
 ``Radiometry`` is the density-independent counterpart of ``SAR``. It uses the
 same tagged-cell field transforms and loss calculation, but writes absorbed

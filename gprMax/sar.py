@@ -247,6 +247,7 @@ class SARLocalPayload:
     excluded_pml_cell_count: int
     edge_coordinates: dict[str, npt.NDArray[np.integer]] | None = None
     edge_dft: dict[str, npt.NDArray[np.complexfloating]] | None = None
+    material_definitions: dict[int, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -313,8 +314,14 @@ def _material_relative_permittivity(material, frequencies: npt.NDArray[np.floati
     return values
 
 
-def _material_loss_conductivity(grid: "FDTDGrid", numeric_ids, frequencies):
-    """Return electric loss in S/m, shaped ``(nfrequencies, nmaterial_ids)``.
+def _material_loss_conductivity(
+    grid: "FDTDGrid", numeric_ids, frequencies, *, material_by_id=None
+):
+    """Return electric loss in S/m for selected physical cell materials.
+
+    Isotropic selections retain shape ``(nfrequencies, nmaterial_ids)``.
+    If any cell is directional, a leading x/y/z axis is added. Scalar
+    materials broadcast the same loss to each direction, including in 2-D.
 
     With the ``exp(+j omega t)`` convention, loss is obtained from the
     negative imaginary part of relative permittivity. Repeated material IDs
@@ -322,12 +329,18 @@ def _material_loss_conductivity(grid: "FDTDGrid", numeric_ids, frequencies):
     """
 
     numeric_ids = np.asarray(numeric_ids, dtype=np.int64)
-    material_by_id = {int(material.numID): material for material in grid.materials}
-    sigma = np.empty((frequencies.size, numeric_ids.size), dtype=np.float64)
+    if material_by_id is None:
+        material_by_id = {int(material.numID): material for material in grid.materials}
+    directional = any(
+        getattr(material_by_id[int(item)], "directional_materials", None) is not None
+        for item in np.unique(numeric_ids)
+    )
+    shape = (frequencies.size, numeric_ids.size)
+    sigma = np.empty((3, *shape) if directional else shape, dtype=np.float64)
     omega = 2 * np.pi * np.asarray(frequencies, dtype=np.float64)
     epsilon_0 = float(config.sim_config.em_consts["e0"])
-    for material_id in np.unique(numeric_ids):
-        material = material_by_id[int(material_id)]
+
+    def loss(material):
         # An ideal PEC has no finite volume in which Joule heating can be
         # defined. Its loss is represented by a surface current, not by
         # ``sigma * |E|**2`` in the cell volume. Evaluating that expression
@@ -346,8 +359,64 @@ def _material_loss_conductivity(grid: "FDTDGrid", numeric_ids, frequencies):
                 f"SAR does not support active electric material {material.ID!r} with negative loss"
             )
         effective = np.maximum(effective, 0.0)
-        sigma[:, numeric_ids == material_id] = effective[:, np.newaxis]
+        return effective
+
+    for material_id in np.unique(numeric_ids):
+        material = material_by_id[int(material_id)]
+        selection = numeric_ids == material_id
+        if directional:
+            axes = getattr(material, "directional_materials", None) or (material,) * 3
+            for axis, constituent in enumerate(axes):
+                sigma[axis][:, selection] = loss(constituent)[:, np.newaxis]
+        else:
+            sigma[:, selection] = loss(material)[:, np.newaxis]
     return sigma
+
+
+def _warn_magnetic_absorption(grid, numeric_ids, *, output_kind, output_id):
+    """Identify omitted magnetic loss in the selected, non-PML cell materials.
+
+    Directional constituents are inspected individually. MPI numeric IDs are
+    rank-local, so exchange names rather than IDs, including from ranks with
+    no selected cells. The existing MPI logger controls which ranks print.
+    Ideal PMC constraints are not finite-conductivity magnetic absorbers.
+    """
+
+    material_by_id = {int(material.numID): material for material in grid.materials}
+    magnetic, lossy = set(), set()
+    for material_id in np.unique(numeric_ids):
+        material = material_by_id[int(material_id)]
+        for constituent in material.directional_materials or (material,):
+            if constituent.is_pmc:
+                continue
+            if constituent.mr != 1 or constituent.sm != 0:
+                magnetic.add(constituent.ID)
+            if constituent.sm != 0:
+                lossy.add(constituent.ID)
+    if hasattr(grid, "comm") and hasattr(grid, "lower_extent"):
+        records = grid.comm.allgather((tuple(sorted(magnetic)), tuple(sorted(lossy))))
+        magnetic = {name for names, _ in records for name in names}
+        lossy = {name for _, names in records for name in names}
+    if not magnetic:
+        return
+    detail = (
+        "Nonzero magnetic conductivity is present in "
+        + ", ".join(repr(name) for name in sorted(lossy))
+        + "; do not interpret these results as total absorption or total SAR. "
+        "Radiometric weights also omit this magnetic loss."
+        if lossy
+        else "The selected magnetic materials have zero magnetic conductivity; "
+        "lossless permeability alone adds no magnetic heating."
+    )
+    logger.warning(
+        "%s %r selects magnetic material(s): %s. SAR and radiometry compute "
+        "electric absorption only; magnetic absorption is not included. "
+        "Magnetic properties still affect the FDTD fields. %s",
+        output_kind,
+        output_id,
+        ", ".join(repr(name) for name in sorted(magnetic)),
+        detail,
+    )
 
 
 class SARMonitor:
@@ -555,6 +624,8 @@ class SARMonitor:
             raise ValueError(
                 "SAR requires finite positive mass density for selected material(s): "
                 + ", ".join(missing_density)
+                + ". Directional materials require the same density on all three "
+                "constituent definitions; missing or conflicting densities are not averaged."
             )
         if self.require_density:
             self.density = np.asarray(
@@ -563,6 +634,13 @@ class SARMonitor:
             )
         else:
             self.density = np.empty(0, dtype=np.float64)
+
+        _warn_magnetic_absorption(
+            grid,
+            self.cell_material_ids,
+            output_kind="SAR" if self.require_density else "Radiometry",
+            output_id=self.output_id,
+        )
 
         # Adjacent cells share Yee edges. The inverse map restores each
         # cell's four stencil entries, including repeated entries in TE mode.
@@ -917,14 +995,24 @@ class SARMonitor:
             for component in getattr(self, "edge_offsets", EDGE_OFFSETS):
                 edge_indices = self.cell_edge_indices[component]
                 cell_field = np.mean(self.accumulators[component][:, edge_indices], axis=2)
+                loss = self.cell_material_loss
+                if loss.ndim == 3:
+                    loss = loss["xyz".index(component[1])]
                 absorbed += np.asarray(
-                    0.5 * self.cell_material_loss * np.abs(cell_field) ** 2,
+                    0.5 * loss * np.abs(cell_field) ** 2,
                     dtype=self.real_dtype,
                 )
 
         cells = self.cells.copy()
+        material_definitions = None
         if getattr(self, "_mpi_distributed", False):
             cells += np.asarray(self.grid.lower_extent, dtype=np.int32)
+            selected_ids = set(map(int, self.cell_material_ids))
+            material_definitions = {
+                int(material.numID): material
+                for material in self.grid.materials
+                if material.numID in selected_ids
+            }
         return SARLocalPayload(
             cell_indices=cells,
             tag_id=self.cell_tag_ids.copy(),
@@ -934,6 +1022,7 @@ class SARMonitor:
             excluded_pml_cell_count=getattr(self, "excluded_pml_cell_count", 0),
             edge_coordinates=edge_coordinates,
             edge_dft=edge_dft,
+            material_definitions=material_definitions,
         )
 
     @staticmethod
@@ -960,7 +1049,35 @@ class SARMonitor:
                 raise RuntimeError("MPI SAR payloads contain inconsistent cell metadata shapes")
         cell_indices = np.concatenate([payload.cell_indices for payload in payloads], axis=0)
         tag_id = np.concatenate([payload.tag_id for payload in payloads])
-        material_id = np.concatenate([payload.material_id for payload in payloads])
+        material_definitions = None
+        if any(payload.material_definitions is not None for payload in payloads):
+            if any(payload.material_definitions is None for payload in payloads):
+                raise RuntimeError("MPI SAR payloads contain inconsistent material catalogues")
+            # Generated cell materials need not exist on the coordinator and
+            # their numeric IDs can denote different tensors on other ranks.
+            # Use a payload-local catalogue without mutating live grid IDs.
+            by_name = {
+                material.ID: material
+                for payload in payloads
+                for material in payload.material_definitions.values()
+            }
+            names = sorted(by_name)
+            index_by_name = {name: index for index, name in enumerate(names)}
+            material_definitions = {index: by_name[name] for index, name in enumerate(names)}
+            material_id = np.concatenate(
+                [
+                    np.asarray(
+                        [
+                            index_by_name[payload.material_definitions[int(item)].ID]
+                            for item in payload.material_id
+                        ],
+                        dtype=payload.material_id.dtype,
+                    )
+                    for payload in payloads
+                ]
+            )
+        else:
+            material_id = np.concatenate([payload.material_id for payload in payloads])
         density = np.concatenate([payload.density for payload in payloads])
         absorbed = np.concatenate([payload.absorbed_power_density for payload in payloads], axis=1)
         if cell_indices.shape[0] == 0:
@@ -1028,6 +1145,7 @@ class SARMonitor:
             excluded_pml_cell_count=sum(payload.excluded_pml_cell_count for payload in payloads),
             edge_coordinates=merged_edge_coordinates,
             edge_dft=merged_edge_dft,
+            material_definitions=material_definitions,
         )
 
     def _collocate_mpi_payload(self, payload: SARLocalPayload, global_shape) -> SARLocalPayload:
@@ -1050,7 +1168,10 @@ class SARMonitor:
             raise RuntimeError("MPI SAR payload is missing selected-cell mass density")
         field_shape = tuple(int(value) + 1 for value in global_shape)
         material_loss = _material_loss_conductivity(
-            self.grid, payload.material_id, self.frequencies
+            self.grid,
+            payload.material_id,
+            self.frequencies,
+            material_by_id=payload.material_definitions,
         )
         absorbed = np.zeros(
             (self.frequencies.size, payload.cell_indices.shape[0]), dtype=self.real_dtype
@@ -1074,7 +1195,13 @@ class SARMonitor:
                 axis=2,
             )
             absorbed += np.asarray(
-                0.5 * material_loss * np.abs(cell_field) ** 2,
+                0.5
+                * (
+                    material_loss["xyz".index(component[1])]
+                    if material_loss.ndim == 3
+                    else material_loss
+                )
+                * np.abs(cell_field) ** 2,
                 dtype=self.real_dtype,
             )
         return SARLocalPayload(
@@ -1084,6 +1211,7 @@ class SARMonitor:
             density=payload.density,
             absorbed_power_density=absorbed,
             excluded_pml_cell_count=payload.excluded_pml_cell_count,
+            material_definitions=payload.material_definitions,
         )
 
     def mpi_signature(self):
@@ -1356,11 +1484,25 @@ class SARMonitor:
             )
         payload = self.merge_local_payloads(payloads)
         payload = self._collocate_mpi_payload(payload, global_shape)
+        self._mpi_material_definitions = payload.material_definitions
         self.excluded_pml_cell_count = payload.excluded_pml_cell_count
         self.grid_shape = tuple(int(value) for value in global_shape)
         self.cell_index_frame = "main-grid"
         self.cell_index_origin = np.zeros(3, dtype=np.float64)
         return self._finalise_payload(payload, self.grid_shape)
+
+    def _write_material_catalogue(self, group):
+        """Describe MPI output-local IDs without renumbering the reusable grid."""
+
+        materials = getattr(self, "_mpi_material_definitions", None)
+        if materials is not None:
+            group["materials/id"] = np.asarray(list(materials), dtype=np.uint32)
+            group.create_dataset(
+                "materials/name",
+                data=np.asarray([m.ID for m in materials.values()], dtype=object),
+                dtype=h5py.string_dtype("utf-8"),
+            )
+            group["material_id"].attrs["Catalogue"] = "materials"
 
     def write_hdf5(self, basegrp) -> None:
         if self.result is None:
@@ -1441,6 +1583,7 @@ class SARMonitor:
         group["cell_indices"] = result.cell_indices
         group["tag_id"] = result.tag_id
         group["material_id"] = result.material_id
+        self._write_material_catalogue(group)
         group["density"] = result.density
         group["source_spectrum"] = result.source_spectrum
         group["source_relative_db"] = result.source_relative_db
@@ -1675,6 +1818,7 @@ class RadiometryMonitor(SARMonitor):
         group["tag_id"] = result.tag_id
         group["material_id"] = result.material_id
         group["source_spectrum"] = result.source_spectrum
+        self._write_material_catalogue(group)
         group["source_relative_db"] = result.source_relative_db
         group["source_valid"] = result.source_valid.astype(np.uint8)
         group["incident_power"] = result.incident_power

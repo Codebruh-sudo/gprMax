@@ -43,7 +43,7 @@ from gprMax.materials import ListMaterial as ListMaterialUser
 from gprMax.materials import Material as MaterialUser
 from gprMax.materials import PeplinskiSoil as PeplinskiSoilUser
 from gprMax.materials import RangeMaterial as RangeMaterialUser
-from gprMax.materials import validate_drude_pole, validate_lorentz_pole
+from gprMax.materials import validate_drude_pole, validate_lorentz_pole, validate_user_material_id
 from gprMax.network_ports import RationalNetworkModel, RationalNetworkTerminal
 from gprMax.pml import CFS, CFSParameter, InternalPMLSpec
 from gprMax.receivers import Rx as RxUser
@@ -1184,6 +1184,7 @@ class VoltageSource(GridUserObject):
             voltage_source.start = self.start
             voltage_source.stop = min(self.stop, grid.timewindow)
 
+        grid.validate_point_source_position(voltage_source, coord)
         voltage_source.calculate_waveform_values(grid)
 
         return voltage_source
@@ -1451,6 +1452,7 @@ class HertzianDipole(GridUserObject):
             h.start = self.start
             h.stop = min(self.stop, grid.timewindow)
 
+        grid.validate_point_source_position(h, coord)
         h.calculate_waveform_values(grid)
 
         return h
@@ -1635,6 +1637,7 @@ class MagneticDipole(GridUserObject):
             m.start = self.start
             m.stop = min(self.stop, grid.timewindow)
 
+        grid.validate_point_source_position(m, coord)
         m.calculate_waveform_values(grid)
 
         return m
@@ -1788,6 +1791,7 @@ class TransmissionLine(GridUserObject):
             t.start = self.start
             t.stop = min(self.stop, grid.timewindow)
 
+        grid.validate_point_source_position(t, coord)
         t.calculate_waveform_values(grid)
         t.calculate_incident_V_I(grid)
 
@@ -3830,7 +3834,8 @@ class Material(GridUserObject):
         se: float required for the electric conductivity (Siemens/metre).
         mr: float required for the relative magnetic permeability.
         sm: float required for the magnetic loss.
-        id: string used as identifier for material.
+        id: string used as identifier for material. '+' is reserved for
+            internally generated material IDs; use '_' in user-defined IDs.
     """
 
     @property
@@ -3854,6 +3859,8 @@ class Material(GridUserObject):
         except KeyError:
             logger.exception(f"{self.params_str()} requires exactly five parameters.")
             raise
+
+        validate_user_material_id(material_id)
 
         try:
             er = float(er)
@@ -3928,7 +3935,8 @@ class MaterialFromDatabase(GridUserObject):
         material: material entry key in the database.
         id: optional local material ID; defaults to ``material``. This can
             provide a model-specific name, avoid a collision, or match the
-            material name expected by imported geometry.
+            material name expected by imported geometry. '+' is reserved for
+            internally generated material IDs.
     """
 
     @property
@@ -3950,6 +3958,7 @@ class MaterialFromDatabase(GridUserObject):
             logger.exception(f"{self.params_str()} requires a database and material key")
             raise
         material_id = self.kwargs.get("id") or material_key
+        validate_user_material_id(material_id)
 
         # Hash-command models resolve local databases beside the input file;
         # direct API models deliberately use the execution directory even if

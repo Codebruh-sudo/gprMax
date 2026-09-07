@@ -8,9 +8,10 @@ No production gprMax layered-medium propagation helper is used by the
 analytical reference.
 
 The comparison covers both principal-plane field components and the
-full-hemisphere maximum directivity.  Fields are normalised once per source
-and frequency, rather than independently normalising each cut, so the
-relative E- and H-plane levels remain part of the test.
+full-hemisphere maximum directivity. Absolute complex fields use the stored
+source samples, their time staggering and spatial scale, without fitting
+amplitude or phase. A separate pattern-shape check fits one common complex
+factor per source and frequency, never independently for each cut.
 
 References
 ----------
@@ -34,13 +35,13 @@ import h5py
 import matplotlib
 import numpy as np
 from numpy.polynomial.legendre import leggauss
-from scipy.constants import c
+from scipy.constants import c, epsilon_0, mu_0
 
 import gprMax
+from gprMax.utilities.utilities import round_value
 
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt  # noqa: E402
-
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_OUTPUT = HERE / "results" / "grounded_dipoles"
@@ -64,6 +65,10 @@ ACCEPTANCE_LIMITS = {
     "power_maximum_error_peak_normalised": 0.055,
     "maximum_directivity_relative_error": 0.04,
 }
+# Benchmark tolerances, not theoretical error bounds. The coated cases also
+# discretise a four-cell dielectric layer; their absolute-field discrepancy
+# is larger than the free-space/image cases at the retained 1.5 mm resolution.
+ABSOLUTE_FIELD_LIMITS = {False: 0.001, True: 0.002}
 
 
 @dataclass(frozen=True)
@@ -87,8 +92,18 @@ CASES = (
 def _physical_source_position(case: Case) -> np.ndarray:
     """Return the physical centre of the staggered source component."""
 
-    position = np.asarray(SOURCE_ANCHOR, dtype=float).copy()
-    position["xyz".index(case.polarisation)] += 0.5 * DL
+    # Source commands snap the anchor to a grid index before staggering.
+    # This also matters for --dl values that do not divide SOURCE_ANCHOR.
+    position = np.asarray([round_value(value / DL) * DL for value in SOURCE_ANCHOR])
+    axis = "xyz".index(case.polarisation)
+    if case.source_kind == "electric":
+        position[axis] += 0.5 * DL
+    elif case.source_kind == "magnetic":
+        # H is staggered in the two transverse directions, not its own axis.
+        # Both the phase origin and height above the image plane depend on it.
+        position[np.arange(3) != axis] += 0.5 * DL
+    else:
+        raise ValueError(f"Unknown dipole source kind: {case.source_kind}")
     return position
 
 
@@ -269,10 +284,33 @@ def _analytical_directivity(case: Case, frequency: float) -> float:
     return 4 * np.pi * maximum / float(radiated)
 
 
-def _read_case(path: Path):
+def _source_field_factor(case: Case, excitation) -> np.ndarray:
+    """Return the absolute far-zone factor for the stored source moment.
+
+    With exp(+j omega t), the range-normalised E field has factor
+    -j*k*eta0*I_dl/(4*pi) for the electric transverse projection used above,
+    and +j*k*M/(4*pi) for the magnetic cross product. The stored SpatialScale
+    converts the drive samples to the moment used by the source update.
+    The dt-weighted DFT includes TimeSampleOffset (E: dt/2; H: 0).
+    """
+    samples = np.asarray(excitation["samples"], dtype=float)
+    dt = float(excitation.attrs["SampleInterval"])
+    time = np.arange(samples.size) * dt + float(excitation.attrs["TimeSampleOffset"])
+    moment = dt * (np.exp(-2j * np.pi * FREQUENCIES[:, None] * time) @ samples)
+    moment *= float(excitation.attrs["SpatialScale"])
+    factor = 1j * (2 * np.pi * FREQUENCIES / c) * moment / (4 * np.pi)
+    if case.source_kind == "electric":
+        factor *= -np.sqrt(mu_0 / epsilon_0)
+    return factor
+
+
+def _read_case(case: Case, path: Path):
     fields = {}
     maximum_directivity = None
     with h5py.File(path, "r") as output:
+        if "srcs/src1/excitation" not in output:
+            raise ValueError("Absolute dipole validation requires stored source excitation; rerun the model.")
+        source_factor = _source_field_factor(case, output["srcs/src1/excitation"])
         base = output["ntff/surface/frequency/spectrum/far_field"]
         for output_id in ("e_plane", "h_plane"):
             group = base[output_id]
@@ -289,13 +327,17 @@ def _read_case(path: Path):
                 # the requested directions in this output group.  Take the
                 # union of the two principal-plane refinements.
                 maximum_directivity = np.maximum(maximum_directivity, candidate)
-    return fields, maximum_directivity
+    return fields, maximum_directivity, source_factor
 
 
 def compare_case(case: Case, path: Path):
-    fields, fdtd_dmax = _read_case(path)
+    fields, fdtd_dmax, source_factor = _read_case(case, path)
     retained = {}
-    metrics = {"frequencies": {}}
+    metrics = {
+        "coated": case.coated,
+        "physical_source_position_metres": _physical_source_position(case).tolist(),
+        "frequencies": {},
+    }
     theta = np.deg2rad(THETA)
     for frequency_index, frequency in enumerate(FREQUENCIES):
         fdtd_parts = []
@@ -313,8 +355,11 @@ def compare_case(case: Case, path: Path):
             exact_parts.append(np.stack((exact_theta, exact_phi), axis=-1))
         actual = np.concatenate(fdtd_parts, axis=0)
         exact = np.concatenate(exact_parts, axis=0)
-        # One complex least-squares scale removes only the arbitrary source
-        # spectrum and range-normalisation constant, not cut-specific levels.
+        absolute = source_factor[frequency_index] * exact
+        absolute_peak = float(np.max(np.linalg.norm(absolute, axis=-1)))
+        absolute_difference = actual - absolute
+        # Keep the fitted shape diagnostic separate: its complex factor can
+        # absorb an overall amplitude/phase error, unlike the absolute check.
         scale = np.vdot(exact, actual) / np.vdot(exact, exact)
         fitted = scale * exact
         peak = float(np.max(np.linalg.norm(fitted, axis=-1)))
@@ -327,6 +372,8 @@ def compare_case(case: Case, path: Path):
         exact_dmax = _analytical_directivity(case, float(frequency))
         key = f"{frequency / 1e9:g}_GHz"
         metrics["frequencies"][key] = {
+            "absolute_vector_field_relative_l2_error": float(np.linalg.norm(absolute_difference) / np.linalg.norm(absolute)),
+            "absolute_vector_field_maximum_error_peak_normalised": float(np.max(np.linalg.norm(absolute_difference, axis=-1)) / absolute_peak),
             "vector_field_rms_error_peak_normalised": float(np.sqrt(np.mean(vector_error**2))),
             "vector_field_maximum_error_peak_normalised": float(np.max(vector_error)),
             "power_rms_error_peak_normalised": float(np.sqrt(np.mean(power_error**2))),
@@ -337,6 +384,7 @@ def compare_case(case: Case, path: Path):
         }
         retained[key] = {
             "actual": actual,
+            "absolute_exact": absolute,
             "exact": fitted,
             "actual_power": actual_power,
             "exact_power": exact_power,
@@ -348,7 +396,7 @@ def _write_csv(case: Case, retained, output_directory: Path) -> None:
     for frequency_key, values in retained.items():
         path = output_directory / f"{case.name}_{frequency_key}.csv"
         with path.open("w", newline="") as stream:
-            writer = csv.writer(stream)
+            writer = csv.writer(stream, lineterminator="\n")
             writer.writerow(("plane", "theta_degrees", "fdtd_power", "analytical_power"))
             for index, plane in enumerate(("e_plane", "h_plane")):
                 start = index * THETA.size
@@ -396,9 +444,10 @@ def _plot(results, output_directory: Path) -> None:
             axis.set_rticks((-40, -30, -20, -10, 0))
             axis.grid(True, alpha=0.3)
             axis.set_title(f"{case.name.replace('_', ' ')}, {title}", pad=12)
-    axes[0, 0].legend(loc="upper left", bbox_to_anchor=(-0.2, 1.16), fontsize=8)
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", bbox_to_anchor=(0.5, 0.985), ncol=2)
     fig.suptitle("Dipoles above PEC-terminated planar backgrounds, 2 GHz", y=0.998)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0, 0, 1, 0.975))
     fig.savefig(output_directory / "grounded_dipole_patterns.png", dpi=240, bbox_inches="tight")
     plt.close(fig)
     fig, axis = plt.subplots(figsize=(10, 5.5))
@@ -433,8 +482,10 @@ def _plot(results, output_directory: Path) -> None:
 def _acceptance(summary) -> dict:
     checks = {}
     for case_name, case_metrics in summary.items():
+        limits = dict(ACCEPTANCE_LIMITS)
+        limits["absolute_vector_field_relative_l2_error"] = ABSOLUTE_FIELD_LIMITS[case_metrics["coated"]]
         for frequency, metrics in case_metrics["frequencies"].items():
-            for metric, maximum in ACCEPTANCE_LIMITS.items():
+            for metric, maximum in limits.items():
                 key = f"{case_name}:{frequency}:{metric}"
                 checks[key] = {
                     "value": metrics[metric],

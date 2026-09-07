@@ -4,8 +4,16 @@
   },
   "cases": {
     "electric_tangential_bare": {
+      "coated": false,
+      "physical_source_position_metres": [
+        0.06075,
+        0.06,
+        0.0465
+      ],
       "frequencies": {
         "1.5_GHz": {
+          "absolute_vector_field_relative_l2_error": 2.388196452766514e-05,
+          "absolute_vector_field_maximum_error_peak_normalised": 3.8593392692401784e-05,
           "vector_field_rms_error_peak_normalised": 1.597863981603689e-05,
           "vector_field_maximum_error_peak_normalised": 3.859472548818122e-05,
           "power_rms_error_peak_normalised": 5.0279004977052195e-06,
@@ -15,6 +23,8 @@
           "maximum_directivity_relative_error": 6.269578711041051e-05
         },
         "2_GHz": {
+          "absolute_vector_field_relative_l2_error": 9.096811603367303e-05,
+          "absolute_vector_field_maximum_error_peak_normalised": 0.0001136203861291511,
           "vector_field_rms_error_peak_normalised": 3.822843288111007e-05,
           "vector_field_maximum_error_peak_normalised": 7.67824212493926e-05,
           "power_rms_error_peak_normalised": 3.850188067128012e-05,
@@ -24,6 +34,8 @@
           "maximum_directivity_relative_error": 0.0001747861918844428
         },
         "2.5_GHz": {
+          "absolute_vector_field_relative_l2_error": 0.0003341174400596523,
+          "absolute_vector_field_maximum_error_peak_normalised": 0.0004048192828185719,
           "vector_field_rms_error_peak_normalised": 6.458514516327167e-05,
           "vector_field_maximum_error_peak_normalised": 0.00010836476838979063,
           "power_rms_error_peak_normalised": 8.849469067842484e-05,
@@ -35,8 +47,16 @@
       }
     },
     "electric_normal_bare": {
+      "coated": false,
+      "physical_source_position_metres": [
+        0.06,
+        0.06,
+        0.04725
+      ],
       "frequencies": {
         "1.5_GHz": {
+          "absolute_vector_field_relative_l2_error": 7.940786482581795e-05,
+          "absolute_vector_field_maximum_error_peak_normalised": 7.900891716896466e-05,
           "vector_field_rms_error_peak_normalised": 5.889156895998622e-06,
           "vector_field_maximum_error_peak_normalised": 8.35398140505197e-06,
           "power_rms_error_peak_normalised": 3.0334259295852506e-06,
@@ -46,6 +66,8 @@
           "maximum_directivity_relative_error": 0.0005620357461813173
         },
         "2_GHz": {
+          "absolute_vector_field_relative_l2_error": 0.00020987505240847572,
+          "absolute_vector_field_maximum_error_peak_normalised": 0.000260138498030004,
           "vector_field_rms_error_peak_normalised": 5.129304363157146e-05,
           "vector_field_maximum_error_peak_normalised": 7.626858761592724e-05,
           "power_rms_error_peak_normalised": 5.667368049113971e-05,
@@ -55,6 +77,8 @@
           "maximum_directivity_relative_error": 0.0006835599363369729
         },
         "2.5_GHz": {
+          "absolute_vector_field_relative_l2_error": 0.0004390164558945769,
+          "absolute_vector_field_maximum_error_peak_normalised": 0.0005074792480533187,
           "vector_field_rms_error_peak_normalised": 4.700440501802317e-05,
           "vector_field_maximum_error_peak_normalised": 7.784173690644338e-05,
           "power_rms_error_peak_normalised": 5.09931640417755e-05,
@@ -66,70 +90,102 @@
       }
     },
     "magnetic_tangential_bare": {
+      "coated": false,
+      "physical_source_position_metres": [
+        0.06,
+        0.06075,
+        0.04725
+      ],
       "frequencies": {
         "1.5_GHz": {
-          "vector_field_rms_error_peak_normalised": 0.012183688277841085,
-          "vector_field_maximum_error_peak_normalised": 0.019541472136316178,
-          "power_rms_error_peak_normalised": 0.011212383968260221,
-          "power_maximum_error_peak_normalised": 0.026371492453979104,
+          "absolute_vector_field_relative_l2_error": 8.849259885003893e-05,
+          "absolute_vector_field_maximum_error_peak_normalised": 0.00010122224663722338,
+          "vector_field_rms_error_peak_normalised": 1.53584855109465e-05,
+          "vector_field_maximum_error_peak_normalised": 2.7757059184214352e-05,
+          "power_rms_error_peak_normalised": 1.2589604043909781e-05,
+          "power_maximum_error_peak_normalised": 2.625436351444238e-05,
           "fdtd_maximum_directivity": 4.176028975581332,
-          "analytical_maximum_directivity": 4.109902251897204,
-          "maximum_directivity_relative_error": 0.016089609832837786
+          "analytical_maximum_directivity": 4.177252280797483,
+          "maximum_directivity_relative_error": 0.0002928492544668371
         },
         "2_GHz": {
-          "vector_field_rms_error_peak_normalised": 0.017671007835171434,
-          "vector_field_maximum_error_peak_normalised": 0.027097032075272177,
-          "power_rms_error_peak_normalised": 0.01690081281669449,
-          "power_maximum_error_peak_normalised": 0.04462224862684991,
+          "absolute_vector_field_relative_l2_error": 8.663975325532866e-05,
+          "absolute_vector_field_maximum_error_peak_normalised": 0.00011910316592035625,
+          "vector_field_rms_error_peak_normalised": 3.317942031352038e-05,
+          "vector_field_maximum_error_peak_normalised": 5.768216618847644e-05,
+          "power_rms_error_peak_normalised": 3.2574353555932974e-05,
+          "power_maximum_error_peak_normalised": 8.836378975092421e-05,
           "fdtd_maximum_directivity": 5.297811602194508,
-          "analytical_maximum_directivity": 5.163451024967526,
-          "maximum_directivity_relative_error": 0.026021468312043654
+          "analytical_maximum_directivity": 5.300708699725281,
+          "maximum_directivity_relative_error": 0.0005465490927511007
         },
         "2.5_GHz": {
-          "vector_field_rms_error_peak_normalised": 0.02526528621921418,
-          "vector_field_maximum_error_peak_normalised": 0.03832885366773555,
-          "power_rms_error_peak_normalised": 0.016284630474476407,
-          "power_maximum_error_peak_normalised": 0.05069129253023731,
+          "absolute_vector_field_relative_l2_error": 0.0001008146689084538,
+          "absolute_vector_field_maximum_error_peak_normalised": 5.5221510586370884e-05,
+          "vector_field_rms_error_peak_normalised": 4.0904571654506426e-05,
+          "vector_field_maximum_error_peak_normalised": 5.7431086234745845e-05,
+          "power_rms_error_peak_normalised": 1.4699189575450853e-05,
+          "power_maximum_error_peak_normalised": 3.043373363020791e-05,
           "fdtd_maximum_directivity": 6.858618372001324,
-          "analytical_maximum_directivity": 6.646737214145092,
-          "maximum_directivity_relative_error": 0.03187746875343926
+          "analytical_maximum_directivity": 6.863451447450851,
+          "maximum_directivity_relative_error": 0.0007041756595105232
         }
       }
     },
     "magnetic_normal_bare": {
+      "coated": false,
+      "physical_source_position_metres": [
+        0.06075,
+        0.06075,
+        0.0465
+      ],
       "frequencies": {
         "1.5_GHz": {
-          "vector_field_rms_error_peak_normalised": 0.0034997179548193246,
-          "vector_field_maximum_error_peak_normalised": 0.005354898481856705,
-          "power_rms_error_peak_normalised": 0.0018829165614296988,
-          "power_maximum_error_peak_normalised": 0.0029277104036694672,
+          "absolute_vector_field_relative_l2_error": 0.0002717072242491506,
+          "absolute_vector_field_maximum_error_peak_normalised": 0.0002744774279280713,
+          "vector_field_rms_error_peak_normalised": 6.495839626647518e-06,
+          "vector_field_maximum_error_peak_normalised": 8.982251859515578e-06,
+          "power_rms_error_peak_normalised": 6.592089198029434e-06,
+          "power_maximum_error_peak_normalised": 1.088731914805643e-05,
           "fdtd_maximum_directivity": 3.6885349612425102,
-          "analytical_maximum_directivity": 3.685816919574206,
-          "maximum_directivity_relative_error": 0.0007374326309778112
+          "analytical_maximum_directivity": 3.688565139854827,
+          "maximum_directivity_relative_error": 8.181667172042115e-06
         },
         "2_GHz": {
-          "vector_field_rms_error_peak_normalised": 0.004896068627353309,
-          "vector_field_maximum_error_peak_normalised": 0.007406941795259369,
-          "power_rms_error_peak_normalised": 0.0034342659149938243,
-          "power_maximum_error_peak_normalised": 0.005413658738178498,
+          "absolute_vector_field_relative_l2_error": 0.0001572234185354962,
+          "absolute_vector_field_maximum_error_peak_normalised": 0.00015904585354191016,
+          "vector_field_rms_error_peak_normalised": 1.396647309385768e-05,
+          "vector_field_maximum_error_peak_normalised": 1.9284837305917845e-05,
+          "power_rms_error_peak_normalised": 1.6594786599555627e-05,
+          "power_maximum_error_peak_normalised": 2.7819551709250705e-05,
           "fdtd_maximum_directivity": 3.654635339801241,
-          "analytical_maximum_directivity": 3.6526276866414893,
-          "maximum_directivity_relative_error": 0.0005496462634541
+          "analytical_maximum_directivity": 3.655331411702473,
+          "maximum_directivity_relative_error": 0.0001904264819883769
         },
         "2.5_GHz": {
-          "vector_field_rms_error_peak_normalised": 0.0065693244580112605,
-          "vector_field_maximum_error_peak_normalised": 0.009851068178358121,
-          "power_rms_error_peak_normalised": 0.0055713466666425715,
-          "power_maximum_error_peak_normalised": 0.0089350016328161,
+          "absolute_vector_field_relative_l2_error": 0.0002155117646968135,
+          "absolute_vector_field_maximum_error_peak_normalised": 0.00021062021161082775,
+          "vector_field_rms_error_peak_normalised": 4.620781343139177e-05,
+          "vector_field_maximum_error_peak_normalised": 7.015892980675184e-05,
+          "power_rms_error_peak_normalised": 8.52711844024043e-06,
+          "power_maximum_error_peak_normalised": 1.4791221500734337e-05,
           "fdtd_maximum_directivity": 3.632718620929469,
-          "analytical_maximum_directivity": 3.632605064656415,
-          "maximum_directivity_relative_error": 3.126028594699173e-05
+          "analytical_maximum_directivity": 3.6336999452472076,
+          "maximum_directivity_relative_error": 0.00027006201186818797
         }
       }
     },
     "electric_tangential_coated": {
+      "coated": true,
+      "physical_source_position_metres": [
+        0.06075,
+        0.06,
+        0.0465
+      ],
       "frequencies": {
         "1.5_GHz": {
+          "absolute_vector_field_relative_l2_error": 0.0001896475341377001,
+          "absolute_vector_field_maximum_error_peak_normalised": 0.00018051743175927424,
           "vector_field_rms_error_peak_normalised": 3.099325806264077e-05,
           "vector_field_maximum_error_peak_normalised": 7.164975321619924e-05,
           "power_rms_error_peak_normalised": 2.067032647569371e-05,
@@ -139,6 +195,8 @@
           "maximum_directivity_relative_error": 0.00010639549536379298
         },
         "2_GHz": {
+          "absolute_vector_field_relative_l2_error": 0.0004871597856006178,
+          "absolute_vector_field_maximum_error_peak_normalised": 0.000526502297747663,
           "vector_field_rms_error_peak_normalised": 7.07665191276254e-05,
           "vector_field_maximum_error_peak_normalised": 0.00013552158928605766,
           "power_rms_error_peak_normalised": 7.060569619176256e-05,
@@ -148,6 +206,8 @@
           "maximum_directivity_relative_error": 0.0001686757418043127
         },
         "2.5_GHz": {
+          "absolute_vector_field_relative_l2_error": 0.0011851583516051354,
+          "absolute_vector_field_maximum_error_peak_normalised": 0.0013680046834154767,
           "vector_field_rms_error_peak_normalised": 0.00015585115352448353,
           "vector_field_maximum_error_peak_normalised": 0.0003009646408929965,
           "power_rms_error_peak_normalised": 0.0001511837560450708,
@@ -159,8 +219,16 @@
       }
     },
     "electric_normal_coated": {
+      "coated": true,
+      "physical_source_position_metres": [
+        0.06,
+        0.06,
+        0.04725
+      ],
       "frequencies": {
         "1.5_GHz": {
+          "absolute_vector_field_relative_l2_error": 0.0001059916239913278,
+          "absolute_vector_field_maximum_error_peak_normalised": 0.0001058937860044429,
           "vector_field_rms_error_peak_normalised": 3.842597186494079e-06,
           "vector_field_maximum_error_peak_normalised": 6.357024973499064e-06,
           "power_rms_error_peak_normalised": 3.902672565407442e-06,
@@ -170,6 +238,8 @@
           "maximum_directivity_relative_error": 0.009766397289175884
         },
         "2_GHz": {
+          "absolute_vector_field_relative_l2_error": 0.00031351878672857133,
+          "absolute_vector_field_maximum_error_peak_normalised": 0.0003396274977963087,
           "vector_field_rms_error_peak_normalised": 3.2728473970697734e-05,
           "vector_field_maximum_error_peak_normalised": 5.0081965976898037e-05,
           "power_rms_error_peak_normalised": 4.156549175655068e-05,
@@ -179,6 +249,8 @@
           "maximum_directivity_relative_error": 0.003346582802001518
         },
         "2.5_GHz": {
+          "absolute_vector_field_relative_l2_error": 0.0013149210288308023,
+          "absolute_vector_field_maximum_error_peak_normalised": 0.001054084420300465,
           "vector_field_rms_error_peak_normalised": 0.00028784829051532035,
           "vector_field_maximum_error_peak_normalised": 0.00048216286068912794,
           "power_rms_error_peak_normalised": 1.9824178903300237e-05,
@@ -208,6 +280,11 @@
         "maximum": 0.04,
         "passed": true
       },
+      "electric_tangential_bare:1.5_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 2.388196452766514e-05,
+        "maximum": 0.001,
+        "passed": true
+      },
       "electric_tangential_bare:2_GHz:vector_field_maximum_error_peak_normalised": {
         "value": 7.67824212493926e-05,
         "maximum": 0.04,
@@ -221,6 +298,11 @@
       "electric_tangential_bare:2_GHz:maximum_directivity_relative_error": {
         "value": 0.0001747861918844428,
         "maximum": 0.04,
+        "passed": true
+      },
+      "electric_tangential_bare:2_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 9.096811603367303e-05,
+        "maximum": 0.001,
         "passed": true
       },
       "electric_tangential_bare:2.5_GHz:vector_field_maximum_error_peak_normalised": {
@@ -238,6 +320,11 @@
         "maximum": 0.04,
         "passed": true
       },
+      "electric_tangential_bare:2.5_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 0.0003341174400596523,
+        "maximum": 0.001,
+        "passed": true
+      },
       "electric_normal_bare:1.5_GHz:vector_field_maximum_error_peak_normalised": {
         "value": 8.35398140505197e-06,
         "maximum": 0.04,
@@ -251,6 +338,11 @@
       "electric_normal_bare:1.5_GHz:maximum_directivity_relative_error": {
         "value": 0.0005620357461813173,
         "maximum": 0.04,
+        "passed": true
+      },
+      "electric_normal_bare:1.5_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 7.940786482581795e-05,
+        "maximum": 0.001,
         "passed": true
       },
       "electric_normal_bare:2_GHz:vector_field_maximum_error_peak_normalised": {
@@ -268,6 +360,11 @@
         "maximum": 0.04,
         "passed": true
       },
+      "electric_normal_bare:2_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 0.00020987505240847572,
+        "maximum": 0.001,
+        "passed": true
+      },
       "electric_normal_bare:2.5_GHz:vector_field_maximum_error_peak_normalised": {
         "value": 7.784173690644338e-05,
         "maximum": 0.04,
@@ -283,94 +380,129 @@
         "maximum": 0.04,
         "passed": true
       },
+      "electric_normal_bare:2.5_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 0.0004390164558945769,
+        "maximum": 0.001,
+        "passed": true
+      },
       "magnetic_tangential_bare:1.5_GHz:vector_field_maximum_error_peak_normalised": {
-        "value": 0.019541472136316178,
+        "value": 2.7757059184214352e-05,
         "maximum": 0.04,
         "passed": true
       },
       "magnetic_tangential_bare:1.5_GHz:power_maximum_error_peak_normalised": {
-        "value": 0.026371492453979104,
+        "value": 2.625436351444238e-05,
         "maximum": 0.055,
         "passed": true
       },
       "magnetic_tangential_bare:1.5_GHz:maximum_directivity_relative_error": {
-        "value": 0.016089609832837786,
+        "value": 0.0002928492544668371,
         "maximum": 0.04,
         "passed": true
       },
+      "magnetic_tangential_bare:1.5_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 8.849259885003893e-05,
+        "maximum": 0.001,
+        "passed": true
+      },
       "magnetic_tangential_bare:2_GHz:vector_field_maximum_error_peak_normalised": {
-        "value": 0.027097032075272177,
+        "value": 5.768216618847644e-05,
         "maximum": 0.04,
         "passed": true
       },
       "magnetic_tangential_bare:2_GHz:power_maximum_error_peak_normalised": {
-        "value": 0.04462224862684991,
+        "value": 8.836378975092421e-05,
         "maximum": 0.055,
         "passed": true
       },
       "magnetic_tangential_bare:2_GHz:maximum_directivity_relative_error": {
-        "value": 0.026021468312043654,
+        "value": 0.0005465490927511007,
         "maximum": 0.04,
         "passed": true
       },
+      "magnetic_tangential_bare:2_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 8.663975325532866e-05,
+        "maximum": 0.001,
+        "passed": true
+      },
       "magnetic_tangential_bare:2.5_GHz:vector_field_maximum_error_peak_normalised": {
-        "value": 0.03832885366773555,
+        "value": 5.7431086234745845e-05,
         "maximum": 0.04,
         "passed": true
       },
       "magnetic_tangential_bare:2.5_GHz:power_maximum_error_peak_normalised": {
-        "value": 0.05069129253023731,
+        "value": 3.043373363020791e-05,
         "maximum": 0.055,
         "passed": true
       },
       "magnetic_tangential_bare:2.5_GHz:maximum_directivity_relative_error": {
-        "value": 0.03187746875343926,
+        "value": 0.0007041756595105232,
         "maximum": 0.04,
         "passed": true
       },
+      "magnetic_tangential_bare:2.5_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 0.0001008146689084538,
+        "maximum": 0.001,
+        "passed": true
+      },
       "magnetic_normal_bare:1.5_GHz:vector_field_maximum_error_peak_normalised": {
-        "value": 0.005354898481856705,
+        "value": 8.982251859515578e-06,
         "maximum": 0.04,
         "passed": true
       },
       "magnetic_normal_bare:1.5_GHz:power_maximum_error_peak_normalised": {
-        "value": 0.0029277104036694672,
+        "value": 1.088731914805643e-05,
         "maximum": 0.055,
         "passed": true
       },
       "magnetic_normal_bare:1.5_GHz:maximum_directivity_relative_error": {
-        "value": 0.0007374326309778112,
+        "value": 8.181667172042115e-06,
         "maximum": 0.04,
         "passed": true
       },
+      "magnetic_normal_bare:1.5_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 0.0002717072242491506,
+        "maximum": 0.001,
+        "passed": true
+      },
       "magnetic_normal_bare:2_GHz:vector_field_maximum_error_peak_normalised": {
-        "value": 0.007406941795259369,
+        "value": 1.9284837305917845e-05,
         "maximum": 0.04,
         "passed": true
       },
       "magnetic_normal_bare:2_GHz:power_maximum_error_peak_normalised": {
-        "value": 0.005413658738178498,
+        "value": 2.7819551709250705e-05,
         "maximum": 0.055,
         "passed": true
       },
       "magnetic_normal_bare:2_GHz:maximum_directivity_relative_error": {
-        "value": 0.0005496462634541,
+        "value": 0.0001904264819883769,
         "maximum": 0.04,
         "passed": true
       },
+      "magnetic_normal_bare:2_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 0.0001572234185354962,
+        "maximum": 0.001,
+        "passed": true
+      },
       "magnetic_normal_bare:2.5_GHz:vector_field_maximum_error_peak_normalised": {
-        "value": 0.009851068178358121,
+        "value": 7.015892980675184e-05,
         "maximum": 0.04,
         "passed": true
       },
       "magnetic_normal_bare:2.5_GHz:power_maximum_error_peak_normalised": {
-        "value": 0.0089350016328161,
+        "value": 1.4791221500734337e-05,
         "maximum": 0.055,
         "passed": true
       },
       "magnetic_normal_bare:2.5_GHz:maximum_directivity_relative_error": {
-        "value": 3.126028594699173e-05,
+        "value": 0.00027006201186818797,
         "maximum": 0.04,
+        "passed": true
+      },
+      "magnetic_normal_bare:2.5_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 0.0002155117646968135,
+        "maximum": 0.001,
         "passed": true
       },
       "electric_tangential_coated:1.5_GHz:vector_field_maximum_error_peak_normalised": {
@@ -388,6 +520,11 @@
         "maximum": 0.04,
         "passed": true
       },
+      "electric_tangential_coated:1.5_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 0.0001896475341377001,
+        "maximum": 0.002,
+        "passed": true
+      },
       "electric_tangential_coated:2_GHz:vector_field_maximum_error_peak_normalised": {
         "value": 0.00013552158928605766,
         "maximum": 0.04,
@@ -401,6 +538,11 @@
       "electric_tangential_coated:2_GHz:maximum_directivity_relative_error": {
         "value": 0.0001686757418043127,
         "maximum": 0.04,
+        "passed": true
+      },
+      "electric_tangential_coated:2_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 0.0004871597856006178,
+        "maximum": 0.002,
         "passed": true
       },
       "electric_tangential_coated:2.5_GHz:vector_field_maximum_error_peak_normalised": {
@@ -418,6 +560,11 @@
         "maximum": 0.04,
         "passed": true
       },
+      "electric_tangential_coated:2.5_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 0.0011851583516051354,
+        "maximum": 0.002,
+        "passed": true
+      },
       "electric_normal_coated:1.5_GHz:vector_field_maximum_error_peak_normalised": {
         "value": 6.357024973499064e-06,
         "maximum": 0.04,
@@ -431,6 +578,11 @@
       "electric_normal_coated:1.5_GHz:maximum_directivity_relative_error": {
         "value": 0.009766397289175884,
         "maximum": 0.04,
+        "passed": true
+      },
+      "electric_normal_coated:1.5_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 0.0001059916239913278,
+        "maximum": 0.002,
         "passed": true
       },
       "electric_normal_coated:2_GHz:vector_field_maximum_error_peak_normalised": {
@@ -448,6 +600,11 @@
         "maximum": 0.04,
         "passed": true
       },
+      "electric_normal_coated:2_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 0.00031351878672857133,
+        "maximum": 0.002,
+        "passed": true
+      },
       "electric_normal_coated:2.5_GHz:vector_field_maximum_error_peak_normalised": {
         "value": 0.00048216286068912794,
         "maximum": 0.04,
@@ -461,6 +618,11 @@
       "electric_normal_coated:2.5_GHz:maximum_directivity_relative_error": {
         "value": 0.00132383400641027,
         "maximum": 0.04,
+        "passed": true
+      },
+      "electric_normal_coated:2.5_GHz:absolute_vector_field_relative_l2_error": {
+        "value": 0.0013149210288308023,
+        "maximum": 0.002,
         "passed": true
       }
     }

@@ -36,6 +36,19 @@ logger = logging.getLogger(__name__)
 GridType = TypeVar("GridType", bound=FDTDGrid)
 
 
+def _include_directional_constituents(materials):
+    """Keep bulk tensor definitions even if overwritten edges no longer use them."""
+
+    selected = list(materials)
+    present = {material.numID for material in selected}
+    for material in materials:
+        for constituent in getattr(material, "directional_materials", None) or ():
+            if constituent.numID not in present:
+                selected.append(constituent)
+                present.add(constituent.numID)
+    return np.asarray(selected, dtype=Material)
+
+
 def _merge_rank_materials(
     materials_by_rank: list[npt.NDArray[np.object_]],
 ) -> tuple[npt.NDArray[np.object_], list[npt.NDArray[np.int32]]]:
@@ -396,6 +409,9 @@ class GridView(Generic[GridType]):
             self.materials = np.array(self.grid.materials, dtype=Material)[materials_in_grid_view]
         else:
             self.materials = np.array(self.grid.materials, dtype=Material)
+
+        if include_solid:
+            self.materials = _include_directional_constituents(self.materials)
 
         # Sort materials
         self.materials.sort()
@@ -825,6 +841,8 @@ class MPIGridView(GridView["MPIGrid"]):
         else:
             local_materials = np.array(self.grid.materials, dtype=Material)
 
+        if include_solid:
+            local_materials = _include_directional_constituents(local_materials)
         local_materials.sort()
         local_material_ids = [m.numID for m in local_materials]
 

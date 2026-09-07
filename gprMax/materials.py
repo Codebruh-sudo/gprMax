@@ -73,6 +73,55 @@ def validate_drude_pole(frequency_hz: float, collision_per_s: float, dt: float) 
         raise ValueError("Drude collision frequency must be below 1 / dt")
 
 
+def validate_user_material_id(material_id: str) -> None:
+    """Reserve '+' for generated material IDs at user-definition boundaries.
+
+    Do not apply this to the internal Material constructor or geometry-file
+    restoration: averaged and source-modified materials legitimately contain
+    '+', and their names must survive export/import unchanged apart from the
+    import namespace.
+    """
+
+    if "+" in material_id:
+        raise ValueError(
+            f"Material ID {material_id!r}: '+' is reserved for automatically averaged material "
+            "IDs and other generated materials. Use '_' instead in user-defined material IDs."
+        )
+
+
+def create_directional_material(grid, materials):
+    """Return a cell record retaining an ordered diagonal constitutive tensor.
+
+    Scalar means remain available for legacy geometry displays and estimates;
+    they must not be used to calculate directional absorption. Length-prefixed
+    names preserve axis order without confusing this record with an interface
+    average. Density is inherited only when all three definitions agree.
+    """
+
+    materials = tuple(materials)
+    if len(materials) != 3 or any(m.directional_materials is not None for m in materials):
+        raise ValueError("A directional cell requires three scalar material definitions")
+    identifier = "Anisotropic+" + "+".join(f"{len(m.ID)}:{m.ID}" for m in materials)
+    existing = next((m for m in grid.materials if m.ID == identifier), None)
+    if existing is not None:
+        if existing.directional_materials != materials:
+            raise ValueError(f"Conflicting directional material record {identifier!r}")
+        return existing
+    result = Material(len(grid.materials), identifier)
+    result.type = "anisotropic"
+    result.averagable = False
+    result.directional_materials = materials
+    for parameter in ("er", "se", "mr", "sm"):
+        setattr(
+            result, parameter, np.mean(tuple(getattr(m, parameter) for m in materials), axis=0)
+        )
+    densities = tuple(m.mass_density for m in materials)
+    if all(value == densities[0] for value in densities):
+        result.mass_density = densities[0]
+    grid.materials.append(result)
+    return result
+
+
 class Material:
     """Super-class to describe generic, non-dispersive materials,
     their properties and update coefficients.
@@ -102,6 +151,11 @@ class Material:
         # dielectric smoothing: it belongs to the final volumetric material
         # assignment and is consumed only by derived quantities such as SAR.
         self.mass_density = None
+
+        # Ordered bulk x/y/z definitions for a diagonal anisotropic cell.
+        # These are material references, not additional per-cell arrays. Yee
+        # edges still use their own scalar material IDs for the field solve.
+        self.directional_materials = None
 
     def __eq__(self, value: object) -> bool:
         if isinstance(value, Material):
