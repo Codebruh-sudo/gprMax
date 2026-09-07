@@ -18,8 +18,26 @@ def _launcher():
 
 @pytest.mark.integration
 @pytest.mark.skipif(_launcher() is None, reason="mpiexec is not installed")
+@pytest.mark.parametrize(
+    "export_geometry",
+    (
+        pytest.param(False, id="absorption-only"),
+        pytest.param(
+            True,
+            id="geometry-roundtrip",
+            marks=pytest.mark.skipif(
+                not h5py.get_config().mpi, reason="geometry export requires parallel HDF5"
+            ),
+        ),
+    ),
+)
 @pytest.mark.parametrize("decomposition", ((2, 1, 1), (1, 2, 1)))
-def test_directional_mpi_and_geometry_fixed_match_serial(tmp_path, decomposition):
+def test_directional_mpi_and_geometry_fixed_match_serial(tmp_path, decomposition, export_geometry):
+    """Coordinator-written absorption works without parallel HDF5.
+
+    Only the additional distributed geometry export requires the mpio driver;
+    keep rank-local tensor handling and geometry-reuse coverage in both builds.
+    """
     model = tmp_path / "directional.in"
     export = tmp_path / "export"
     model.write_text(
@@ -37,7 +55,9 @@ def test_directional_mpi_and_geometry_fixed_match_serial(tmp_path, decomposition
                 "#add_dispersion_debye: 1 2 1e-10 z",
                 "#box: 0.014 0.01 0.01 0.022 0.022 0.022 x y z n target",
                 "#box: 0.028 0.01 0.01 0.036 0.022 0.022 z y x n target",
-                f"#geometry_objects_write: 0 0 0 0.048 0.032 0.032 {export}",
+                f"#geometry_objects_write: 0 0 0 0.048 0.032 0.032 {export}"
+                if export_geometry
+                else "",
                 "#waveform: ricker 1 1e9 pulse",
                 "#hertzian_dipole: z 0.01 0.014 0.014 pulse",
                 "#sar: 0.75e9 1.25e9 3 pulse 1 10 dose target",
@@ -49,7 +69,10 @@ def test_directional_mpi_and_geometry_fixed_match_serial(tmp_path, decomposition
     )
     environment = os.environ.copy()
     environment.pop("MPI4PY_RC_FINALIZE", None)
-    environment.update(FI_PROVIDER="shm", OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1")
+    # Match the release MPI regressions: let the runtime select its transport.
+    # Forcing libfabric's shm provider can hang MPICH during MPI_Finalize.
+    environment.pop("FI_PROVIDER", None)
+    environment.update(OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1")
 
     def run(arguments):
         result = subprocess.run(
@@ -82,27 +105,32 @@ def test_directional_mpi_and_geometry_fixed_match_serial(tmp_path, decomposition
             str(tmp_path / "mpi"),
         ]
     )
-    # The last export was made collectively from the distributed geometry.
-    imported = tmp_path / "imported.in"
-    lines = model.read_text().splitlines()
-    lines = [line for line in lines if not line.startswith(("#box:", "#geometry_objects_write:"))]
-    lines.insert(0, f"#geometry_objects_read: 0 0 0 {export}.h5 export_materials n")
-    imported.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    run(
-        [
-            sys.executable,
-            "-m",
-            "gprMax",
-            str(imported),
-            "--hide-progress-bars",
-            "-cpu_precision",
-            "double",
-            "-o",
-            str(tmp_path / "imported"),
+    outputs = ["mpi1.h5", "mpi2.h5"]
+    if export_geometry:
+        # The last export was made collectively from the distributed geometry.
+        imported = tmp_path / "imported.in"
+        lines = model.read_text().splitlines()
+        lines = [
+            line for line in lines if not line.startswith(("#box:", "#geometry_objects_write:"))
         ]
-    )
+        lines.insert(0, f"#geometry_objects_read: 0 0 0 {export}.h5 export_materials n")
+        imported.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        run(
+            [
+                sys.executable,
+                "-m",
+                "gprMax",
+                str(imported),
+                "--hide-progress-bars",
+                "-cpu_precision",
+                "double",
+                "-o",
+                str(tmp_path / "imported"),
+            ]
+        )
+        outputs.append("imported.h5")
     with h5py.File(tmp_path / "serial.h5") as reference:
-        for path in ("mpi1.h5", "mpi2.h5", "imported.h5"):
+        for path in outputs:
             with h5py.File(tmp_path / path) as actual:
                 for output, value in (
                     ("sar/dose", "sar"),
