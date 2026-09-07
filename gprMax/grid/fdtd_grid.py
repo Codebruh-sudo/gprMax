@@ -20,6 +20,7 @@ import itertools
 import logging
 import sys
 from collections import OrderedDict
+from types import SimpleNamespace
 from typing import Any, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
@@ -38,6 +39,7 @@ from gprMax.cython.geometry_primitives import (
 )
 from gprMax.cython.pml_build import pml_average_er_mr
 from gprMax.cython.yee_cell_build import build_electric_components, build_magnetic_components
+from gprMax.dispersion import spatial_resolution
 from gprMax.fractals.fractal_surface import FractalSurface
 from gprMax.fractals.fractal_volume import FractalVolume
 from gprMax.materials import (
@@ -1397,6 +1399,7 @@ class FDTDGrid:
                     # exactly within the domain boundary.
                     end_coord = item.coord + step_size * (config.sim_config.model_end - 1)
                     self.within_bounds(end_coord)
+                    self.validate_point_source_position(item, end_coord)
                 # Always reposition (not just on step_number !=
                 # model_start): step_number is the absolute model index,
                 # so this is correct regardless of restart - for the
@@ -1406,7 +1409,9 @@ class FDTDGrid:
                 # (model_start != 0) genuinely needs real repositioning,
                 # unlike a non-restarted run's model 0 (model_start == 0),
                 # where this is a harmless no-op (coordorigin + 0*step).
-                item.coord = item.coordorigin + step_number * step_size
+                coord = item.coordorigin + step_number * step_size
+                self.validate_point_source_position(item, coord)
+                item.coord = coord
 
     def update_simple_source_positions(self, step: int = 0) -> None:
         """Update the positions of sources in the grid.
@@ -1449,6 +1454,60 @@ class FDTDGrid:
         except ValueError as e:
             logger.exception("Receiver(s) will be stepped to a position outside the domain.")
             raise ValueError from e
+
+    def validate_point_source_position(self, source, point) -> None:
+        """Reject conventional point sources outside their physical Yee component.
+
+        ``point`` is a grid-local integer index, including the rank offset in
+        MPI and the boundary-region offset in a subgrid. Array padding is not
+        a physical source location: E is half a cell along its own axis, H
+        along its two transverse axes. Integer-aligned terminal components
+        remain valid; their boundary condition is enforced separately.
+
+        This is not an MPI ownership check. A moving source may temporarily
+        lie outside this rank before migration, so only global physical bounds
+        apply. Receivers and extended sources retain their own validation.
+        """
+        if isinstance(source, MagneticDipole):
+            kind = "H"
+        elif isinstance(source, (HertzianDipole, VoltageSource, TransmissionLine)):
+            kind = "E"
+        else:
+            return
+
+        component = kind + source.polarisation
+        axis = "xyz".index(source.polarisation)
+        coord = np.asarray(point)
+        size = self.size
+        if self.is_distributed:
+            coord = self.local_to_global_coordinate(coord)
+            size = self.global_size
+
+        half_offset = np.arange(3) == axis
+        if kind == "H":
+            half_offset = ~half_offset
+        upper = size - half_offset
+        for direction in range(3):
+            if coord[direction] < 0 or coord[direction] > upper[direction]:
+                raise ValueError(
+                    f"{type(source).__name__} at {tuple(int(v) for v in coord)}: "
+                    f"{component} source index on {'xyz'[direction]} must be between "
+                    f"0 and {upper[direction]} (inclusive). The position lies outside "
+                    "the physical Yee component, even if it fits in the padded field array."
+                )
+
+        # Stepping must preserve the same active layer required at initial
+        # construction. An integer-aligned component can fit geometrically
+        # on a 2D outer layer that the reduced field solver does not advance.
+        mode = config.get_model_config().mode
+        if mode.startswith("2D"):
+            invariant = "xyz".index(mode[-1])
+            required = 0 if "TM" in mode else 1
+            if coord[invariant] != required:
+                raise ValueError(
+                    f"{component} source must remain at index {required} on the "
+                    f"invariant axis '{mode[-1]}' in {mode} mode."
+                )
 
     def within_bounds(self, p: npt.NDArray[np.int32]) -> bool:
         """Check a point is within the grid.
@@ -1955,50 +2014,126 @@ class FDTDGrid:
         Raises:
             ValueError: Raised if a problem is encountered.
         """
-        results = self._dispersion_analysis(iterations)
+        failure = None
+        try:
+            results = self._dispersion_analysis(iterations)
+        except (ValueError, FloatingPointError, OverflowError, ZeroDivisionError) as exc:
+            results = None
+            failure = str(exc)
+        comm = getattr(self, "comm", None)
+        if comm is not None:
+            # Generated material IDs and even the limiting material can differ
+            # by rank. Exchange only scalar diagnostics and names, and make the
+            # rejection collective before any rank enters the timestep loop.
+            if results is not None:
+                results = dict(results)
+                for key in ("material", "attenuation_material", "phase_error_material"):
+                    if results.get(key) is not None:
+                        results[key] = SimpleNamespace(ID=results[key].ID)
+            gathered = comm.allgather((results, failure))
+            failure = next((error for _, error in gathered if error is not None), None)
+            reports = [item for item, _ in gathered if item is not None]
+            usable = [item for item in reports if item["N"] is not None]
+            if usable:
+                results = dict(min(usable, key=lambda item: item["N"]))
+                losses = [item for item in usable if item.get("attenuation_material") is not None]
+                if losses:
+                    worst = min(losses, key=lambda item: item["attenuation_cells"])
+                    for key in ("attenuation_cells", "attenuation_material", "attenuation_frequency"):
+                        results[key] = worst[key]
+                phases = [item for item in usable if item["deltavp"] is not None]
+                if phases:
+                    worst = max(phases, key=lambda item: abs(item["deltavp"]))
+                    for key in ("deltavp", "phase_error_material", "phase_error_frequency", "phase_error_axis"):
+                        results[key] = worst[key]
+                results["phase_error_notes"] = sorted({
+                    note for item in reports for note in item.get("phase_error_notes", [])
+                })
+                errors = sorted({item["error"] for item in reports if item["error"]})
+                results["error"] = "; ".join(errors)
+        if failure is not None:
+            raise ValueError(f"Spatial-resolution analysis [{self.name}] failed: {failure}")
         if results["error"]:
+            if results["N"] is None:
+                report = (
+                    logger.info
+                    if results["error"] == "no non-zero-amplitude waveform detected."
+                    else logger.warning
+                )
+                report(
+                    f"Numerical dispersion analysis [{self.name}] not carried out as {results['error']}"
+                )
+            else:
+                logger.warning(
+                    f"Numerical dispersion analysis [{self.name}] has an incomplete source-band "
+                    f"estimate: {results['error']} Checking the available bandwidth only."
+                )
+        if results["N"] is None:
+            return
+        if results["N"] < config.get_model_config().numdispersion["mingridsampling"]:
+            allow_underresolved = getattr(config.sim_config, "allow_underresolved", False)
+            report = logger.warning if allow_underresolved else logger.error
+            report(
+                f"\nInsufficient spatial resolution in [{self.name}]. "
+                f"Material '{results['material'].ID}' has "
+                f"{results.get('sampling_kind', 'phase wavelength')} sampled by {results['N']:.3g} cells, "
+                f"below the minimum {config.get_model_config().numdispersion['mingridsampling']} "
+                f"at {results.get('sampling_frequency', results['maxfreq']):g} Hz. "
+                "Refine the active spatial steps or reduce the excitation bandwidth. "
+                "Reducing dt alone does not resolve the material wavelength."
+            )
+            if not allow_underresolved:
+                raise ValueError(
+                    f"Insufficient spatial resolution in material {results['material'].ID!r}: "
+                    f"{results['N']:.3g} cells per {results.get('sampling_kind', 'phase wavelength')}; "
+                    "refine the active spatial steps or reduce the excitation bandwidth. "
+                    "For an intentional under-resolved run, use --allow-underresolved "
+                    "or allow_underresolved=True in the Python API."
+                )
             logger.warning(
-                f"Numerical dispersion analysis [{self.name}] not carried out as {results['error']}"
+                f"[{self.name}] Continuing with an under-resolved mesh because "
+                "allow_underresolved=True. Numerical results may be inaccurate; "
+                "stability checks and output-validity limits remain enabled."
             )
-        elif results["N"] < config.get_model_config().numdispersion["mingridsampling"]:
-            logger.exception(
-                f"\nNon-physical wave propagation in [{self.name}] "
-                f"detected. Material '{results['material'].ID}' "
-                f"has wavelength sampled by {results['N']} cells, "
-                "less than required minimum for physical wave "
-                "propagation. Maximum significant frequency "
-                f"estimated as {results['maxfreq']:g}Hz"
-            )
-            raise ValueError
-        elif (
-            results["deltavp"]
-            and np.abs(results["deltavp"])
-            > config.get_model_config().numdispersion["maxnumericaldisp"]
-        ):
-            logger.warning(
-                f"[{self.name}] has potentially significant "
-                "numerical dispersion. Estimated largest physical "
-                f"phase-velocity error is {results['deltavp']:.2f}% "
-                f"in material '{results['material'].ID}' whose "
-                f"wavelength sampled by {results['N']} cells. "
-                "Maximum significant frequency estimated as "
-                f"{results['maxfreq']:g}Hz\n"
-            )
-        elif results["deltavp"]:
+        logger.info(
+            f"Spatial-resolution analysis [{self.name}]: minimum {results['N']:.3g} cells per "
+            f"{results.get('sampling_kind', 'phase wavelength')} in '{results['material'].ID}', "
+            f"at {results.get('sampling_frequency', results['maxfreq']):g} Hz."
+        )
+        if results.get("phase_velocity") is not None:
             logger.info(
-                f"Numerical dispersion analysis [{self.name}]: "
-                "estimated largest physical phase-velocity error is "
-                f"{results['deltavp']:.2f}% in material '{results['material'].ID}' "
-                f"whose wavelength sampled by {results['N']} cells. "
-                "Maximum significant frequency estimated as "
-                f"{results['maxfreq']:g}Hz\n"
+                f"[{self.name}] continuum phase velocity {results['phase_velocity']:.6g} m/s, "
+                f"wavelength {results['wavelength']:.6g} m at that limiting frequency."
             )
+        if results.get("attenuation_material") is not None:
+            cells = results["attenuation_cells"]
+            report = logger.warning if cells < 3 else logger.info
+            report(
+                f"[{self.name}] minimum 1/e amplitude attenuation length: {cells:.3g} cells "
+                f"in '{results['attenuation_material'].ID}' at "
+                f"{results['attenuation_frequency']:g} Hz. "
+                "Attenuation resolution is separate from phase-wavelength sampling."
+            )
+        if results["deltavp"] is not None:
+            material = results.get("phase_error_material") or results["material"]
+            threshold = config.get_model_config().numdispersion["maxnumericaldisp"]
+            report = logger.warning if abs(results["deltavp"]) > threshold else logger.info
+            report(
+                f"Lossless numerical dispersion estimate [{self.name}]: grid-axis "
+                f"phase-velocity error {results['deltavp']:.2f}% in '{material.ID}' "
+                f"at {results.get('phase_error_frequency', results['maxfreq']):g} Hz. "
+                f"Propagation axis: {results.get('phase_error_axis', 'unspecified')}. "
+                "This is a homogeneous bulk estimate, not an interface or stability guarantee."
+            )
+        for note in results.get("phase_error_notes", []):
+            logger.warning(f"Numerical dispersion analysis [{self.name}]: {note}.")
 
     def _dispersion_analysis(self, iterations: int) -> dict[str, Any]:
-        """Run dispersion analysis.
+        """Estimate source bandwidth, then analyse material spatial resolution.
 
-        Analysis of numerical dispersion (Taflove et al, 2005, p112) -
-        worse case of maximum frequency and minimum wavelength.
+        Physical phase wavelengths and attenuation use the complex material
+        laws. Numerical phase error is estimated only for positive, lossless,
+        nondispersive isotropic media using the axial Yee dispersion relation.
 
         Args:
             iterations: Number of iterations the model will run for.
@@ -2007,9 +2142,9 @@ class FDTDGrid:
             results: dict of results from dispersion analysis.
         """
 
-        # deltavp: physical phase velocity error (percentage)
-        # N: grid sampling density
-        # material: material with maximum permittivity
+        # deltavp: homogeneous lossless axial phase-velocity error (percentage)
+        # N: minimum sampled phase-wavelength density (or labelled tensor bound)
+        # material: material limiting spatial sampling
         # maxfreq: maximum significant frequency
         # error: error message
         results = {
@@ -2020,127 +2155,86 @@ class FDTDGrid:
             "error": "",
         }
 
-        # Find maximum significant frequency
+        # Inspect nonzero waveform definitions, not rank-local source ownership:
+        # an MPI rank or subgrid can receive waves launched elsewhere. A zero
+        # amplitude waveform can belong to a passive TL/voltage port and must
+        # neither extend the excitation band nor make its estimation fail.
+        errors = []
+        active_waveforms = 0
         if self.waveforms:
             for waveform in self.waveforms:
+                if waveform.amp == 0:
+                    continue
+                active_waveforms += 1
                 if waveform.type in ["sine", "contsine"]:
                     results["maxfreq"].append(4 * waveform.freq)
 
                 elif waveform.type == "impulse":
-                    results["error"] = "impulse waveform used."
+                    errors.append("impulse waveform used.")
 
                 elif waveform.type == "user":
-                    results["error"] = "user waveform detected."
+                    errors.append("user waveform detected.")
 
                 else:
-                    # Time to analyse waveform - 4*pulse_width as using entire
-                    # time window can result in demanding FFT
+                    # Limit each FFT separately to four pulse widths. Mutating
+                    # 'iterations' here would truncate later, longer waveforms
+                    # purely because a shorter pulse was declared first.
                     waveform.calculate_coefficients()
-                    # TODO: Check max_iterations should be calculated (original code didn't go on to use it)
                     max_iterations = round_value(4 * waveform.chi / self.dt)
-                    iterations = min(iterations, max_iterations)
-                    waveformvalues = np.zeros(iterations)
-                    for iteration in range(iterations):
+                    sample_count = min(iterations, max_iterations)
+                    if sample_count < 2:
+                        errors.append(
+                            "fewer than two samples are available for a nonzero waveform; "
+                            "check the timestep, source frequency and time window."
+                        )
+                        continue
+                    waveformvalues = np.zeros(sample_count)
+                    for iteration in range(sample_count):
                         waveformvalues[iteration] = waveform.calculate_value(
                             iteration * self.dt, self.dt
                         )
 
-                    # Ensure source waveform is not being overly truncated before attempting any FFT
-                    if np.abs(waveformvalues[-1]) < np.abs(np.amax(waveformvalues)) / 100:
-                        # FFT
+                    peak = np.max(np.abs(waveformvalues))
+                    if not np.isfinite(peak) or peak == 0:
+                        errors.append(
+                            "nonzero waveform has no finite nonzero sampled peak; "
+                            "check its amplitude, frequency and timestep."
+                        )
+                        continue
+                    if np.abs(waveformvalues[-1]) < peak / 100:
                         freqs, power = fft_power(waveformvalues, self.dt)
-                        # Get frequency for max power
-                        freqmaxpower = np.where(np.isclose(power, 0))[0][0]
-
-                        # Set maximum frequency to a threshold drop from maximum power, ignoring DC value
-                        try:
-                            freqthres = (
-                                np.where(
-                                    power[freqmaxpower:]
-                                    < -config.get_model_config().numdispersion["highestfreqthres"]
-                                )[0][0]
-                                + freqmaxpower
+                        # The second half of fft_power is the negative-frequency
+                        # mirror, not additional bandwidth. Include the even-N
+                        # Nyquist bin with its positive frequency magnitude.
+                        count = sample_count // 2 + 1
+                        freqs, power = np.abs(freqs[:count]), power[:count]
+                        freqmaxpower = int(np.argmax(power))
+                        crossings = np.flatnonzero(
+                            power[freqmaxpower:]
+                            < -config.get_model_config().numdispersion["highestfreqthres"]
+                        )
+                        if crossings.size:
+                            results["maxfreq"].append(freqs[freqmaxpower + crossings[0]])
+                        else:
+                            errors.append(
+                                "waveform spectrum has not decayed to the bandwidth threshold "
+                                "by the highest sampled frequency; reduce the timestep or "
+                                "source bandwidth to assess numerical dispersion."
                             )
-                            results["maxfreq"].append(freqs[freqthres])
-                        except ValueError:
-                            results["error"] = (
-                                "unable to calculate maximum power "
-                                + "from waveform, most likely due to "
-                                + "undersampling."
-                            )
-
-                    # Ignore case where someone is using a waveform with zero amplitude, i.e. on a receiver
-                    elif waveform.amp == 0:
-                        pass
-
-                    # If waveform is truncated don't do any further analysis
                     else:
-                        results["error"] = (
+                        errors.append(
                             "waveform does not fit within specified "
                             + "time window and is therefore being truncated."
                         )
+            if not active_waveforms:
+                errors.append("no non-zero-amplitude waveform detected.")
         else:
-            results["error"] = "no waveform detected."
+            errors.append("no waveform detected.")
+        results["error"] = "; ".join(sorted(set(errors)))
 
         if results["maxfreq"]:
             results["maxfreq"] = max(results["maxfreq"])
 
-            # Find minimum wavelength (material with maximum permittivity)
-            maxer = 0
-            matmaxer = ""
-            for x in self.materials:
-                if x.se == float("inf") or x.sm == float("inf"):
-                    continue
-                er = x.er
-                # If there are dispersive materials calculate the complex
-                # relative permittivity at maximum frequency and take the real part
-                if x.__class__.__name__ == "DispersiveMaterial":
-                    er = x.calculate_er(results["maxfreq"])
-                    er = er.real
-                if er > maxer:
-                    maxer = er
-                    matmaxer = x.ID
-            results["material"] = next(x for x in self.materials if x.ID == matmaxer)
-
-            # Minimum velocity
-            minvelocity = config.c / np.sqrt(maxer)
-
-            # Minimum wavelength
-            minwavelength = minvelocity / results["maxfreq"]
-
-            # Maximum spatial step
-            mode = config.get_model_config().mode
-            if "3D" in mode:
-                delta = max(self.dx, self.dy, self.dz)
-            elif "2D" in mode:
-                invariant_axis = mode[-1]
-                if invariant_axis == "x":
-                    delta = max(self.dy, self.dz)
-                elif invariant_axis == "y":
-                    delta = max(self.dx, self.dz)
-                else:
-                    delta = max(self.dx, self.dy)
-
-            # Courant stability factor
-            S = (config.c * self.dt) / delta
-
-            # Grid sampling density
-            results["N"] = minwavelength / delta
-
-            # Check grid sampling will result in physical wave propagation
-            if (
-                int(np.floor(results["N"]))
-                >= config.get_model_config().numdispersion["mingridsampling"]
-            ):
-                # Numerical phase velocity
-                vp = np.pi / (
-                    results["N"] * np.arcsin((1 / S) * np.sin((np.pi * S) / results["N"]))
-                )
-
-                # Physical phase velocity error (percentage)
-                results["deltavp"] = (((vp * config.c) - config.c) / config.c) * 100
-
-            # Store rounded down value of grid sampling density
-            results["N"] = int(np.floor(results["N"]))
+            results.update(spatial_resolution(self, results["maxfreq"], config.get_model_config().mode))
 
         return results

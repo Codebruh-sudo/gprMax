@@ -25,7 +25,13 @@ import gprMax
 
 
 def _subgrid_sar_scene(
-    *, source_on_main_grid=False, main_spacing=0.003, ratio=3, filtering=True, threads=1
+    *,
+    source_on_main_grid=False,
+    main_spacing=0.003,
+    ratio=3,
+    filtering=True,
+    threads=1,
+    directional=False,
 ):
     scene = gprMax.Scene()
     scene.add(gprMax.Domain(p1=(0.09, 0.09, 0.09)))
@@ -44,11 +50,17 @@ def _subgrid_sar_scene(
     scene.add(subgrid)
     subgrid.add(gprMax.Material(er=4, se=0.5, mr=1, sm=0, id="tissue"))
     subgrid.add(gprMax.MaterialDensity(density=1000, material_ids="tissue"))
+    material = {"material_id": "tissue"}
+    if directional:
+        for name, sigma in (("tissue_y", 0.2), ("tissue_z", 0.7)):
+            subgrid.add(gprMax.Material(er=4, se=sigma, mr=1, sm=0, id=name))
+            subgrid.add(gprMax.MaterialDensity(density=1000, material_ids=name))
+        material = {"material_ids": ("tissue", "tissue_y", "tissue_z")}
     subgrid.add(
         gprMax.Box(
             p1=(0.040, 0.040, 0.040),
             p2=(0.050, 0.050, 0.050),
-            material_id="tissue",
+            **material,
             tag="target",
         )
     )
@@ -76,6 +88,39 @@ def _subgrid_sar_scene(
     )
     subgrid.add(output)
     return scene, output
+
+
+@pytest.mark.parametrize("ratio", (1, 3))
+def test_directional_subgrid_contraction_and_reuse(tmp_path, ratio):
+    scene, output = _subgrid_sar_scene(
+        directional=True, ratio=ratio, main_spacing=0.001 if ratio == 1 else 0.003
+    )
+    gprMax.run(
+        scenes=[scene],
+        n=2,
+        geometry_fixed=True,
+        subgrid=True,
+        autotranslate=True,
+        outputfile=tmp_path / "directional",
+        cpu_precision="double",
+        hide_progress_bars=True,
+    )
+    monitor = output._monitor
+    assert np.all(output.result.valid)
+    expected = np.zeros_like(output.result.absorbed_power_density)
+    for component, sigma in zip(("Ex", "Ey", "Ez"), (0.5, 0.2, 0.7)):
+        e = np.mean(
+            monitor.accumulators[component][:, monitor.cell_edge_indices[component]], axis=2
+        )
+        expected += 0.5 * sigma * np.abs(e * output.result.normalisation_scale[:, None]) ** 2
+    np.testing.assert_allclose(output.result.sar, expected / 1000, rtol=2e-14)
+    with h5py.File(tmp_path / "directional1.h5") as first, h5py.File(
+        tmp_path / "directional2.h5"
+    ) as second:
+        np.testing.assert_array_equal(
+            first["subgrids/fine_grid/sar/fine_sar/sar"],
+            second["subgrids/fine_grid/sar/fine_sar/sar"],
+        )
 
 
 def _uniform_fine_sar_scene():

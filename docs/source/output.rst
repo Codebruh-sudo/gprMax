@@ -98,11 +98,11 @@ power density and SAR are [IEEE62704-3]_
 .. math::
 
    \begin{aligned}
-   p_{\mathrm{abs}}(f) &= \frac{1}{2}\sigma_{\mathrm{eff}}(f)
-       \left(|E_x(f)|^2+|E_y(f)|^2+|E_z(f)|^2\right),\\
+   p_{\mathrm{abs}}(f) &= \frac{1}{2}\sum_{a\in\{x,y,z\}}
+       \sigma_{\mathrm{eff},a}(f)|E_a(f)|^2,\\
    \mathrm{SAR}(f) &= \frac{p_{\mathrm{abs}}(f)}{\rho},\\
-   \sigma_{\mathrm{eff}}(f) &= -\omega\epsilon_0
-       \operatorname{Im}\{\epsilon_r(f)\}.
+   \sigma_{\mathrm{eff},a}(f) &= -\omega\epsilon_0
+       \operatorname{Im}\{\epsilon_{r,a}(f)\}.
    \end{aligned}
 
 Thus ``absorbed_power_density`` is in W/m\ :sup:`3`, ``density`` is in
@@ -111,6 +111,36 @@ loss directly and does not explicitly form a current-density array. The cell
 material supplies :math:`\sigma_{\mathrm{eff}}` and :math:`\rho`; dielectric
 smoothing of Yee-edge update coefficients does not average mass density or
 tag membership.
+
+For an isotropic material, all three loss spectra are identical and the
+expression reduces to :math:`\sigma_{\mathrm{eff}}|\mathbf E|^2/2`.
+Grid-aligned diagonal anisotropy uses the ordered x/y/z materials supplied to
+the volume primitive, including each direction's dispersive poles. An
+arithmetic mean of directional conductivities is not used: it would generally
+give the wrong absorption for a polarised field. A zero field component
+contributes zero without renormalising the sum; zero static conductivity does
+not suppress loss from dispersive poles. General off-diagonal tensors are not
+supported. This is electric absorption only, not magnetic material heating.
+
+.. _electric-only-absorption:
+
+.. warning::
+
+   SAR and radiometry do not include magnetic absorption. A runtime warning
+   identifies magnetic materials (relative permeability different from one
+   or nonzero magnetic conductivity) in the selected cells outside PML,
+   including directional material constituents. Magnetic properties still
+   affect the FDTD fields; they are not ignored by the solver. When magnetic
+   conductivity is nonzero, the reported absorption and SAR are not total
+   absorption or total SAR, and radiometric weights omit that magnetic loss.
+   Lossless permeability alone adds no magnetic heating. Ideal PMC constraints
+   are not treated as finite-conductivity absorbers for this warning.
+
+For SAR, the three directional material definitions must all specify the same
+positive mass density. Missing or conflicting densities stop the calculation;
+they are not averaged. Radiometry has no density requirement. Spatial
+interpolation of each complex electric component from its Yee edges to the
+cell centre remains separate from this directional loss calculation.
 
 Because a finite transient spectrum is not itself a continuous-wave
 excitation, waveform normalisation divides the field DFT by the DFT of the
@@ -167,6 +197,11 @@ MPI output uses globally sorted main-grid cell indices and the same HDF5 schema
 as the serial solver. The gathered sparse spectra and completed frequency-by-
 cell arrays reside on the coordinator during finalisation; for extremely large
 tag volumes this coordinator memory is the present scalability limit.
+
+MPI ``material_id`` values refer to the output-local ``materials/id`` and
+``materials/name`` catalogue. Generated directional materials can have
+different numeric IDs on different ranks; their definitions are gathered once
+after time stepping, without changing the reusable grid's material IDs.
 
 In a 2-D model, local ``absorbed_power_density`` and ``sar`` retain their
 ordinary W/m\ :sup:`3` and W/kg units. Integrated quantities describe the
@@ -241,9 +276,19 @@ absorption, tissue mass, or SAR. The group attributes ``PMLCellPolicy`` and
 
 The requested frequencies must be below temporal Nyquist. By default they
 must also have at least ten cells per shortest wavelength in every model
-material; a lambda/8 criterion may be selected. The ``nyquist`` research mode
+material; a lambda/8 criterion may be selected. In a 2-D TM or TE model this
+check uses only the two propagation directions, excluding the invariant-axis
+thickness. In 3-D it uses all three spatial steps. The same rule applies to
+port-output wavelength validation. The ``nyquist`` research mode
 retains frequencies outside that spatial criterion and records the mesh
 validity metadata, but does not make those results physically reliable.
+
+For lossy or dispersive media this output guard uses
+:math:`c/(f|\sqrt{\varepsilon_r^*\mu_r^*}|)` as a conservative spatial
+scale, including both electric and magnetic loss. It is not the physical
+phase wavelength. The separate :ref:`pre-simulation spatial-resolution
+diagnostic <spatial-resolution-diagnostic>` reports phase wavelength and
+attenuation length separately.
 
 .. _radiometry-output:
 
@@ -258,6 +303,9 @@ mesh-validity checks as SAR. It deliberately does not use mass density and
 does not calculate SAR or a 1 g/10 g average. This makes it suitable for
 lossy geological and planetary materials for which density is unavailable or
 irrelevant to the electromagnetic absorption calculation.
+
+The :ref:`electric-only absorption limitation <electric-only-absorption>`
+and its runtime warning apply to all radiometry outputs and normalisations.
 
 The principal local quantities are ``absorbed_power_density`` and
 ``normalised_absorption_density``. The latter has a definition appropriate to
@@ -301,7 +349,8 @@ function commonly used in radiometric forward models is
    W(\mathbf r,f)=\frac{p_{\mathrm{abs}}(\mathbf r,f)}
    {\int_V p_{\mathrm{abs}}(\mathbf r,f)\,\mathrm{d}V},
    \qquad
-   p_{\mathrm{abs}}=\frac{1}{2}\sigma_{\mathrm{eff}}|\mathbf E|^2,
+   p_{\mathrm{abs}}=\frac{1}{2}\sum_{a\in\{x,y,z\}}
+       \sigma_{\mathrm{eff},a}|E_a|^2,
 
 which integrates to unity over the chosen receiving volume [WU1995]_ and
 [ROD2013]_. It can be formed from

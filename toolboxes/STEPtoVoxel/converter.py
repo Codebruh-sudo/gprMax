@@ -32,6 +32,8 @@ from toolboxes.GeometryImport.common import (
     build_tag_volume,
     normalise_tag_name,
     unique_normalised_tags,
+    validate_material_assignment_entries,
+    validate_material_assignment_name,
     write_geometry_hdf5,
 )
 
@@ -283,6 +285,7 @@ def _optional_float(value: str, field: str, part_name: str) -> float | None:
 def _validate_material(material: _Material, assignment_name: str) -> None:
     """Reject values which cannot form a valid material-database entry."""
 
+    validate_material_assignment_name(material.name)
     for field, value in (
         ("relative_permittivity", material.er),
         ("relative_permeability", material.mr),
@@ -394,6 +397,8 @@ def _write_material_database(path: Path, materials: Sequence[_Material]) -> list
     to add dispersion or richer metadata.
     """
 
+    for material in materials:
+        validate_material_assignment_name(material.name)
     keys = [_material_key(index, material.name) for index, material in enumerate(materials)]
     if path.exists():
         try:
@@ -410,6 +415,7 @@ def _write_material_database(path: Path, materials: Sequence[_Material]) -> list
                 f"Existing material database {path} has material keys that do not match the "
                 "STEP assignments; move it aside before converting the changed geometry"
             )
+        validate_material_assignment_entries(existing_materials)
         return keys
 
     entries = {}

@@ -259,20 +259,74 @@ class GeometryObjectsRead(GeometryUserObject):
         existing_by_id = {material.ID: material for material in grid.materials}
         material_id_map = np.empty(len(keys), dtype=np.int32)
         namespace = database
-        for index, key in enumerate(keys):
-            spec = load_material_spec(database, key, search_directory=search_directory)
+        specs = [
+            load_material_spec(database, key, search_directory=search_directory) for key in keys
+        ]
+        key_indices = {key: index for index, key in enumerate(keys)}
+        directional_indices = {}
+        for index, spec in enumerate(specs):
+            if "directional_materials" not in spec.metadata:
+                continue
+            references = spec.metadata["directional_materials"]
+            if (
+                spec.model != "constant"
+                or not isinstance(references, list)
+                or len(references) != 3
+                or any(not isinstance(key, str) or key not in key_indices for key in references)
+            ):
+                raise ValueError(
+                    "Invalid x/y/z directional material references in geometry database"
+                )
+            indices = tuple(key_indices[key] for key in references)
+            if any(
+                specs[item].metadata.get("directional_materials") is not None for item in indices
+            ):
+                raise ValueError("Nested directional material references are not supported")
+            directional_indices[index] = indices
+        if directional_indices:
+            with h5py.File(geofile, "r") as geometry:
+                if not all(name in geometry for name in ("ID", "rigidE", "rigidH")):
+                    raise ValueError(
+                        "Directional geometry requires complete ID, rigidE and rigidH arrays; "
+                        "voxel-only scalar reconstruction would lose its anisotropy"
+                    )
+
+        # Restore scalar constituents first, even if a cropped export sorted
+        # the cell record before them. Then bind tensors to the resolved local
+        # objects; namespace changes cannot swap their physical definitions.
+        order = [i for i in range(len(keys)) if i not in directional_indices] + list(
+            directional_indices
+        )
+        for index in order:
+            key, spec = keys[index], specs[index]
+            axes = (
+                tuple(grid.materials[material_id_map[item]] for item in directional_indices[index])
+                if index in directional_indices
+                else None
+            )
+            if axes is not None:
+                densities = tuple(material.mass_density for material in axes)
+                expected_density = (
+                    densities[0] if all(value == densities[0] for value in densities) else None
+                )
+                if spec.mass_density != expected_density:
+                    raise ValueError(
+                        "Directional cell density must agree with its three constituents"
+                    )
             original_id = spec.metadata.get("original_id", key)
             if not isinstance(original_id, str) or not original_id:
                 raise ValueError(f"Material '{database}:{key}' metadata original_id is invalid")
             namespaced_id = f"{original_id}{{{namespace}}}"
             original = existing_by_id.get(original_id)
-            if original is not None and material_matches_spec(original, spec):
+            if original is not None and material_matches_spec(
+                original, spec, directional_materials=axes
+            ):
                 material_id_map[index] = original.numID
                 continue
 
             namespaced = existing_by_id.get(namespaced_id)
             if namespaced is not None:
-                if not material_matches_spec(namespaced, spec):
+                if not material_matches_spec(namespaced, spec, directional_materials=axes):
                     raise ValueError(
                         f"Geometry material '{namespaced_id}' conflicts with a material already "
                         "defined in the model"
@@ -283,7 +337,9 @@ class GeometryObjectsRead(GeometryUserObject):
             # An unrelated model material may legitimately use the original
             # CAD/material ID with different properties. Keep both by giving
             # the imported definition its deterministic database namespace.
-            created = build_material_from_spec(grid, spec, namespaced_id)
+            created = build_material_from_spec(
+                grid, spec, namespaced_id, directional_materials=axes
+            )
             created.type = f"{created.type},\nimported" if created.type else "imported"
             existing_by_id[namespaced_id] = created
             material_id_map[index] = created.numID

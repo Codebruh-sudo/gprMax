@@ -22,6 +22,14 @@ A command and associated parameters should occupy a single line of the input fil
 
 The order of commands in the input file is not important with the exception of object construction commands.
 
+The pre-solve spatial-resolution check can be explicitly overridden for
+under-resolved research runs using ``python -m gprMax model.in
+--allow-underresolved``. This is a command-line option, not a hash command.
+It preserves warnings and does not disable stability or output-validity checks;
+see :ref:`spatial-resolution diagnostic <spatial-resolution-diagnostic>`. Zero-amplitude waveforms attached to
+passive sources are excluded from bandwidth estimation, without removing their
+sources or receiving outputs.
+
 To describe the commands that can be used in the input file and their parameters the following conventions are used:
 
 * ``f`` means a real number which can be entered using either a ``[.]`` separating the integral from the decimal part, e.g. 1.5, or in scientific notation, e.g. 15e-1 or 0.15e1.
@@ -320,7 +328,8 @@ Allows you to introduce a material into the model described by a set of constitu
 * ``f2`` is the conductivity (Siemens/metre), :math:`\sigma`
 * ``f3`` is the relative permeability, :math:`\mu_r`
 * ``f4`` is the magnetic loss (Ohms/metre), :math:`\sigma_*`
-* ``str1`` is an identifier for the material.
+* ``str1`` is an identifier for the material. It must not contain ``+``, which
+  is reserved for internally generated material IDs. Use ``_`` instead.
 
 For example ``#material: 3 0.01 1 0 my_sand`` creates a material called ``my_sand`` which has a relative permittivity (frequency independent) of :math:`\epsilon_r = 3`, a conductivity of :math:`\sigma = 0.01` S/m, and is non-magnetic, i.e. :math:`\mu_r = 1` and :math:`\sigma_* = 0`
 
@@ -437,7 +446,8 @@ provenance information. The syntax is:
 * ``str2`` is the entry key.
 * ``str3`` is an optional local material ID. It defaults to ``str2`` and is
   useful for giving the material a model-specific name, avoiding a name
-  collision, or matching the name expected by imported geometry.
+  collision, or matching the name expected by imported geometry. It must not
+  contain ``+``, which is reserved for internally generated material IDs.
 
 For example ``#material_from_database: fundamental vacuum`` creates the
 official ``vacuum`` entry and uses ``vacuum`` as its local ID. To refer to the
@@ -1065,6 +1075,17 @@ before the tag. Tags may contain letters, digits, ``_``, ``-``, ``.``, and
 ``:``; spaces are not permitted. The Python API does not require an explicit
 smoothing argument when ``tag`` is used.
 
+Directional volumes use the three ordered x/y/z material IDs followed by
+the smoothing marker and tag, for example:
+
+.. code-block:: none
+
+    #box: 0.01 0.01 0.01 0.02 0.02 0.02 tissue_x tissue_y tissue_z n body
+
+Directional assignments remain non-averaged even if the marker is ``y``.
+Their tags can be selected by SAR and radiometry outputs, which use the loss
+of each directional material with the corresponding electric component.
+
 Allows you to introduce a triangular patch or a triangular prism with specific properties into the model. The patch is just a triangular surface made as a collection of staircased Yee cells, and the triangular prism extends the triangular patch in the direction perpendicular to the plane. The syntax of the command is:
 
 .. code-block:: none
@@ -1461,6 +1482,11 @@ Then to use ``my_pulse1`` custom waveform shape with, for example, a z-polarised
 
 Allows you to specify a current density term at an electric field location - the simplest excitation, often referred to as an additive or soft source.
 
+Source positions must satisfy the :ref:`physical Yee-component bounds
+<point-source-bounds>`, including after ``#src_steps`` or study updates.
+Valid terminal components are retained for symmetry-boundary excitations;
+padded array entries outside the physical component are rejected.
+
 .. math::
 
     J_s = \frac{I \Delta l}{\Delta x \Delta y \Delta z},
@@ -1492,7 +1518,13 @@ For example, to use a x-polarised Hertzian dipole with unit amplitude and a 600 
 #magnetic_dipole:
 -----------------
 
-This will simulate an infinitesimal magnetic dipole. This is often referred to as an additive or soft source. The syntax of the command is:
+This will simulate an infinitesimal magnetic dipole. This is often referred to as an additive or soft source.
+
+The :ref:`physical Yee-component bounds <point-source-bounds>` for magnetic
+components differ from those for electric components: a magnetic dipole
+is half-cell shifted in its two transverse directions, not its own axis.
+
+The syntax of the command is:
 
 .. code-block:: none
 
@@ -2189,7 +2221,9 @@ cross an internal rank face or corner. Port histories are gathered and the
 frequency-domain quantities are calculated once on the coordinator rank.
 
 Finite-resistance sources on dispersive edges use the complete complex
-background permittivity in the Yee-gap correction. Hard sources on dispersive
+background permittivity in the Yee-gap correction. The same correction is
+used for terminal current and accepted power in antenna parameters and SAR
+normalisation. Hard sources on dispersive
 edges are not yet supported.
 
 For a finite-resistance source, the voltage-source resistance is the
@@ -2295,6 +2329,14 @@ material are reported when the model is built.
 Requests on-the-fly frequency-domain specific absorption rate (SAR) over one
 or more semantic geometry tags.
 
+.. warning::
+
+   Only electric absorption contributes to SAR; magnetic absorption is not
+   included. Magnetic properties still affect the FDTD fields. Selected
+   magnetic materials outside PML trigger a warning: with nonzero magnetic
+   loss, the result is not total SAR. See the :ref:`electric-only absorption
+   limitation <electric-only-absorption>` for details and exceptions.
+
 .. code-block:: none
 
     #sar: f1 f2 i1 str1 f3 f4|nyquist str2 str3 [str4 ...]
@@ -2398,6 +2440,14 @@ The output is written to ``/radiometry/<output ID>`` and contains local
 absorbed-power density, normalised absorption density, and per-tag integrals.
 It does not require ``#material_density``. See :ref:`radiometry-output` for
 the dimensional meaning of each normalisation.
+
+.. warning::
+
+   Absorbed power and radiometric weights include electric absorption only,
+   not magnetic absorption. Magnetic properties still affect the FDTD fields.
+   Selected magnetic materials outside PML trigger a warning. This limitation
+   applies to every normalisation; see the :ref:`electric-only absorption
+   limitation <electric-only-absorption>` for details and exceptions.
 
 
 #network_port:

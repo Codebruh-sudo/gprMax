@@ -106,8 +106,11 @@ class GeometryObject(Generic[GridType]):
     def _material_document(self, keys):
         database_id = self.filename_materials.stem
         entries = {}
+        key_by_id = {material.ID: key for key, material in zip(keys, self.grid_view.materials)}
         for key, material in zip(keys, self.grid_view.materials):
-            entry = dict(material_to_database_entry(material))
+            # Database keys, not rank-local numeric IDs, retain tensor order
+            # after cropping, MPI export, and namespaced geometry imports.
+            entry = dict(material_to_database_entry(material, directional_keys=key_by_id))
             metadata = dict(entry.get("metadata", {}))
             metadata["original_id"] = material.ID
             provenance = getattr(material, "database_provenance", None)

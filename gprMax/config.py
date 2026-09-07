@@ -327,6 +327,10 @@ class SimulationConfig:
         self.geometry_fixed: bool = args.geometry_fixed
         self.study = getattr(args, "study", None)
         self.geometry_only: bool = args.geometry_only
+        self.allow_underresolved = getattr(args, "allow_underresolved", False)
+        if not isinstance(self.allow_underresolved, (bool, np.bool_)):
+            raise ValueError("allow_underresolved must be True or False")
+        self.allow_underresolved = bool(self.allow_underresolved)
         self.gpu: Union[List[str], bool] = args.gpu
         self.mpi: List[int] = args.mpi
         self.number_of_models: int = args.n

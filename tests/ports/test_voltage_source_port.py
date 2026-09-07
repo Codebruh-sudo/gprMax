@@ -39,6 +39,7 @@ from gprMax.ports import (
 
 @pytest.fixture
 def port_config(monkeypatch):
+    monkeypatch.setattr(config, "get_model_config", lambda: SimpleNamespace(mode="3D"))
     monkeypatch.setattr(
         config,
         "sim_config",
@@ -176,3 +177,53 @@ def test_default_material_limit_uses_shortest_wavelength(port_config):
     assert np.isinf(cells[0])
     assert limiting[1] == "high_er"
     assert cells[1] == pytest.approx(299792458.0 / (1e9 * 3 * 0.01))
+
+
+@pytest.mark.parametrize("family", ("TM", "TE"))
+@pytest.mark.parametrize("axis", range(3))
+@pytest.mark.parametrize("dtype", (np.float32, np.float64))
+def test_wavelength_limit_ignores_only_invariant_spacing(
+    port_config, monkeypatch, family, axis, dtype
+):
+    monkeypatch.setattr(
+        config, "get_model_config", lambda: SimpleNamespace(mode=f"2D {family}{'xyz'[axis]}")
+    )
+    config.sim_config.dtypes["float_or_double"] = dtype
+    material = Material(3, "dielectric")
+    material.er = 4
+    active = [index for index in range(3) if index != axis]
+    spacing = np.full(3, 0.001)
+    spacing[active[1]] = 0.002
+    frequencies = np.asarray([0, 1e9, 2e9])
+    grid = SimpleNamespace(materials=[material])
+    reference = None
+    for thickness in (0.0001, 0.001, 0.1):
+        spacing[axis] = thickness
+        grid.dx, grid.dy, grid.dz = spacing
+        cells, limiting = minimum_wavelength_sampling(grid, frequencies)
+        assert cells.dtype == np.dtype(dtype)
+        assert np.isinf(cells[0])
+        np.testing.assert_allclose(
+            cells[1:], 299792458.0 / (frequencies[1:] * 2 * 0.002), rtol=1e-7
+        )
+        np.testing.assert_array_equal(limiting[1:], ["dielectric", "dielectric"])
+        if reference is not None:
+            np.testing.assert_array_equal(cells, reference)
+        reference = cells
+
+    # A genuinely coarser propagation direction must still limit the output.
+    spacing[active[0]] = 0.02
+    grid.dx, grid.dy, grid.dz = spacing
+    coarse, _ = minimum_wavelength_sampling(grid, frequencies)
+    np.testing.assert_allclose(coarse[1:], reference[1:] / 10, rtol=1e-7)
+
+
+@pytest.mark.parametrize("axis", range(3))
+def test_wavelength_limit_retains_every_3d_spacing(port_config, axis):
+    spacing = np.full(3, 0.001)
+    spacing[axis] = 0.1
+    grid = SimpleNamespace(
+        dx=spacing[0], dy=spacing[1], dz=spacing[2], materials=[Material(1, "free_space")]
+    )
+    cells, _ = minimum_wavelength_sampling(grid, [1e9])
+    assert cells[0] == pytest.approx(299792458.0 / (1e9 * 0.1))

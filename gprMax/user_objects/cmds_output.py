@@ -157,6 +157,12 @@ class SAR(OutputUserObject):
     not require a waveform ID because the physical port result supplies its
     own spectral support and validity.
 
+    Only electric absorption contributes to SAR. Magnetic properties still
+    affect the FDTD fields, but magnetic absorption is not included. Selected
+    magnetic materials outside PML, excluding ideal PMC constraints, trigger
+    a warning. With nonzero magnetic loss, the result is not total SAR.
+    Lossless permeability alone adds no magnetic heating.
+
     Args:
         frequencies: Strictly increasing positive frequencies in Hz.
         waveform_id: Waveform attached to a source-normalised excitation.
@@ -306,6 +312,12 @@ class Radiometry(OutputUserObject):
     absorbed-power fraction density for port power, absorption cross-section
     density for plane-wave flux, or absorbed power per squared native source
     amplitude for a portless local source.
+
+    Only electric absorption contributes to these outputs. Magnetic
+    properties still affect the FDTD fields, but magnetic absorption is not
+    included. Selected magnetic materials outside PML, excluding ideal PMC
+    constraints, trigger a warning; radiometric weights omit any magnetic
+    loss. Lossless permeability alone adds no magnetic heating.
 
     Args:
         frequencies: Strictly increasing positive frequencies in Hz.

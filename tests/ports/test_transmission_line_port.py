@@ -31,6 +31,7 @@ from gprMax.ports import TransmissionLinePortOutput
 
 @pytest.fixture
 def port_config(monkeypatch):
+    monkeypatch.setattr(config, "get_model_config", lambda: SimpleNamespace(mode="3D"))
     monkeypatch.setattr(
         config,
         "sim_config",
@@ -45,7 +46,8 @@ def port_config(monkeypatch):
     )
 
 
-def test_discrete_line_current_deembedding_recovers_known_reflection(port_config):
+@pytest.mark.parametrize("mode", ("3D", "2D TMx", "2D TMy", "2D TMz", "2D TEx", "2D TEy", "2D TEz"))
+def test_discrete_line_current_deembedding_recovers_known_reflection(port_config, monkeypatch, mode):
     """The current check must correct both Yee time and line-space offsets."""
 
     nsamples = 256
@@ -87,6 +89,11 @@ def test_discrete_line_current_deembedding_recovers_known_reflection(port_config
         dz=1e-4,
         materials=[free_space],
     )
+    monkeypatch.setattr(config, "get_model_config", lambda: SimpleNamespace(mode=mode))
+    if mode != "3D":
+        # This is a port postprocessing test, not a reduced-mode TL solve.
+        # An arbitrary invariant thickness must not trim the known tone.
+        setattr(grid, "d" + mode[-1], 0.1)
 
     result = TransmissionLinePortOutput(source, 1).finalise(grid)
     index = np.flatnonzero(

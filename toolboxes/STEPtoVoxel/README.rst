@@ -130,6 +130,13 @@ property columns may be left blank; the converter then writes ``null`` values
 to make the missing assignments explicit. gprMax will reject such an entry
 until the corresponding values in ``materials.json`` have been completed.
 
+Material names must not contain ``+``: gprMax reserves it for automatically
+averaged material IDs. Use ``_`` instead in ``material_name``. The same
+restriction applies to ``name`` and ``metadata.original_id`` when the
+converter reuses an edited companion JSON database. CAD part names are not
+material assignments and need not be renamed. This does not restrict averaged
+materials restored from files produced by gprMax's ``GeometryObjectsWrite``.
+
 Coordinate systems
 ------------------
 

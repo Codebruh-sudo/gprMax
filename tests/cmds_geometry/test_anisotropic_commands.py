@@ -17,12 +17,12 @@
 
 """Regression coverage for anisotropic geometry commands and material reuse."""
 
+import numpy as np
 import pytest
 
 import gprMax
 import gprMax.model as model_mod
 from gprMax.hash_cmds_geometry import process_geometrycmds
-from gprMax.materials import Material
 from gprMax.user_objects.cmds_geometry.ellipsoid import Ellipsoid
 from gprMax.user_objects.cmds_geometry.sphere import Sphere
 
@@ -168,8 +168,12 @@ def test_anisotropic_primitives_reuse_existing_compound_material(
         next(material for material in grid.materials if material.ID == material_id)
         for material_id in MATERIAL_IDS
     ]
-    compound_id = Material.create_compound_id(*constituents)
-    assert sum(material.ID == compound_id for material in grid.materials) == 1
+    records = [
+        material for material in grid.materials if material.directional_materials is not None
+    ]
+    assert len(records) == 1
+    assert records[0].directional_materials == tuple(constituents)
+    assert np.count_nonzero(grid.solid[4:, 4:, 4:] == records[0].numID) > 0
 
 
 def test_missing_anisotropic_material_error_names_only_missing_id(monkeypatch, tmp_path):

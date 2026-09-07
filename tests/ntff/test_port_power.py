@@ -26,6 +26,7 @@ from numpy.testing import assert_allclose
 import gprMax.config as config
 import gprMax.ports as ports
 from gprMax.eigenmode_ports import EigenmodePortMonitor, EigenmodePortResult
+from gprMax.materials import DispersiveMaterial
 from gprMax.ntff.conventions import engineering_dft
 from gprMax.ports import (
     MagneticFrillPortOutput,
@@ -45,6 +46,7 @@ def port_config(monkeypatch):
         "sim_config",
         SimpleNamespace(
             dtypes={"float_or_double": np.float64, "complex": np.complex128},
+            em_consts={"e0": config.e0},
         ),
     )
 
@@ -55,6 +57,7 @@ def _voltage_port(total_voltage, generator_voltage, *, dt, resistance=50.0, capa
     output = VoltageSourcePortMonitor("feed", source, receiver, 10.0)
     output.reference_impedance = resistance
     output.hard_source = False
+    output.background_is_dispersive = False
     output.background_conductance = 0.0
     output.gap_capacitance = capacitance
     output.minimum_wavelength_cells = 10.0
@@ -340,6 +343,87 @@ def test_voltage_port_terminal_current_reproduces_gap_corrected_s11(monkeypatch)
     ) / (result.terminal_voltage + output.reference_impedance * result.terminal_current)
 
     assert_allclose(terminal_s11, expected_s11, rtol=2e-13, atol=2e-13)
+
+
+@pytest.mark.parametrize("precision", ["single", "double"])
+@pytest.mark.parametrize("active", [False, True], ids=["passive", "active"])
+def test_dispersive_voltage_port_power_removes_debye_gap(precision, active):
+    """A Debye shunt must not be counted as current entering the external load."""
+    real_dtype, complex_dtype = (
+        (np.float32, np.complex64) if precision == "single" else (np.float64, np.complex128)
+    )
+    config.sim_config.dtypes = {"float_or_double": real_dtype, "complex": complex_dtype}
+    dt, nsamples = 1e-11, 128
+    frequency = 5 / (nsamples * dt)
+    omega = 2 * np.pi * frequency
+    discrete_omega = 2 / dt * np.tan(omega * dt / 2)
+    epsilon0 = config.sim_config.em_consts["e0"]
+    area, length, sigma, epsilon_inf, delta_epsilon, tau = 2e-6, 1e-3, 0.2, 3.5, 5, 80e-12
+    # Independent series-RC Debye susceptibility, with the same bilinear
+    # frequency convention as the native port's feed-gap de-embedding.
+    gap = (
+        area
+        / length
+        * (
+            sigma
+            + 1j * discrete_omega * epsilon0 * epsilon_inf
+            + 1j * discrete_omega * epsilon0 * delta_epsilon / (1 + 1j * discrete_omega * tau)
+        )
+    )
+    voltage = 1.4 * np.exp(0.35j)
+    load = 75 + 20j
+    current = voltage / load if active else -voltage / 50 - gap * voltage
+    generator = voltage + 50 * (current + gap * voltage) if active else 0j
+    time = (np.arange(nsamples) + 0.5) * dt
+    output, grid = _voltage_port(
+        np.real(voltage * np.exp(1j * omega * time)),
+        np.real(generator * np.exp(1j * omega * time)),
+        dt=dt,
+        capacitance=epsilon0 * epsilon_inf * area / length,
+    )
+    material = DispersiveMaterial(3, "feed")
+    material.type = "debye"
+    material.er, material.se = epsilon_inf, sigma
+    material.poles = 1
+    material.deltaer, material.tau = [delta_epsilon], [tau]
+    output.background_is_dispersive = True
+    output.background_material = material
+    output.background_conductance = sigma * area / length
+    output.area, output.dl = area, length
+    output.spectrum_limit = "nyquist"
+
+    result = evaluate_port_power_spectrum(output, grid, [frequency])
+    transform_scale = nsamples * dt / 2
+    expected_voltage, expected_current = transform_scale * voltage, transform_scale * current
+    tolerance = 5e-6 if precision == "single" else 2e-12
+    assert_allclose(result.terminal_voltage, [expected_voltage], rtol=tolerance)
+    assert_allclose(result.terminal_current, [expected_current], rtol=tolerance)
+    assert_allclose(
+        result.accepted_power,
+        [0.5 * np.real(expected_voltage * np.conj(expected_current))],
+        rtol=tolerance,
+    )
+    assert result.terminal_valid.all()
+    if active:
+        assert_allclose(result.terminal_voltage / result.terminal_current, [load], rtol=tolerance)
+    else:
+        assert result.incident_power[0] == 0
+        assert result.accepted_power[0] < 0
+
+
+@pytest.mark.parametrize("dispersive", [False, True])
+def test_voltage_port_power_masks_nyquist_without_invalidating_other_bins(dispersive):
+    output, grid = _voltage_port(np.ones(32), np.full(32, 3.0), dt=1e-3, capacitance=2e-3)
+    output.spectrum_limit = "nyquist"
+    output.background_is_dispersive = dispersive
+    if dispersive:
+        output.area, output.dl = 1.0, 1.0
+        output.background_material = SimpleNamespace(
+            calculate_er=lambda frequency: 3.5 + 5 / (1 + 2j * np.pi * frequency * 0.001)
+        )
+    result = evaluate_port_power_spectrum(output, grid, [0.0, 10.0, 1 / (2 * grid.dt)])
+    np.testing.assert_array_equal(result.terminal_valid, [True, True, False])
+    assert np.isfinite(result.terminal_current[:2]).all()
 
 
 def test_rational_network_port_uses_external_network_current_sign(monkeypatch):

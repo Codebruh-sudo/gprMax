@@ -602,7 +602,9 @@ def validate_material_database(
     )
 
 
-def build_material_from_spec(grid: FDTDGrid, spec: MaterialSpec, material_id: str) -> Material:
+def build_material_from_spec(
+    grid: FDTDGrid, spec: MaterialSpec, material_id: str, *, directional_materials=None
+) -> Material:
     """Append a material with the requested local name and next numeric grid ID.
 
     This binds a validated specification to ``grid.dt`` and the current model's
@@ -610,8 +612,17 @@ def build_material_from_spec(grid: FDTDGrid, spec: MaterialSpec, material_id: st
     ``maxpoles``; merely loading a database does not enlarge recurrence storage.
     Density is copied as material metadata, not converted into a pole or an
     electromagnetic update coefficient.
+
+    This internal builder also restores generated IDs from geometry files.
+    User-ID restrictions belong in the MaterialFromDatabase command, not here:
+    imported averaged materials legitimately contain '+'.
     """
 
+    if ("directional_materials" in spec.metadata) != (directional_materials is not None):
+        raise ValueError(
+            "Directional cell records must be restored with their x/y/z materials by "
+            "GeometryObjectsRead, not loaded as scalar materials"
+        )
     if (
         is_reserved_impedance_id(material_id)
         or any(existing.ID == material_id for existing in grid.materials)
@@ -632,6 +643,9 @@ def build_material_from_spec(grid: FDTDGrid, spec: MaterialSpec, material_id: st
     result.sm = spec.magnetic_conductivity
     result.mass_density = spec.mass_density
     result.averagable = bool(spec.averagable)
+    result.directional_materials = directional_materials
+    if directional_materials is not None:
+        result.type = "anisotropic"
 
     if isinstance(result, DispersiveMaterial):
         # ``tau`` is a historical storage name: seconds for Debye, but hertz
@@ -681,7 +695,9 @@ def build_material_from_spec(grid: FDTDGrid, spec: MaterialSpec, material_id: st
     return result
 
 
-def material_matches_spec(material: Material, spec: MaterialSpec) -> bool:
+def material_matches_spec(
+    material: Material, spec: MaterialSpec, *, directional_materials=None
+) -> bool:
     """Compare base properties, density and the supported pole representation.
 
     Reuse requires identical numerical definitions, not a tolerance intended
@@ -692,6 +708,10 @@ def material_matches_spec(material: Material, spec: MaterialSpec) -> bool:
     alone do not make materials interchangeable for cell-based mass calculations.
     """
 
+    if getattr(material, "directional_materials", None) != directional_materials:
+        return False
+    if ("directional_materials" in spec.metadata) != (directional_materials is not None):
+        return False
     scalar_values = (
         (material.er, spec.relative_permittivity),
         (material.se, spec.electric_conductivity),
@@ -746,7 +766,7 @@ def material_matches_spec(material: Material, spec: MaterialSpec) -> bool:
     )
 
 
-def material_to_database_entry(material: Material) -> Mapping[str, Any]:
+def material_to_database_entry(material: Material, *, directional_keys=None) -> Mapping[str, Any]:
     """Serialise a live material without losing its dispersive representation."""
 
     base = {
@@ -761,6 +781,17 @@ def material_to_database_entry(material: Material) -> Mapping[str, Any]:
         "base": base,
         "averagable": bool(material.averagable),
     }
+    if getattr(material, "directional_materials", None) is not None:
+        if directional_keys is None:
+            raise ValueError(
+                "Serialising a directional cell requires its constituent database keys"
+            )
+        entry["metadata"] = {
+            "directional_materials": [
+                directional_keys[axis_material.ID]
+                for axis_material in material.directional_materials
+            ]
+        }
     if material.mass_density is not None:
         entry["mass_density_kg_per_m3"] = float(material.mass_density)
     if not isinstance(material, DispersiveMaterial) or material.poles == 0:

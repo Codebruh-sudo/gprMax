@@ -301,6 +301,35 @@ phases. This is the radiative far-zone term of the coated-conductor spectrum
 described by Tang and Hong [TANG2002]_; finite-distance surface and lateral
 waves are not part of an asymptotic NTFF output.
 
+The source location is the physical Yee-component centre, not its integer
+grid anchor. Electric dipoles have a half-cell shift along their
+polarisation axis; magnetic dipoles have half-cell shifts along the two
+transverse axes. For example, an x-polarised magnetic source is located
+at :math:`(i\Delta x,(j+1/2)\Delta y,(k+1/2)\Delta z)`.
+
+An absolute comparison uses the recorded source samples and their time
+offset :math:`t_0`:
+
+.. math::
+
+    \widehat{s}(f)=\Delta t\sum_n s_n
+       \exp[-j2\pi f(n\Delta t+t_0)].
+
+The recorded spatial scale converts this spectrum to the source moment.
+For the electric transverse projection and magnetic cross product used in
+the driver, the range-normalised far-field factors are, respectively,
+
+.. math::
+
+    C_E=-\frac{jk_0\eta_0}{4\pi}\widehat{I\ell},\qquad
+    C_H=+\frac{jk_0}{4\pi}\widehat{M}.
+
+Here :math:`\widehat{M}` is the magnetic-current moment implied by the
+magnetic-dipole source update, and the time convention is
+:math:`\exp(+j\omega t)`. No amplitude or phase is fitted in this absolute
+comparison. A separate pattern-shape diagnostic retains the original single
+complex fit shared by both principal planes.
+
 .. figure:: ../../testing/validation/planar_layered_ntff/results/grounded_dipoles/grounded_dipole_patterns.png
     :width: 850 px
 
@@ -308,17 +337,19 @@ waves are not part of an asymptotic NTFF output.
     or short-circuited-slab solution and symbols are the five-face production
     Huygens transform.
 
-The electric-dipole complex vector fields have a worst peak-normalised
-pointwise difference of 0.0483 percent over 1.5, 2.0, and 2.5 GHz. Their
-worst maximum-directivity difference is 0.977 percent. Magnetic source
-discretisation is more demanding: the tangential magnetic case has worst
-vector-field, power, and maximum-directivity differences of 3.83, 5.07, and
-3.19 percent, respectively; the normal magnetic case is below one percent
-for all three measures. A repeat of the worst tangential-magnetic case with
-the cell size reduced from 1.5 mm to 0.75 mm reduces those three differences
-at 2.5 GHz to 1.89, 2.47, and 1.56 percent, respectively. This convergence
-test identifies the larger magnetic-source difference as a finite-mesh
-limitation rather than hiding it by cut-by-cut normalisation.
+At 1.5 mm resolution, the worst absolute complex-vector relative L2 error
+over 1.5, 2.0, and 2.5 GHz is **0.04390 percent** for the four bare-PEC
+cases and **0.13149 percent** for the two coated cases. The tangential and
+normal magnetic bare-PEC cases give 0.01008 and 0.02717 percent, respectively.
+The L2 norm includes both ``Etheta`` and ``Ephi`` in both principal planes;
+these values are not maximum pointwise errors. The corresponding worst
+maximum-directivity differences are 0.09916 percent for bare PEC and
+0.97664 percent for coated PEC.
+
+Earlier larger magnetic-source discrepancies resulted from an incorrectly
+positioned analytical dipole, not an identified solver defect. The figures
+and metrics above use the corrected Yee centres. That correction alone does
+not establish a mesh-convergence result.
 
 The :download:`grounded-slab reflection driver
 <../../testing/validation/planar_layered_ntff/validate_grounded_slab_reflection.py>`

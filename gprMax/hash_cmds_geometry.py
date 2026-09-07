@@ -113,6 +113,11 @@ def process_geometrycmds(geometry):
         if base_length is not None:
             if len(tmp) == base_length + 2 and tmp[-2].lower() in {"y", "n"}:
                 tag, tmp = tmp[-1], tmp[:-1]
+            elif len(tmp) == base_length + 4 and tmp[-2].lower() in {"y", "n"}:
+                # Three directional materials followed by the same explicit
+                # smoothing marker and tag. Directional primitives already
+                # disable smoothing, so only their three material IDs remain.
+                tag, tmp = tmp[-1], tmp[:-2]
 
         # A fractal tag follows the existing seed and y/n smoothing values.
         elif tmp[0] == "#fractal_box:":

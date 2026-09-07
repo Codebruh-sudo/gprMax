@@ -120,7 +120,8 @@ def test_tm_source_and_rx_resolve_to_reference_layer_via_inf(monkeypatch, tmp_pa
     assert grid.rxs[0].coord[0] == 0
 
 
-def test_te_source_non_invariant_axis_unaffected_by_mode(monkeypatch, tmp_path):
+@pytest.mark.parametrize("polarisation", ("y", "z"))
+def test_te_source_non_invariant_axis_unaffected_by_mode(monkeypatch, tmp_path, polarisation):
     """inf on a non-invariant axis in a 2D model still uses the plain
     sign-based 3D rule (snap to that axis's own domain edge)."""
     dl = 1e-3
@@ -132,8 +133,14 @@ def test_te_source_non_invariant_axis_unaffected_by_mode(monkeypatch, tmp_path):
     scene.add(gprMax.TimeWindow(time=1e-12))
     scene.add(gprMax.Waveform(wave_type="ricker", amp=1, freq=10e9, id="mypulse"))
     scene.add(
-        gprMax.HertzianDipole(polarisation="y", p1=(0.001, INF, 0.01), waveform_id="mypulse")
+        gprMax.HertzianDipole(polarisation=polarisation, p1=(0.001, INF, 0.01), waveform_id="mypulse")
     )
 
+    # +inf still resolves to y=ny, but that is physical only for the
+    # transverse Ez component. Ey[*,ny,*] is an unused padded entry.
+    if polarisation == "y":
+        with pytest.raises(ValueError, match="physical Yee component"):
+            _run(monkeypatch, tmp_path, "src_te_padding", scene)
+        return
     grid = _run(monkeypatch, tmp_path, "src_te_other_axis", scene)
     assert grid.hertziandipoles[0].coord[1] == 20

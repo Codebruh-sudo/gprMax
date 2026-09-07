@@ -13,6 +13,8 @@ from toolboxes.GeometryImport.common import (
     build_tag_volume,
     normalise_tag_name,
     unique_normalised_tags,
+    validate_material_assignment_entries,
+    validate_material_assignment_name,
     write_geometry_hdf5,
 )
 
@@ -72,6 +74,8 @@ def read_assignments(files, path=None):
     files = tuple(Path(item) for item in files)
     defaults = unique_normalised_tags([item.stem for item in files])
     if path is None:
+        for source in files:
+            validate_material_assignment_name(source.stem)
         return [
             STLAssignment(source, True, index, source.stem, tag)
             for index, (source, tag) in enumerate(zip(files, defaults))
@@ -96,6 +100,8 @@ def read_assignments(files, path=None):
             material_name = row["material_name"].strip() or None
             if include and material_name is None:
                 raise ValueError(f"material_name is required for {name}")
+            if include:
+                validate_material_assignment_name(material_name)
             requested_tag = row["geometry_tag"].strip()
             tag = normalise_tag_name(requested_tag or Path(name).stem) if include else None
             assignments.append(
@@ -116,6 +122,7 @@ def read_assignments(files, path=None):
 def _write_or_preserve_database(database_file, database_id, material_keys, entries):
     """Create a material template without overwriting user-supplied values."""
 
+    validate_material_assignment_entries(entries)
     if database_file.exists():
         try:
             existing = json.loads(database_file.read_text(encoding="utf-8"))
@@ -135,6 +142,7 @@ def _write_or_preserve_database(database_file, database_id, material_keys, entri
                 f"Existing material database {database_file} has material keys that do not "
                 "match the STL inputs; move it aside before converting the changed geometry"
             )
+        validate_material_assignment_entries(recorded_materials)
         logger.info(f"Preserved existing editable material database: {database_file}")
         return
 

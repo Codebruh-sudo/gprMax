@@ -47,6 +47,14 @@ to geometry objects as ``model_vacuum``:
         id="model_vacuum",
     ))
 
+User-defined local material IDs must not contain ``+``: gprMax uses it when
+constructing averaged and other generated material IDs. Use ``_`` instead.
+This restriction applies to both ``Material`` and ``MaterialFromDatabase``
+and their hash commands. It is not a restriction on descriptive JSON ``name``
+fields, nor on generated IDs stored in paired geometry databases. Full
+``GeometryObjectsWrite``/``GeometryObjectsRead`` round trips preserve those
+generated definitions and their component assignments.
+
 Database lookup
 ===============
 
@@ -234,6 +242,22 @@ parameters, pole definitions, and density match the imported definition
 exactly. Otherwise the imported material receives a database-qualified name,
 such as ``tissue{anatomy_materials}``. If that qualified name already exists
 with different properties, the import stops instead of substituting materials.
+
+Exports containing diagonal anisotropic volumes also retain ordered x/y/z
+references in each generated cell record's ``metadata.directional_materials``.
+These are three keys in the same JSON database, not numeric grid IDs. The
+scalar base values on that record are display/estimate means, not a substitute
+for the directional constitutive definitions. ``GeometryObjectsRead`` restores
+the referenced materials before the cell record, including dispersion and
+density. Such files require the complete ``ID``, ``rigidE``, and ``rigidH``
+arrays; scalar voxel-only reconstruction would lose the directional model
+and is rejected. Do not load a generated directional record with
+``MaterialFromDatabase`` as an ordinary scalar material. Existing isotropic
+geometry files require no new metadata.
+
+Regenerate older anisotropic geometry exports from their input models if they
+lack these directional references: scalar mean cell properties alone do not
+retain the constitutive tensor or its directional dispersive poles.
 
 New PNG-derived geometry should be created with
 ``python -m toolboxes.Utilities.convert_png2h5``. The utility writes both the

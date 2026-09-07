@@ -34,6 +34,11 @@ import numpy as np
 import numpy.typing as npt
 
 import gprMax.config as config
+from gprMax.dispersion import (
+    active_spatial_steps,
+    complex_relative_permeability as _complex_relative_permeability,
+    complex_relative_permittivity as _complex_relative_permittivity,
+)
 from gprMax.ntff.conventions import (
     FORWARD_TRANSFORM_KERNEL,
     PHASOR_TIME_DEPENDENCE,
@@ -499,11 +504,10 @@ def evaluate_port_power_spectrum(
             time_offset=0.5 * grid.dt,
         )
         incident_voltage = np.asarray(0.5 * generator_voltage, dtype=complex_dtype)
-        omega_discrete = (2 / grid.dt) * np.tan(np.pi * frequency * grid.dt)
-        gap_admittance = np.asarray(
-            output.background_conductance + 1j * omega_discrete * output.gap_capacitance,
-            dtype=complex_dtype,
-        )
+        # Use the same complete feed-gap correction as native S11/Zin. Omitting
+        # dispersive polarisation here changes the current and accepted power
+        # used by antenna metrics and SAR despite identical voltage histories.
+        gap_admittance = _finite_source_gap_admittance(output, frequency, grid.dt, complex_dtype)
         source_current = (generator_voltage - terminal_voltage) / output.reference_impedance
         terminal_current = np.asarray(
             source_current - gap_admittance * terminal_voltage,
@@ -753,42 +757,6 @@ def engineering_rfft(
     return np.asarray(frequencies64, dtype=real_dtype), spectrum
 
 
-def _complex_relative_permittivity(material, frequencies):
-    """Return material relative permittivity including conductivity."""
-
-    values = np.empty(frequencies.shape, dtype=np.complex128)
-    zero = frequencies == 0
-    values[zero] = complex(material.er)
-    positive = ~zero
-    if not np.any(positive):
-        return values
-    if hasattr(material, "poles"):
-        values[positive] = np.asarray(
-            material.calculate_er(frequencies[positive]), dtype=np.complex128
-        )
-    else:
-        omega = 2 * np.pi * frequencies[positive]
-        values[positive] = material.er + material.se / (
-            1j * omega * config.sim_config.em_consts["e0"]
-        )
-    return values
-
-
-def _complex_relative_permeability(material, frequencies):
-    """Return material relative permeability including magnetic loss."""
-
-    values = np.empty(frequencies.shape, dtype=np.complex128)
-    zero = frequencies == 0
-    values[zero] = complex(material.mr)
-    positive = ~zero
-    if np.any(positive):
-        omega = 2 * np.pi * frequencies[positive]
-        values[positive] = material.mr + material.sm / (
-            1j * omega * config.sim_config.em_consts["m0"]
-        )
-    return values
-
-
 def minimum_wavelength_sampling(
     grid: "FDTDGrid",
     frequencies: npt.ArrayLike,
@@ -799,7 +767,8 @@ def minimum_wavelength_sampling(
     ordinary nonmagnetic/nondispersive case this reduces exactly to using the
     largest relative permittivity in the model. The complex refractive-index
     magnitude gives a conservative spatial-scale estimate for lossy and
-    dispersive media.
+    dispersive media. Only the two propagation spacings enter in a reduced
+    TM/TE model; its invariant-axis thickness is not a wavelength sample.
     """
 
     real_dtype = np.dtype(config.sim_config.dtypes["float_or_double"])
@@ -809,7 +778,7 @@ def minimum_wavelength_sampling(
     if np.any(frequencies64 < 0) or not np.all(np.isfinite(frequencies64)):
         raise ValueError("frequencies must be finite and non-negative")
 
-    delta = float(max(grid.dx, grid.dy, grid.dz))
+    delta = max(step for _, step in active_spatial_steps(grid, config.get_model_config().mode))
     cells = np.full(frequencies64.shape, np.inf, dtype=np.float64)
     limiting = np.full(frequencies64.shape, "", dtype=object)
     materials_found = 0
@@ -1398,16 +1367,27 @@ class VoltageSourcePortMonitor:
             if getattr(receiver, "internal", False)
             and getattr(receiver, "port_id", None) == self.output_id
         ]
+        # Positions are not identities: distinct voltage ports may share one
+        # Yee edge. The port ID is reserved consistently on all ranks before
+        # source ownership is assigned and survives gathering.
         sources = [
             source
             for source in grid.voltagesources
-            if source.polarisation == self.source.polarisation
-            and np.array_equal(source.coord, self.source.coord)
+            if getattr(source, "port_id", None) == self.output_id
         ]
         if len(receivers) != 1 or len(sources) != 1:
             raise RuntimeError(
                 f"Voltage-source port {self.output_id!r} could not uniquely rebind its MPI "
                 f"receiver/source ({len(receivers)} receiver(s), {len(sources)} source(s))"
+            )
+        if sources[0].polarisation != self.source.polarisation or not np.array_equal(
+            sources[0].coord, receivers[0].coord
+        ):
+            # Both gathered objects use global coordinates; the monitor's old
+            # source reference can still be in the owner's local coordinates.
+            raise RuntimeError(
+                f"Voltage-source port {self.output_id!r} has an inconsistent MPI "
+                "source/receiver edge after gathering"
             )
         self.receiver = receivers[0]
         self.source = sources[0]
