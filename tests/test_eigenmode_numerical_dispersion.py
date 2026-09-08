@@ -278,7 +278,8 @@ def test_dispersive_pec_is_masked_before_sampling(monkeypatch, dispersive_materi
     assert source._complex_er(dispersive_material, fdtd_dt) == source.FDFD_PEC_PROPERTY
 
 
-def test_source_surface_row_uses_same_discrete_frequency_as_bulk_curls():
+@pytest.mark.parametrize("polarization_load", (0j, 2e-7 + 3e-7j))
+def test_source_surface_row_uses_same_discrete_frequency_as_bulk_curls(polarization_load):
     source, grid = _source_grid()
     epsilon0 = config.e0
     area = 0.5 * grid.dy * grid.dz
@@ -298,6 +299,7 @@ def test_source_surface_row_uses_same_discrete_frequency_as_bulk_curls():
         port_g=np.array([-length]),
         h_info=np.array([[1, 1, 2, 2], [2, 1, 2, 2]], dtype=np.int32),
         h_weight=np.array([0.5 * grid.dy, -0.5 * grid.dz]),
+        polarization_admittance=lambda index, theta: polarization_load,
     )
 
     boundary = source._build_surface_impedance_fdfd_boundary(grid)
@@ -308,6 +310,7 @@ def test_source_surface_row_uses_same_discrete_frequency_as_bulk_curls():
     required_curl = (
         (a_plus * np.exp(1j * theta) - a_minus) * np.exp(-0.5j * theta)
         + length * np.cos(theta / 2) / resistance
+        + polarization_load
     )
     represented_curl = 1j * discrete_omega * epsilon0 * area * boundary.rows[0].relative_permittivity
     assert represented_curl == pytest.approx(required_curl, rel=2e-14, abs=1e-16)

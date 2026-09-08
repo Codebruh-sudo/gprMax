@@ -109,6 +109,7 @@ from .user_objects.cmds_multiuse import (
     Waveform,
 )
 from .user_objects.cmds_output import (
+    EigenmodeFieldOutput,
     SAR,
     GeometryObjectsWrite,
     GeometryView,

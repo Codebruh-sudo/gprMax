@@ -1785,6 +1785,9 @@ class FDTDGrid:
         if marker_cell_counts:
             impedancearrays += self.nx * self.ny * self.nz * np.dtype(np.int32).itemsize
             estimated_state_values = 0
+            max_boundary_poles = max(
+                (getattr(material, "poles", 0) for material in self.materials), default=0,
+            )
             for marker_numid, cell_count in marker_cell_counts.items():
                 # Twelve E edges and 24 surface ports per cell are the
                 # isolated-voxel upper bounds for arbitrary unions, cavities,
@@ -1799,6 +1802,14 @@ class FDTDGrid:
                 # isolated/rough-voxel upper bound; smooth faces merge several
                 # circulation terms.
                 impedancearrays += edges * (24 * np.dtype(np.int32).itemsize + 9 * real_size)
+                if max_boundary_poles:
+                    # At most three retained quadrants per boundary E edge.
+                    # Each pole has six real coefficients and two state values;
+                    # each edge has two instantaneous corrections and an offset.
+                    impedancearrays += edges * (
+                        (2 + 3 * max_boundary_poles * 8) * real_size
+                        + np.dtype(np.int32).itemsize
+                    )
                 # Each port stores its model/state indices, normal, area,
                 # geometric weight, and two precomputed Z0 ratios. Foster
                 # history has one in-place scalar per port and retained pole;
@@ -1828,6 +1839,8 @@ class FDTDGrid:
             # compiled Cython memoryview remains valid.
             if estimated_state_values == 0:
                 impedancearrays += real_size
+            if max_boundary_poles:
+                impedancearrays += np.dtype(np.int32).itemsize  # final pole offset
 
         mem_use = fieldarrays + solidarray + tagarray + rigidarrays + pmlarrays + impedancearrays
 

@@ -82,6 +82,7 @@ class Model:
 
         self.geometryviews: List[GeometryView] = []
         self.geometryobjects: List[GeometryObject] = []
+        self.eigenmode_field_outputs = []
 
         # Monitor memory usage
         self.p = None
@@ -501,6 +502,13 @@ class Model:
         self._output_geometry()
 
     def _output_geometry(self):
+        if self.eigenmode_field_outputs:
+            from gprMax.eigenmode_field_output import write_eigenmode_fields
+            from pathlib import Path
+
+            directory = Path(config.get_model_config().output_file_path).parent
+            for filename, ports in self.eigenmode_field_outputs:
+                write_eigenmode_fields(directory / (filename + ".modes.h5"), self.G, ports)
         # Write files for any geometry views and geometry object outputs
         if (
             not self.geometryviews

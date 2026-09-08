@@ -883,6 +883,12 @@ class EigenmodeSource(Source):
                 port_admittances=admittances,
                 normalization_angular_frequency=port_responses[0].discrete_angular_frequency,
             )
+            relative_permittivity += system.polarization_admittance(
+                edge_index, port_responses[0].theta,
+            ) / (
+                1j * port_responses[0].discrete_angular_frequency
+                * config.sim_config.em_consts["e0"] * retained_dual_area
+            )
             magnetic_terms = self._surface_boundary_magnetic_terms(
                 G,
                 system,

@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import platform
 import statistics
 import tempfile
 from dataclasses import dataclass
@@ -38,6 +39,7 @@ from pathlib import Path
 from time import perf_counter
 
 import gprMax
+import numpy as np
 
 _SOLVE_SECONDS = []
 
@@ -74,6 +76,7 @@ def build_scene(
     fit_fmin_hz: float,
     fit_fmax_hz: float,
     fit_tolerance: float,
+    exterior: str = "none",
 ):
     """Build one otherwise identical baseline or impedance-box scene."""
 
@@ -85,6 +88,7 @@ def build_scene(
     scene.add(gprMax.TimeWindow(iterations=iterations))
     scene.add(gprMax.PMLThickness(thickness=5))
     scene.add(gprMax.OMPThreads(threads))
+    add_exterior(scene, exterior, extent)
     if case.kind != "none":
         if case.kind == "resistance":
             surface = gprMax.SurfaceImpedance(id="benchmark_wall", resistance=50.0)
@@ -112,6 +116,31 @@ def build_scene(
     return scene
 
 
+def add_exterior(scene, kind: str, extent: float) -> None:
+    """Add the same bulk material to baseline and surface timing scenes."""
+    if kind == "none":
+        return
+    kinds = ("debye", "lorentz", "drude") if kind == "mixed" else (kind,)
+    for index, name in enumerate(kinds):
+        material_id = f"benchmark_{name}"
+        scene.add(gprMax.Material(er=3, se=0.02, mr=1, sm=0, id=material_id))
+        common = dict(poles=2, material_ids=[material_id])
+        if name == "debye":
+            scene.add(gprMax.AddDebyeDispersion(er_delta=[2., 1.], tau=[3e-11, 8e-11], **common))
+        elif name == "lorentz":
+            scene.add(gprMax.AddLorentzDispersion(
+                er_delta=[2., 1.], omega=[8e9, 12e9], delta=[2e9, 3e9], **common,
+            ))
+        elif name == "drude":
+            scene.add(gprMax.AddDrudeDispersion(omega=[5e9, 9e9], alpha=[4e9, 6e9], **common))
+        else:
+            raise ValueError(f"unknown exterior material {kind!r}")
+        # Three slabs cut through the wall so boundary edges include mixtures.
+        lower = (index*extent/len(kinds), 0, 0)
+        upper = ((index+1)*extent/len(kinds), extent, extent)
+        scene.add(gprMax.Box(p1=lower, p2=upper, material_id=material_id))
+
+
 def timed_run(path: Path, *, args, case: SurfaceCase, iterations: int | None = None):
     """Run one scene and return wall-clock and solver-only durations."""
 
@@ -126,6 +155,7 @@ def timed_run(path: Path, *, args, case: SurfaceCase, iterations: int | None = N
                 fit_fmin_hz=args.fit_band[0],
                 fit_fmax_hz=args.fit_band[1],
                 fit_tolerance=args.fit_tolerance,
+                exterior=getattr(args, "exterior", "none"),
             )
         ],
         outputfile=path,
@@ -161,6 +191,11 @@ def _surface_metadata(grid, system) -> dict:
         "port_state_values": state_values,
         "port_state_bytes": state_values * real_size,
         "packed_state_array_bytes": state_array_bytes,
+        "polarization_poles": len(getattr(system, "pole_coeffs", ())),
+        "polarization_state_bytes": _array_bytes(system, "state_p"),
+        "polarization_coefficient_bytes": _array_bytes(
+            system, "pole_offsets", "pole_coeffs", "edge_dispersion",
+        ),
         "model_local_coefficient_bytes": _array_bytes(system, "model_f", "model_q", "model_Z0"),
         "precomputed_edge_port_bytes": _array_bytes(
             system,
@@ -252,12 +287,16 @@ def run_benchmark(args):
             kernel_seconds[case.key] = samples
 
         updates = {key: CPUUpdates(grid) for key, grid in latest_grids.items()}
+        for case_updates in updates.values():
+            if case_updates.grid.maxpoles:
+                case_updates.set_dispersive_updates()
 
         def hot_loop(case_key, count):
             case_updates = updates[case_key]
             for _ in range(count):
                 case_updates.update_magnetic()
                 case_updates.update_electric_a()
+                case_updates.update_electric_b()
                 case_updates.update_impedance_surfaces()
 
         for case in cases:
@@ -306,6 +345,9 @@ def run_benchmark(args):
                 "sparse_edge_updates_per_second": edge_updates / kernel_median,
                 "sparse_port_updates_per_second": port_updates / kernel_median,
                 "sparse_pole_updates_per_second": pole_updates / kernel_median,
+                "sparse_polarization_updates_per_second": (
+                    args.kernel_iterations * metadata["polarization_poles"] / kernel_median
+                ),
                 "bulk_plus_surface_hot_seconds": hot_seconds[case.key],
                 "bulk_plus_surface_hot_median_seconds": hot_median,
                 "bulk_plus_surface_overhead_percent": 100 * (hot_median / baseline_hot - 1),
@@ -315,6 +357,11 @@ def run_benchmark(args):
     return {
         "configuration": {
             "domain_cells": args.cells,
+            "exterior": getattr(args, "exterior", "none"),
+            "python": platform.python_version(),
+            "numpy": np.__version__,
+            "platform": platform.platform(),
+            "processor": platform.processor(),
             "iterations": args.iterations,
             "threads": args.threads,
             "repeats": args.repeats,
@@ -355,6 +402,7 @@ def _parser():
     parser.add_argument("--fit-tolerance", type=float, default=2e-3)
     parser.add_argument("--explicit-orders", nargs="+", type=int, default=(4, 8, 16, 32))
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--exterior", choices=("none", "debye", "lorentz", "drude", "mixed"), default="none")
     return parser
 
 
