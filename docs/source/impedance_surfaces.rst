@@ -198,7 +198,8 @@ Impedance geometry cannot yet be round-tripped through
 
 The volume must occupy at least one cell along every non-empty axis and there
 must be at least one retained cell between the complete impedance region and
-each domain boundary. Its surface must not intersect a PML.
+each non-symmetry domain boundary. The region may extend to a declared PEC or
+PMC symmetry plane. Its surface must not intersect a PML.
 
 Rasterized topology
 -------------------
@@ -263,10 +264,10 @@ conductive mass,
 
 Thus a flat boundary retains one half of the ordinary dual area. A convex
 box edge retains three quarters; re-entrant staircase configurations can
-retain one quarter. Heterogeneous, non-dispersive retained quadrants are
-integrated independently. A dispersive dielectric immediately outside the
-boundary is currently rejected because its volume memory variables have not
-yet been coupled to the locally implicit surface row.
+retain one quarter. Heterogeneous retained quadrants are integrated
+independently, including Debye, Lorentz, Drude, and inclusive mixtures.
+Polarization histories use only the retained areas; repeated quadrants of
+the same material share a history with their areas summed.
 
 Each retained quadrant also contributes half-line magnetic-circulation
 segments. Duplicate segments are coalesced. Every metal/dielectric face
@@ -280,6 +281,64 @@ tangential boundary action is supplied by the surface current. The local
 face-connectivity checks above ensure that this clipped update is compiled
 only for an unambiguous manifold boundary.
 
+Contacts with PEC and PMC volumes
+---------------------------------
+
+Isotropic PEC, PMC, and surface-impedance volumes may coexist and touch.
+Custom materials with infinite electric or magnetic conductivity receive the
+same treatment as the built-in ``pec`` and ``pmc`` materials.
+
+If any incident quadrant is PEC, the shared tangential E component is forced
+to zero and has no surface-impedance update or surface-current state. This
+precedence is independent of the drawing order of adjacent volumes. An
+existing PEC component constraint is also preserved. A diagonal PEC/SIBC
+contact with two separating retained quadrants produces an aggregated warning
+with a count and up to three example Yee-edge coordinates. Face-sharing
+PEC/SIBC contacts do not produce this warning.
+
+PMC compatibility uses the existing volume solver's H constraints. A contour
+sample whose final H-component material is PMC is omitted from the sparse
+circulation because its update coefficients force it to zero. This does not
+remove a quadrant's electric storage or conductivity contribution, change the
+dual area, or delete an impedance-current port. It produces the same update
+as retaining that sample with H equal to zero. This feature does not change
+the PMC volume's boundary discretisation. Domain symmetry planes use the
+separate treatment described below.
+
+Directional PEC/PMC material mixtures at the impedance boundary are rejected:
+their averaged voxel material does not retain the directional information
+needed by this compiler. Use isotropic conductor volumes for these contacts.
+
+The runnable example
+``examples/features/impedance_surface/pec_pmc_contacts.py`` places a copper
+SIBC block between PEC and PMC volumes. It writes a geometry view and electric
+field traces at the PEC, PMC, and exposed SIBC contacts::
+
+    python examples/features/impedance_surface/pec_pmc_contacts.py --output-dir results/contacts
+
+Domain symmetry planes
+----------------------
+
+PEC and PMC ``SymmetryBoundary`` planes are supported on all six domain faces,
+including intersecting planes. An impedance volume may meet a symmetry plane;
+its boundary must satisfy the topology rules after reflection across that
+plane. The cut through the impedance interior does not create an end cap.
+
+On a PEC plane, tangential E remains zero and has no impedance-current state.
+On a PMC plane, the clipped electric update integrates only the physical
+quadrants and closes the contour along the plane, where tangential H is zero.
+The reduced electric area gives the same update as the full mirrored geometry
+with odd tangential H. Surface-current ports also use their physical lengths;
+reported surface areas describe the modeled portion of the geometry.
+
+The contact example can cut all three conductor volumes at the ``x0`` plane
+and add a receiver on that plane::
+
+    python examples/features/impedance_surface/pec_pmc_contacts.py --symmetry pmc --output-dir results/symmetry
+
+Use ``--symmetry pec`` for the corresponding PEC plane. The ordinary source,
+PML, and solver restrictions below still apply.
+
 Supported solver configurations
 -------------------------------
 
@@ -288,11 +347,11 @@ The following combinations are deliberately rejected:
 
 * CUDA, OpenCL, and Metal field solvers;
 * MPI domain decomposition and subgrids;
-* symmetry boundaries or thin wires in the same grid;
+* thin wires in the same grid;
 * an impedance boundary which intersects a PML;
 * an electric source, rational-network terminal, or transmission-line edge
   which overlaps a boundary electric edge;
-* a dispersive retained material immediately outside the boundary;
+* a directional PEC/PMC material mixture immediately outside the boundary;
 * a ``VirtualWaveguide`` termination.
 
 An axial discrete plane wave is unsupported because it samples the completed
@@ -350,6 +409,13 @@ dielectric. The surface current and scalar boundary law are
    \mathbf K=\hat{\mathbf n}_m\times\mathbf H,
    \qquad
    \mathbf E_t=Z_s\mathbf K.
+
+The boundary treatment uses the collocated tangential E and H method of
+Kobidze [KOB2010]_. Both fields in the impedance condition are evaluated at
+the conductor surface. In this implementation, the boundary magnetic field
+is represented by the surface current :math:`\mathbf K` and coupled to the
+boundary E degree of freedom through the clipped circulation and local ADE
+update described below.
 
 For an electric edge with unit tangent :math:`\hat{\mathbf t}_p`, one compiled
 port uses
@@ -698,6 +764,49 @@ boundary edge normally has one port and one current. A convex manifold edge
 can have two face ports: they share the scalar electric solve but retain
 separate histories and separate :math:`k_p` values.
 
+Dispersive retained quadrants
+----------------------------
+
+At a dispersive contact the same scalar elimination includes both bulk
+polarization and surface-current histories. Let :math:`A_q` be the retained
+area assigned to material :math:`q`, and let :math:`EA_q,EB_q` be its ordinary
+bulk dispersive electric coefficients before division. The electric row uses
+
+.. math::
+
+   a_+^{\mathrm{disp}}=\sum_q A_q EA_q,
+   \qquad a_-^{\mathrm{disp}}=\sum_q A_q EB_q,
+   \qquad r_H\longmapsto r_H-\Phi^n.
+
+Each retained material pole owns the area-scaled complex history
+:math:`S=\epsilon_0 A_q T`. Using the bulk recurrence coefficients
+``eqt``, ``zt``, and ``eqt2`` gives
+
+.. math::
+
+   f=\mathrm{eqt},\qquad b=\epsilon_0 A_q\mathrm{zt},
+   \qquad c=\mathrm{eqt2},\qquad
+   \Phi^n=\sum_{q,m}\operatorname{Re}(c_{q,m}S_{q,m}^n),
+
+.. math::
+
+   S_{q,m}^{n+1}=f_{q,m}S_{q,m}^n+b_{q,m}(e^n-e^{n+1}).
+
+Both the instantaneous polarization contribution and Drude's equivalent
+conductivity are included in :math:`EA_q,EB_q`. Updating only the history
+term would omit their implicit contribution to the electric solve.
+The sparse kernel advances :math:`S` with the final boundary E, after the
+bulk A/B stages. The private held material prevents those stages from
+advancing the same histories. Resetting the grid clears both polarization
+and surface-current states.
+
+Real and imaginary parts occupy separate columns in the field precision.
+Per pole there are six real coefficients and two real state values. Each
+boundary edge also stores a pole offset and two corrections to the physical
+non-dispersive :math:`a_+,a_-` values. These arrays are empty when no
+dispersive material touches the boundary. The magnetic circulation and
+surface-port geometry are unchanged.
+
 Packed data and update order
 ----------------------------
 
@@ -859,10 +968,11 @@ parameters.
 .. important::
 
    The surface ADE, midpoint factor, boundary electric mass, conductivity,
-   and clipped transverse curl are reduced exactly for the FDTD time step.
+   clipped transverse curl, and retained boundary polarization histories are
+   reduced exactly for the FDTD time step.
    Eigenmode sources also use the owning grid's leapfrog temporal symbol and
    longitudinal spatial difference. Bulk nondispersive conductivity includes
-   its midpoint factor. Bulk dispersive material poles still use their
+   its midpoint factor. Away from the surface, bulk dispersive poles still use their
    analytic physical-frequency response rather than the exact volume ADE
    transfer, so the general dispersive bulk eigenproblem is not fully time
    discrete. Keep modal anchors below Nyquist and check mesh/time-step
@@ -1101,6 +1211,91 @@ CPU, thread count, boundary area, and surface-to-volume ratio; timing values
 are not portable CI thresholds. Wall-clock construction time should not be
 mixed with time-stepping overhead.
 
+Dispersive-contact benchmark
+----------------------------
+
+The box benchmark accepts ``--exterior debye``, ``lorentz``, ``drude``, or
+``mixed``. The same exterior is used for its ordinary-grid baseline. The
+dispersive hot loop includes both electric A/B stages, and the JSON records
+boundary polarization pole count, state bytes, coefficient/index bytes, and
+polarization update rate in addition to the surface-current measurements.
+
+The combined sweep also runs pulse-driven Python/Cython comparisons,
+late-time decay checks, and convergence toward an ordinary PEC box as the
+surface resistance decreases:
+
+.. code-block:: console
+
+    python -m testing.benchmarking.benchmark_dispersive_impedance \
+        --cells 48 --iterations 250 --threads 4 --repeats 3 \
+        --explicit-orders 4 8 --kernel-iterations 1000 --kernel-repeats 3 \
+        --hot-iterations 250 --hot-repeats 3 \
+        --output testing/benchmarking/results/dispersive_impedance_2026-09-07.json
+
+The recorded 2026-09-07 sweep passes all four driven exterior cases. Maximum
+Python/Cython receiver relative L2 error is :math:`1.17\times10^{-15}`.
+Reducing resistance from 0.01 to 0.001 Ohm reduces error against the PEC
+receiver trace approximately tenfold in every case. The final 200-sample
+peak is at most :math:`1.42\times10^{-4}` of the run peak. These are discrete
+solver and limiting-case checks, not a general continuum-accuracy or
+unconditional-stability guarantee.
+
+For the 6,912-edge timing box, a uniform two-pole exterior adds 221,184 state
+bytes and 801,796 coefficient/index bytes. The mixed exterior needs slightly
+more state at material seams. Full raw repeats, hardware information,
+acceptance criteria, and a readable summary are saved in
+``testing/benchmarking/results/dispersive_impedance_2026-09-07.json`` and the
+adjacent ``.md`` report. Timing noise on a shared desktop prevents using
+these samples as a material speed ranking or a portable performance limit.
+
+Analytical sphere and plane-wave comparisons
+--------------------------------------------
+
+Two additional CPU validations compare the driven surface boundary with
+analytical electromagnetic solutions:
+
+.. code-block:: console
+
+    python -m testing.validation.impedance_surface.validate_conductor_sphere --threads 4
+    python -m testing.validation.impedance_surface.validate_reflection_phase --threads 4
+
+The sphere case compares 2--7 GHz backscatter and complex angular scattering
+for a 16 mm radius sphere with both impedance-boundary Mie theory and the
+full homogeneous conducting-sphere Mie series. Conductivities are
+:math:`10^3` and :math:`5.8\times10^7` S/m. Refining the staircased boundary
+from 1.5 to 0.75 mm reduces backscatter RMS errors from 1.30/1.26 dB to
+0.855/0.832 dB. Both fine meshes pass the 1 dB RMS, 2 dB maximum and 15%
+complex angular-pattern error gates. The coarse results are convergence
+diagnostics. The bulk reference evaluates scaled Bessel ratios, so the
+copper interior does not overflow or require numerical skin-depth cells.
+
+The planar case compares the complex electric reflection coefficient
+
+.. math::
+
+   \Gamma = \frac{Z_s-\eta}{Z_s+\eta}, \qquad
+   \eta=\sqrt{\frac{\mu_0}{\epsilon_0\epsilon_r(\omega)}}
+
+over 1--8 GHz, including a Debye material directly touching the wall.
+Its relative permittivity is :math:`2.5+2/(1+j\omega\,80\mathrm{ps})`.
+Matching incident-reference runs and an independent discrete propagation
+symbol remove the 30 mm receiver-to-wall propagation phase. Transverse
+PEC/PMC symmetry faces generate a uniform TEM wave; remote end boundaries
+cannot return within the 4 ns analysis record. The 0.5 mm mesh has a maximum
+continuum phase RMS error of 0.001497 degree across the four host/conductivity
+pairs. Both 1 and 0.5 mm meshes pass all plane-wave gates. The additional
+discrete prediction includes time staggering, the retained half-cell mass,
+Debye recurrence and bilinear impedance realization; its maximum phase RMS
+error is 0.00005387 degree. A negative-control regression removes the
+boundary polarization history and fails the 0.0002 degree discrete gate.
+
+Both drivers return a nonzero status on failed acceptance checks and support
+``--reuse`` for compatible local caches. Retained CSV, figures and summaries
+are under ``testing/validation/impedance_surface/results/conductor_sphere``
+and ``results/reflection_phase``. Methods, reference formulas, qualifications
+and recorded comparisons are in
+``testing/validation/impedance_surface/analytical_validation_report.md``.
+
 HDF5 reproducibility metadata
 =============================
 
@@ -1234,14 +1429,10 @@ Troubleshooting
     neither an edge nor a vertex. The check includes contacts between
     different surface-impedance IDs.
 
-``must have at least one retained cell on every side`` or PML intersection
-    Move or shorten the impedance volume. The excluded region cannot touch a
-    domain boundary, and the boundary itself cannot be inside PML cells.
-
-``boundary does not yet support a dispersive retained material``
-    Put a non-dispersive dielectric next to the wall in this implementation.
-    A future extension must combine both the bulk polarization memory and the
-    surface-current memory in the same clipped electric row.
+``must have at least one retained cell`` or PML intersection
+    Move or shorten the impedance volume. The excluded region can touch only
+    declared PEC or PMC symmetry faces of the domain, and its surface cannot
+    be inside PML cells.
 
 ``eigenmodes require a propagation-invariant boundary``
     Move the modal plane into a uniform section, extend the guide through both
@@ -1305,18 +1496,34 @@ falling back to a different boundary.
 Dispersive retained media and volume ADEs
 -----------------------------------------
 
-Supporting a dispersive exterior requires a locally coupled row containing
-both volume-polarization and surface-current states, including corner
-averaging policy. The modal solver already uses the leapfrog temporal and
-longitudinal spatial symbols when constructed by an eigenmode source. An
-exact treatment of bulk dispersive poles would additionally replace their
-analytic physical-frequency response with the corresponding FDTD volume-ADE
-transfer. This remaining extension is separate from the exact surface-ADE
-reduction and the existing compensation of Yee numerical dispersion.
+Dispersive retained quadrants are supported by the coupled scalar row above.
+The modal boundary mapper also includes their exact discrete response. For
+:math:`z=\exp(j\theta)`, a complex pole contributes the real-output transfer
+
+.. math::
+
+   H_m(z)=\tfrac12\left[\frac{c_m b_m}{z-f_m}
+                  +\frac{c_m^* b_m^*}{z-f_m^*}\right].
+
+If :math:`\delta_\pm=a_\pm^{\mathrm{disp}}-a_\pm`, the additional
+midpoint-time Ampere load is
+
+.. math::
+
+   \Delta Y=\delta_+e^{j\theta/2}-\delta_-e^{-j\theta/2}
+           -2j\sin(\theta/2)\sum_m H_m(z).
+
+Both conjugate branches are required for Lorentz materials; taking the real
+part of a transfer evaluated at complex :math:`z` gives an incorrect phase.
+The modal mapper adds :math:`\Delta Y/(j\Omega\epsilon_0 A_{\rm ret})`
+to the boundary relative permittivity. Interior bulk dispersive rows still
+use their analytic physical-frequency response, so making the entire bulk
+eigenproblem exact in time remains separate work.
 
 References
 ==========
 
-The Yee grid convention follows [YEE1966]_. Background on
+The Yee grid convention follows [YEE1966]_. The collocated tangential E and H
+surface-impedance method used here is described by [KOB2010]_. Background on
 surface-impedance FDTD boundaries is given by [MAL1992]_ and [BEG1992]_. The
 preset resistivity provenance is [MAT1979]_, [DES1984A]_, and [DES1984S]_.

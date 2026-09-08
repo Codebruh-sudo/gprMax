@@ -1,0 +1,138 @@
+{
+  "acceptance_limits": {
+    "backscatter_rms_db": 1.0,
+    "backscatter_max_db": 2.0,
+    "complex_pattern_relative_l2": 0.15,
+    "impedance_fit_relative_max": 0.002,
+    "sibc_bulk_complex_relative_l2": 0.02
+  },
+  "acceptance_scope": "Finest mesh, each conductivity; coarse mesh is diagnostic",
+  "passed": true,
+  "cases": [
+    {
+      "name": "sigma_1000_dl_1.5mm",
+      "conductivity_s_per_m": 1000.0,
+      "dl_m": 0.0015,
+      "metrics": {
+        "backscatter_rms_db": 1.3044684127216277,
+        "backscatter_max_db": 2.512826197724785,
+        "complex_pattern_relative_l2": 0.1259380856328529,
+        "impedance_fit_relative_max": 0.0011626937180100729,
+        "sibc_bulk_complex_relative_l2": 9.237810606182043e-06
+      },
+      "passed": false,
+      "fit_poles": 6,
+      "maximum_skin_depth_radius_ratio": 0.022242579483255157,
+      "elapsed_seconds": 0.015342100000452774,
+      "reused": true
+    },
+    {
+      "name": "sigma_1000_dl_0.75mm",
+      "conductivity_s_per_m": 1000.0,
+      "dl_m": 0.00075,
+      "metrics": {
+        "backscatter_rms_db": 0.8546432425708846,
+        "backscatter_max_db": 1.547379941459547,
+        "complex_pattern_relative_l2": 0.07202462867158456,
+        "impedance_fit_relative_max": 0.0011626937180100729,
+        "sibc_bulk_complex_relative_l2": 9.237810606182043e-06
+      },
+      "passed": true,
+      "fit_poles": 6,
+      "maximum_skin_depth_radius_ratio": 0.022242579483255157,
+      "elapsed_seconds": 0.015842099999645143,
+      "reused": true
+    },
+    {
+      "name": "sigma_5.8e+07_dl_1.5mm",
+      "conductivity_s_per_m": 58000000.0,
+      "dl_m": 0.0015,
+      "metrics": {
+        "backscatter_rms_db": 1.258624724912703,
+        "backscatter_max_db": 2.4302391106239005,
+        "complex_pattern_relative_l2": 0.11848345004927514,
+        "impedance_fit_relative_max": 0.001162693718009854,
+        "sibc_bulk_complex_relative_l2": 6.677773451297566e-13
+      },
+      "passed": false,
+      "fit_poles": 6,
+      "maximum_skin_depth_radius_ratio": 9.235728431859381e-05,
+      "elapsed_seconds": 0.015929500000311236,
+      "reused": true
+    },
+    {
+      "name": "sigma_5.8e+07_dl_0.75mm",
+      "conductivity_s_per_m": 58000000.0,
+      "dl_m": 0.00075,
+      "metrics": {
+        "backscatter_rms_db": 0.8320444457859655,
+        "backscatter_max_db": 1.5457669599831267,
+        "complex_pattern_relative_l2": 0.06681794254705056,
+        "impedance_fit_relative_max": 0.001162693718009854,
+        "sibc_bulk_complex_relative_l2": 6.677773451297566e-13
+      },
+      "passed": true,
+      "fit_poles": 6,
+      "maximum_skin_depth_radius_ratio": 9.235728431859381e-05,
+      "elapsed_seconds": 0.015504699999837612,
+      "reused": true
+    }
+  ],
+  "coarse_to_fine_error_decreased": {
+    "1000.0": true,
+    "58000000.0": true
+  },
+  "cpu_precision": "double",
+  "threads": 4,
+  "fit_band_hz": [
+    1000000000.0,
+    10000000000.0
+  ],
+  "angles_deg": [
+    0.0,
+    5.0,
+    10.0,
+    15.0,
+    20.0,
+    25.0,
+    30.0,
+    35.0,
+    40.0,
+    45.0,
+    50.0,
+    55.0,
+    60.0,
+    65.0,
+    70.0,
+    75.0,
+    80.0,
+    85.0,
+    90.0,
+    95.0,
+    100.0,
+    105.0,
+    110.0,
+    115.0,
+    120.0,
+    125.0,
+    130.0,
+    135.0,
+    140.0,
+    145.0,
+    150.0,
+    155.0,
+    160.0,
+    165.0,
+    170.0,
+    175.0,
+    180.0
+  ],
+  "radius_m": 0.016,
+  "duration_s": 4e-09,
+  "frequency_band_hz": [
+    2000000000.0,
+    7000000000.0
+  ],
+  "reference": "https://doi.org/10.1103/PhysRevB.98.235417",
+  "limitations": "Staircased sphere; no skin-depth cells. Copper is nearly PEC. The planar phase validation resolves finite surface impedance directly."
+}

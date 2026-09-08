@@ -106,3 +106,26 @@ def test_surface_metadata_reports_one_state_per_port_pole():
     assert result["packed_state_array_bytes"] == 21 * 8
     assert result["model_local_coefficient_bytes"] == 7 * 8
     assert result["precomputed_edge_port_bytes"] == (10 + 7 + 7) * 8
+
+
+@pytest.mark.integration
+def test_mixed_dispersive_benchmark_checks_driven_fields_and_pec_limit(tmp_path):
+    from testing.benchmarking.benchmark_dispersive_impedance import validate_contact
+
+    result = validate_contact("mixed", tmp_path)
+    assert result["passed"]
+    assert result["boundary_polarization_poles"] > 0
+
+
+@pytest.mark.integration
+def test_dispersive_timing_executes_both_bulk_stages():
+    from testing.benchmarking.benchmark_impedance_box import _parser, run_benchmark
+
+    args = _parser().parse_args([
+        "--cells", "24", "--iterations", "1", "--threads", "1", "--repeats", "1",
+        "--kernel-iterations", "1", "--kernel-repeats", "1", "--hot-iterations", "1",
+        "--hot-repeats", "1", "--explicit-orders", "4", "--exterior", "debye",
+    ])
+    result = run_benchmark(args)
+    assert result["baseline"]["bulk_hot_median_seconds"] > 0
+    assert all(row["polarization_poles"] > 0 for row in result["surface_cases"])

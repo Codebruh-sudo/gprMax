@@ -884,13 +884,30 @@ share neither an edge nor a vertex; refining, thickening, or repositioning the
 geometry can also repair the rasterized topology. See
 :ref:`impedance-surfaces` for the complete rule and error guidance.
 
+Isotropic ``pec`` and ``pmc`` volumes, including custom materials with infinite
+electric or magnetic conductivity, may touch an impedance volume. Any PEC
+quadrant forces the shared E component to zero and suppresses its impedance
+update. Diagonal PEC/impedance edge-only contacts emit an aggregated warning;
+ordinary face contacts do not. PMC-constrained H samples are omitted from the
+circulation without changing the retained electric area, material integrals,
+or surface-current ports. This preserves the existing PMC volume
+discretisation. Directional PEC/PMC mixtures immediately outside an impedance
+boundary are not supported.
+
+PEC and PMC ``SymmetryBoundary`` planes are supported, including impedance
+volumes cut by the plane and intersections of symmetry planes. PEC preserves
+zero tangential E. PMC integrates the physical quadrants with zero tangential
+H on the plane, giving the mirrored-field update. Surface areas describe only
+the modeled portion. Reflected geometry must satisfy the topology rules.
+
 ``GeometryObjectsWrite``/``GeometryObjectsRead`` round trips are not yet
 supported for impedance geometry; recreate the ``SurfaceImpedance`` and
 native geometry in the destination scene.
 
 This first version is restricted to three-dimensional CPU models without MPI
 domain decomposition or subgrids. An impedance volume cannot coexist with a
-thin wire or any symmetry boundary, and its boundary cannot intersect a PML.
+thin wire, and its boundary cannot intersect a PML. Domain faces without a
+declared symmetry plane require at least one retained cell of clearance.
 An axial discrete plane wave is unsupported; a homogeneous vector/angle plane
 wave may be used only when the complete impedance boundary lies strictly
 inside its TFSF box. The retained dielectric immediately outside the boundary

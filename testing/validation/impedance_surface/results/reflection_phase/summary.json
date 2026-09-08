@@ -1,0 +1,206 @@
+{
+  "passed": true,
+  "acceptance_limits": {
+    "continuum_phase_rms_deg": 0.1,
+    "continuum_magnitude_rms": 0.002,
+    "discrete_phase_rms_deg": 0.0002,
+    "discrete_complex_relative_l2": 1e-05,
+    "transverse_uniformity_relative_l2": 1e-09,
+    "incident_min_relative_amplitude": 0.001,
+    "final_tenth_peak_relative": 1e-05
+  },
+  "cases": [
+    {
+      "name": "air_sigma_1000_dl_1mm",
+      "host": "air",
+      "conductivity_s_per_m": 1000.0,
+      "dl_m": 0.001,
+      "dt_s": 1.92583320154647e-12,
+      "metrics": {
+        "continuum_phase_rms_deg": 0.0014678860093946169,
+        "continuum_magnitude_rms": 2.4343784648707276e-05,
+        "discrete_phase_rms_deg": 3.4351813723481034e-06,
+        "discrete_complex_relative_l2": 1.1660826476419831e-07,
+        "transverse_uniformity_relative_l2": 0.0,
+        "incident_min_relative_amplitude": 0.15946784826744917,
+        "final_tenth_peak_relative": 8.28632341598553e-08
+      },
+      "passed": true,
+      "elapsed_seconds": 3.047124800000347,
+      "fit_poles": 8,
+      "fit_max_relative_error": 0.00016482898656666633
+    },
+    {
+      "name": "air_sigma_5.8e+07_dl_1mm",
+      "host": "air",
+      "conductivity_s_per_m": 58000000.0,
+      "dl_m": 0.001,
+      "dt_s": 1.92583320154647e-12,
+      "metrics": {
+        "continuum_phase_rms_deg": 6.093728307869244e-06,
+        "continuum_magnitude_rms": 1.0391255079036605e-07,
+        "discrete_phase_rms_deg": 1.5179014378550582e-08,
+        "discrete_complex_relative_l2": 5.184251976061088e-10,
+        "transverse_uniformity_relative_l2": 0.0,
+        "incident_min_relative_amplitude": 0.15946784826744917,
+        "final_tenth_peak_relative": 3.3995057397793347e-09
+      },
+      "passed": true,
+      "elapsed_seconds": 0.0028055000002495944,
+      "fit_poles": 8,
+      "fit_max_relative_error": 0.00016482898656666633
+    },
+    {
+      "name": "air_sigma_1000_dl_0.5mm",
+      "host": "air",
+      "conductivity_s_per_m": 1000.0,
+      "dl_m": 0.0005,
+      "dt_s": 9.62916600773235e-13,
+      "metrics": {
+        "continuum_phase_rms_deg": 0.00035899426059573424,
+        "continuum_magnitude_rms": 5.654271584445526e-06,
+        "discrete_phase_rms_deg": 3.4562655399551913e-06,
+        "discrete_complex_relative_l2": 1.1676034244104207e-07,
+        "transverse_uniformity_relative_l2": 0.0,
+        "incident_min_relative_amplitude": 0.1595664722370999,
+        "final_tenth_peak_relative": 8.239517002872406e-08
+      },
+      "passed": true,
+      "elapsed_seconds": 0.003628000000389875,
+      "fit_poles": 8,
+      "fit_max_relative_error": 0.00016482898656666633
+    },
+    {
+      "name": "air_sigma_5.8e+07_dl_0.5mm",
+      "host": "air",
+      "conductivity_s_per_m": 58000000.0,
+      "dl_m": 0.0005,
+      "dt_s": 9.62916600773235e-13,
+      "metrics": {
+        "continuum_phase_rms_deg": 1.4899499729387735e-06,
+        "continuum_magnitude_rms": 2.409412911337942e-08,
+        "discrete_phase_rms_deg": 1.4334314340032685e-08,
+        "discrete_complex_relative_l2": 4.760116863332269e-10,
+        "transverse_uniformity_relative_l2": 0.0,
+        "incident_min_relative_amplitude": 0.1595664722370999,
+        "final_tenth_peak_relative": 2.948217264809661e-09
+      },
+      "passed": true,
+      "elapsed_seconds": 0.0037091000003783847,
+      "fit_poles": 8,
+      "fit_max_relative_error": 0.00016482898656666633
+    },
+    {
+      "name": "debye_sigma_1000_dl_1mm",
+      "host": "debye",
+      "conductivity_s_per_m": 1000.0,
+      "dl_m": 0.001,
+      "dt_s": 1.92583320154647e-12,
+      "metrics": {
+        "continuum_phase_rms_deg": 0.006123775504297078,
+        "continuum_magnitude_rms": 0.00021637535424033592,
+        "discrete_phase_rms_deg": 5.3869946786931904e-05,
+        "discrete_complex_relative_l2": 1.3217438532414164e-06,
+        "transverse_uniformity_relative_l2": 0.0,
+        "incident_min_relative_amplitude": 0.15363971272246507,
+        "final_tenth_peak_relative": 8.341520325206968e-07
+      },
+      "passed": true,
+      "elapsed_seconds": 0.0022299000002021785,
+      "fit_poles": 8,
+      "fit_max_relative_error": 0.00016482898656666633
+    },
+    {
+      "name": "debye_sigma_5.8e+07_dl_1mm",
+      "host": "debye",
+      "conductivity_s_per_m": 58000000.0,
+      "dl_m": 0.001,
+      "dt_s": 1.92583320154647e-12,
+      "metrics": {
+        "continuum_phase_rms_deg": 2.537018689683648e-05,
+        "continuum_magnitude_rms": 9.438654099026384e-07,
+        "discrete_phase_rms_deg": 2.1524155165533727e-07,
+        "discrete_complex_relative_l2": 5.2806814323384205e-09,
+        "transverse_uniformity_relative_l2": 0.0,
+        "incident_min_relative_amplitude": 0.15363971272246507,
+        "final_tenth_peak_relative": 3.739056898584583e-09
+      },
+      "passed": true,
+      "elapsed_seconds": 0.002173199999560893,
+      "fit_poles": 8,
+      "fit_max_relative_error": 0.00016482898656666633
+    },
+    {
+      "name": "debye_sigma_1000_dl_0.5mm",
+      "host": "debye",
+      "conductivity_s_per_m": 1000.0,
+      "dl_m": 0.0005,
+      "dt_s": 9.62916600773235e-13,
+      "metrics": {
+        "continuum_phase_rms_deg": 0.0014963795298118337,
+        "continuum_magnitude_rms": 5.251143756718414e-05,
+        "discrete_phase_rms_deg": 5.3592333033061473e-05,
+        "discrete_complex_relative_l2": 1.3172652830749533e-06,
+        "transverse_uniformity_relative_l2": 0.0,
+        "incident_min_relative_amplitude": 0.15394651083576008,
+        "final_tenth_peak_relative": 8.373728019657955e-07
+      },
+      "passed": true,
+      "elapsed_seconds": 0.003613200000472716,
+      "fit_poles": 8,
+      "fit_max_relative_error": 0.00016482898656666633
+    },
+    {
+      "name": "debye_sigma_5.8e+07_dl_0.5mm",
+      "host": "debye",
+      "conductivity_s_per_m": 58000000.0,
+      "dl_m": 0.0005,
+      "dt_s": 9.62916600773235e-13,
+      "metrics": {
+        "continuum_phase_rms_deg": 6.201310755799987e-06,
+        "continuum_magnitude_rms": 2.2902264226686665e-07,
+        "discrete_phase_rms_deg": 2.1411662171247164e-07,
+        "discrete_complex_relative_l2": 5.2622650354301155e-09,
+        "transverse_uniformity_relative_l2": 0.0,
+        "incident_min_relative_amplitude": 0.15394651083576008,
+        "final_tenth_peak_relative": 3.759648552499952e-09
+      },
+      "passed": true,
+      "elapsed_seconds": 0.0038538999997399515,
+      "fit_poles": 8,
+      "fit_max_relative_error": 0.00016482898656666633
+    }
+  ],
+  "duration_s": 4e-09,
+  "frequency_band_hz": [
+    1000000000.0,
+    8000000000.0
+  ],
+  "host_parameters": {
+    "air": {
+      "er_inf": 1.0,
+      "delta_er": 0.0,
+      "tau": 8e-11
+    },
+    "debye": {
+      "er_inf": 2.5,
+      "delta_er": 2.0,
+      "tau": 8e-11
+    }
+  },
+  "earliest_outer_return_s": 5.5371639802893245e-09,
+  "outer_return_margin_s": 1.5371639802893242e-09,
+  "domain_x_m": 1.8,
+  "source_x_m": 0.8,
+  "receiver_x_m": 0.86,
+  "wall_x_m": 0.89,
+  "cpu_precision": "double",
+  "threads": 4,
+  "fit_band_hz": [
+    500000000.0,
+    12000000000.0
+  ],
+  "deembedding": "30 mm to the physical wall using independently derived discrete host wavenumber",
+  "reference": "Gamma=(Zs-eta)/(Zs+eta), exp(+j omega t); phase shown continuously near 180 degrees",
+  "limitations": "Normal incidence, homogeneous air or single-Debye exterior, planar wall; this is not a curved-interface dispersion validation."
+}
