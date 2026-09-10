@@ -1,0 +1,27 @@
+## B-scan study: edit the model here and the acquisition positions in the CSV.
+## Keep cylinder_Bscan_2D_study.csv beside this input file.
+
+## 1. Model settings: a 2D TM model invariant along z, with a 2 mm mesh.
+#title: CSV study of a metal cylinder buried in a dielectric half-space
+#domain_mode: TM
+#domain: 0.240 0.210 inf
+#dx_dy_dz: 0.002 0.002 0.002
+#time_window: 3e-9
+#num_threads: 2
+
+## 2. Fixed geometry: soil with relative permittivity 6 and a metal cylinder.
+#material: 6 0 1 0 half_space
+#box: 0 0 0 0.240 0.170 inf half_space
+#cylinder: 0.120 0.080 0 0.120 0.080 inf 0.010 pec
+
+## 3. Define the source and receiver; their IDs in the CSV are
+## hertzian_dipole_1 and rx_1. The CSV overrides their positions for each trace.
+#waveform: ricker 1 1.5e9 my_ricker
+#hertzian_dipole: z 0.040 0.170 inf my_ricker
+#rx: 0.080 0.170 inf
+
+## 4. Acquisition: 60 traces, 2 mm steps, with a fixed 40 mm Tx-Rx separation.
+## CSV coordinates are absolute metres. z_m=0 is the active plane for this TM
+## model; CSV positions require finite values, so use 0 rather than inf there.
+## The study sets the run count and reuses geometry automatically.
+#study: gpr cylinder_Bscan_2D_study.csv

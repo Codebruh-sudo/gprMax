@@ -98,6 +98,14 @@ The :doc:`AustinMan/AustinWoman toolbox <inc_AustinMan>` retains its historic
 900 MHz and three-pole material mappings for reproducibility and explains how
 to convert a downloaded voxel model to the modern HDF5/JSON format.
 
+The :doc:`Materials toolbox <inc_Materials>` supplies the existing Eccosorb LS
+three-pole Debye fits as a local ``eccosorb.json`` database, with an editable
+slab example. Copy the JSON beside your input file and select a grade with
+``#material_from_database: eccosorb eccosorb_ls22``. Direct Python API models
+use ``MaterialFromDatabase`` and look for the JSON in their working directory.
+The fitted coefficients are preserved from the original toolbox; these entries
+are separate from the reserved ``antenna`` catalogue.
+
 Schema and provenance
 =====================
 

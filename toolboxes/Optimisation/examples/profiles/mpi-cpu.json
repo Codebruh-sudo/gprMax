@@ -1,0 +1,1 @@
+{"backend":"mpi","solver":"cpu","cpu_threads_per_worker":1,"timeout":600}

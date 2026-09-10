@@ -202,6 +202,11 @@ study determines the run count automatically; pass ``i=N`` to restart at the
 one-based case number ``N``. For a text input model the equivalent
 ``#study`` command reads the same information from CSV.
 
+For a complete acquisition that users can edit in a spreadsheet, see the
+:ref:`CSV B-scan example <bscan_csv_study>`. A Python model can use that same
+schedule with ``gprMax.Study.from_csv('gpr', 'path/to/cases.csv')`` and pass
+the returned object as the ``study`` argument to ``gprMax.run``.
+
 .. autoclass:: gprMax.studies.Study
     :members: from_csv
 

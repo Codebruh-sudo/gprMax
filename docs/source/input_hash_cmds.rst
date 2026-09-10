@@ -2524,6 +2524,12 @@ cells mean "use the object's baseline value". All three position columns must
 be supplied together and contain absolute coordinates in metres. ``port`` and
 ``mode`` are positive integers used only by an eigenmode study.
 
+The :ref:`CSV B-scan example <bscan_csv_study>` provides a complete input file,
+an editable 60-case schedule, and commands to run, merge and plot the traces.
+Study positions must be finite: for an invariant coordinate in a 2D model,
+use its resolved field-plane coordinate rather than ``inf`` (for example,
+``z_m=0`` in the example's TMz model).
+
 A plane-wave table uses the deterministic object ID ``plane_wave_1``. Its
 additional optional columns are ``theta_deg``, ``phi_deg``, ``psi_deg``,
 ``axis``, ``m_x``, ``m_y``, and ``m_z``. The permitted columns follow the

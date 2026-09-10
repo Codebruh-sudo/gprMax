@@ -1,0 +1,195 @@
+{
+  "schema": "gprMax-material-database",
+  "schema_version": 1,
+  "database": {
+    "id": "eccosorb",
+    "name": "Eccosorb LS materials",
+    "version": "1.0.0"
+  },
+  "materials": {
+    "eccosorb_ls14": {
+      "model": "debye",
+      "base": {
+        "relative_permittivity": 1.0003252658762176,
+        "electric_conductivity_s_per_m": 0.0,
+        "relative_permeability": 1.0,
+        "magnetic_conductivity_s_per_m": 0.0
+      },
+      "poles": [
+        {
+          "relative_permittivity_difference": 98.07107793080615,
+          "relaxation_time_s": 8.504245706576436e-08
+        },
+        {
+          "relative_permittivity_difference": 0.17461124247006998,
+          "relaxation_time_s": 2.0239418236665636e-12
+        },
+        {
+          "relative_permittivity_difference": 0.2391403235994493,
+          "relaxation_time_s": 5.0816292715563385e-11
+        }
+      ]
+    },
+    "eccosorb_ls16": {
+      "model": "debye",
+      "base": {
+        "relative_permittivity": 1.0823217177533218,
+        "electric_conductivity_s_per_m": 0.0,
+        "relative_permeability": 1.0,
+        "magnetic_conductivity_s_per_m": 0.0
+      },
+      "poles": [
+        {
+          "relative_permittivity_difference": 0.743862637908311,
+          "relaxation_time_s": 1.2759602772812056e-10
+        },
+        {
+          "relative_permittivity_difference": 2851.286930923839,
+          "relaxation_time_s": 6.326708272278631e-07
+        },
+        {
+          "relative_permittivity_difference": 0.22078549212073995,
+          "relaxation_time_s": 1.0289674723407745e-11
+        }
+      ]
+    },
+    "eccosorb_ls18": {
+      "model": "debye",
+      "base": {
+        "relative_permittivity": 1.1313538656018765,
+        "electric_conductivity_s_per_m": 0.0,
+        "relative_permeability": 1.0,
+        "magnetic_conductivity_s_per_m": 0.0
+      },
+      "poles": [
+        {
+          "relative_permittivity_difference": 0.4945710081118222,
+          "relaxation_time_s": 3.761526166333626e-11
+        },
+        {
+          "relative_permittivity_difference": 46.436300997069175,
+          "relaxation_time_s": 4.710527761805339e-09
+        },
+        {
+          "relative_permittivity_difference": 0.15794968774325469,
+          "relaxation_time_s": 3.766506348985577e-12
+        }
+      ]
+    },
+    "eccosorb_ls20": {
+      "model": "debye",
+      "base": {
+        "relative_permittivity": 1.0,
+        "electric_conductivity_s_per_m": 0.0,
+        "relative_permeability": 1.0,
+        "magnetic_conductivity_s_per_m": 0.0
+      },
+      "poles": [
+        {
+          "relative_permittivity_difference": 13.743139824223658,
+          "relaxation_time_s": 2.0641089739387818e-09
+        },
+        {
+          "relative_permittivity_difference": 0.43008497836321924,
+          "relaxation_time_s": 4.448132243057998e-12
+        },
+        {
+          "relative_permittivity_difference": 3.0096475124312767,
+          "relaxation_time_s": 1.6001537943308492e-10
+        }
+      ]
+    },
+    "eccosorb_ls22": {
+      "model": "debye",
+      "base": {
+        "relative_permittivity": 1.086511586945162,
+        "electric_conductivity_s_per_m": 0.0,
+        "relative_permeability": 1.0,
+        "magnetic_conductivity_s_per_m": 0.0
+      },
+      "poles": [
+        {
+          "relative_permittivity_difference": 26.45657825754802,
+          "relaxation_time_s": 2.4212038082641953e-10
+        },
+        {
+          "relative_permittivity_difference": 0.7245919832366302,
+          "relaxation_time_s": 3.515027637111512e-13
+        },
+        {
+          "relative_permittivity_difference": 0.25012538033270815,
+          "relaxation_time_s": 1.3216929445939351e-12
+        }
+      ]
+    },
+    "eccosorb_ls26": {
+      "model": "debye",
+      "base": {
+        "relative_permittivity": 1.0,
+        "electric_conductivity_s_per_m": 0.0,
+        "relative_permeability": 1.0,
+        "magnetic_conductivity_s_per_m": 0.0
+      },
+      "poles": [
+        {
+          "relative_permittivity_difference": 68442.60232717071,
+          "relaxation_time_s": 1.1385473760814684e-06
+        },
+        {
+          "relative_permittivity_difference": 39.33808907708006,
+          "relaxation_time_s": 8.971990079406309e-11
+        },
+        {
+          "relative_permittivity_difference": 7.255050883574533,
+          "relaxation_time_s": 1.1284385113395946e-10
+        }
+      ]
+    },
+    "eccosorb_ls28": {
+      "model": "debye",
+      "base": {
+        "relative_permittivity": 1.0,
+        "electric_conductivity_s_per_m": 0.0,
+        "relative_permeability": 1.0,
+        "magnetic_conductivity_s_per_m": 0.0
+      },
+      "poles": [
+        {
+          "relative_permittivity_difference": 4.87884505822887,
+          "relaxation_time_s": 1.0484993776024144e-11
+        },
+        {
+          "relative_permittivity_difference": 0.9889518773555892,
+          "relaxation_time_s": 1.507667346114368e-14
+        },
+        {
+          "relative_permittivity_difference": 299.87807971869313,
+          "relaxation_time_s": 2.6440175851701485e-10
+        }
+      ]
+    },
+    "eccosorb_ls30": {
+      "model": "debye",
+      "base": {
+        "relative_permittivity": 1.0,
+        "electric_conductivity_s_per_m": 0.0,
+        "relative_permeability": 1.0,
+        "magnetic_conductivity_s_per_m": 0.0
+      },
+      "poles": [
+        {
+          "relative_permittivity_difference": 2.7374320698081696,
+          "relaxation_time_s": 1.7149567754908894e-12
+        },
+        {
+          "relative_permittivity_difference": 34.04790963290593,
+          "relaxation_time_s": 5.095657346525705e-11
+        },
+        {
+          "relative_permittivity_difference": 116589.2604827239,
+          "relaxation_time_s": 1.1495799850611809e-07
+        }
+      ]
+    }
+  }
+}

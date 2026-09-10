@@ -1,0 +1,22 @@
+## Eccosorb slab: edit the grade and slab dimensions for your own model.
+## All coordinates are in metres. The material JSON stays beside this file.
+
+## 1. Simulation settings: 48 mm cube, 1 mm cells, 2 ns recording time.
+#title: Eccosorb LS22 slab with a source and receiver
+#domain: 0.048 0.048 0.048
+#dx_dy_dz: 0.001 0.001 0.001
+#time_window: 2e-9
+#pml_cells: 6
+#num_threads: 2
+
+## 2. Material: the selected JSON entry includes its three Debye poles.
+#material_from_database: eccosorb eccosorb_ls22
+
+## 3. Geometry: a 28 x 28 x 6 mm slab, surrounded by free space.
+## The final 'n' disables material averaging at the slab interfaces.
+#box: 0.010 0.010 0.022 0.038 0.038 0.028 eccosorb_ls22 n
+
+## 4. Excitation and output: x-polarised source below, receiver above the slab.
+#waveform: ricker 1 3e9 pulse
+#hertzian_dipole: x 0.024 0.024 0.014 pulse
+#rx: 0.024 0.024 0.035 probe Ex Ey Ez

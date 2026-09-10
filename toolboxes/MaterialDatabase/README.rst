@@ -1,5 +1,38 @@
-Material databases and legacy geometry conversion
-================================================
+Material database tools
+=======================
+
+Use this toolbox to list and validate JSON material databases, or to convert
+an older geometry/material pair. The material definitions themselves live in
+their own databases; for example, ``toolboxes/Materials/eccosorb.json`` supplies
+the Eccosorb absorber fits.
+
+List and validate materials
+===========================
+
+From the repository root:
+
+.. code-block:: console
+
+    python -m toolboxes.MaterialDatabase list eccosorb --directory toolboxes/Materials
+    python -m toolboxes.MaterialDatabase validate eccosorb --directory toolboxes/Materials
+
+``list`` prints each entry's key, model type and name. Both commands validate
+every entry. ``--directory`` selects the folder containing a local JSON file;
+it defaults to the current directory. Use a database name without ``.json``.
+
+To use a material, copy that JSON beside your input file and select an entry:
+
+.. code-block:: none
+
+    #material_from_database: eccosorb eccosorb_ls22
+
+The Python equivalent is ``gprMax.MaterialFromDatabase(database="eccosorb",
+material="eccosorb_ls22")``, added to your scene. Direct API models look for
+local databases in the working directory. The Materials toolbox README has
+a complete example and explains how to edit the properties.
+
+Convert legacy geometry
+========================
 
 Version 4 geometry imports use an HDF5 file with material keys and an adjacent
 JSON material database. Legacy text material files are no longer accepted by
@@ -31,7 +64,7 @@ commands are translated without fitting or rerasterising. Missing material
 definitions cannot be inferred from a geometry array; provide the complete
 original text file. Unsupported commands and malformed data are rejected.
 
-Inspect or validate a resulting database with:
+Inspect or validate the resulting database with:
 
 .. code-block:: console
 

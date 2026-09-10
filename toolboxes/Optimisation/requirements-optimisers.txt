@@ -1,0 +1,4 @@
+# Optional packages; importing the toolbox does not require these.
+optuna==4.9.0
+pymoo==0.6.2
+scikit-optimize==0.10.2
