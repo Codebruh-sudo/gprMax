@@ -248,7 +248,7 @@ def test_conversion_does_not_overwrite_an_output_created_during_validation(monke
 @pytest.mark.parametrize("model", ("can", "PMA", "PMN", "TS50"))
 @pytest.mark.parametrize("spacing", ("1x1x1", "2x2x2"))
 def test_shipped_legacy_geometry_files_convert(tmp_path, model, spacing):
-    directory = Path(__file__).resolve().parents[2] / "toolboxes" / "LandmineModels"
+    directory = Path(__file__).resolve().parents[2] / "toolboxes" / "LandmineModels" / "legacy"
     source = directory / f"{model}_{spacing}.h5"
     converted, _ = convert_geometry(
         source,

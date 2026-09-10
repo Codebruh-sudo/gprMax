@@ -1,93 +1,123 @@
-Toolboxes is a sub-package where useful Python modules contributed by users are stored.
-
 ***************
 Landmine Models
 ***************
 
-Information
-===========
+Ready-to-use geometry and material files for PMA-1, PMN and TS-50 landmines,
+and a metal can as a false target. Each model is supplied at 1 mm and 2 mm
+cubic mesh spacing.
 
-**Author/Contact**: Iraklis Giannakis (iraklis.giannakis@abdn.ac.uk), University of Aberdeen, UK
+Files to use
+============
 
-**License**: `Creative Commons Attribution-ShareAlike 4.0 International License <http://creativecommons.org/licenses/by-sa/4.0/>`_
-
-**Attribution/cite**: Giannakis, I., Giannopoulos, A., Warren, C. (2016). A Realistic FDTD Numerical Modeling Framework of Ground Penetrating Radar for Landmine Detection. *IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing*, 9(1), 37-51. (http://dx.doi.org/10.1109/JSTARS.2015.2468597)
-
-The package currently features models of different anti-personnel (AP) landmines and a metal can which can be used as a false target. They are:
-
-* **PMA-1**: a blast AP landmine with minimum metal content, manufactured in the former Yugoslavia. It is possible to detect the PMA-1 with a metal detector because it contains a metal fuse, but there are reports of types of PMA-1 with plastic fuses. The PMA-1 contains 200g of high explosive (TNT). The dimensions of the PMA-1 model are: 140x64x34mm.
-* **PMN**: one of the oldest and most widely used landmines, it is a palm shaped cylindrical blast AP landmine, manufactured in Russia. Similar to PMA-1, the PMN contains a large amount, 240g, of high explosive (TNT). It has a minimum metal content which can make it detectable with a metal detector. The dimensions of the PMN model are: 116x156x50mm.
-* **TS-50**: a blast AP landmine with minimum metal content, manufactured in Italy. The dimensions of the TS-50 model are: 90x90x44mm.
-* **Metal can**: a cylindrical metal can which is can be useful as a false target. The dimensions of the metal can model are: 76x76x108mm.
-
-The landmine models and the metal can be used with a cubic spatial resolution of either 1mm or 2mm.
-
-The dielectric properties of the landmines were obtained through an iterative process of matching numerical and laboratory measurements of scattered electromagnetic fields in free space. A full description of how the models were created can be found at the reference given by the aforementioned attribution/cite.
-
-Package contents
-================
+Use the HDF5 geometry and JSON materials in this folder. Both resolutions of
+a model share one material file; for example:
 
 .. code-block:: none
 
-    can_1x1x1.h5
-    can_2x2x2.h5
-    can_materials.txt
-    PMA_1x1x1.h5
-    PMA_2x2x2.h5
-    PMA_materials.txt
-    PMN_1x1x1.h5
-    PMN_2x2x2.h5
-    PMN_materials.txt
-    TS50_1x1x1.h5
-    TS50_2x2x2.h5
-    TS50_materials.txt
+    LandmineModels/
+        PMN_1x1x1.h5
+        PMN_2x2x2.h5
+        PMN_materials.json
+        examples/free_space.py
+        legacy/                 # Original HDF5 and text files for older readers.
 
-* ``can_1x1x1.h5`` is a HDF5 file containing a description of the geometry of the metal can (false target) with a cubic spatial resolution of 1mm
-* ``can_2x2x2.h5`` is a HDF5 file containing a description of the geometry of the metal can (false target) with a cubic spatial resolution of 2mm
-* ``can_materials.txt`` is a text file containing material properties associated with the metal can
-* ``PMA_1x1x1.h5`` is a HDF5 file containing a description of the geometry of the PMA landmine with a cubic spatial resolution of 1mm
-* ``PMA_2x2x2.h5`` is a HDF5 file containing a description of the geometry of the PMA landmine with a cubic spatial resolution of 2mm
-* ``PMA_materials.txt`` is a text file containing material properties associated with the PMA landmine
-* ``PMN_1x1x1.h5`` is a HDF5 file containing a description of the geometry of the PMN landmine with a cubic spatial resolution of 1mm
-* ``PMN_2x2x2.h5`` is a HDF5 file containing a description of the geometry of the PMN landmine with a cubic spatial resolution of 2mm
-* ``PMN_materials.txt`` is a text file containing material properties associated with the PMN landmine
-* ``TS50_1x1x1.h5`` is a HDF5 file containing a description of the geometry of the TS-50 landmine with a cubic spatial resolution of 1mm
-* ``TS50_2x2x2.h5`` is a HDF5 file containing a description of the geometry of the TS-50 landmine with a cubic spatial resolution of 2mm
-* ``TS50_materials.txt`` is a text file containing material properties associated with the TS-50 landmine
+The same naming applies to ``PMA``, ``TS50`` and ``can``. Keep the material
+file beside the geometry files. The JSON lists named materials and their
+electromagnetic properties; both resolutions use those same properties.
 
-How to use the package
-======================
+The simulation mesh must match the selected file's spacing. These are the
+actual stored dimensions, in millimetres:
 
-These historical HDF5/text pairs must first be converted to the version 4
-HDF5/JSON format. The originals are retained; use ``#geometry_objects_read``
-with the converted pair thereafter.
+.. list-table:: Geometry extents (x × y × z)
+    :header-rows: 1
+    :widths: 20 40 40
 
-Example
--------
+    * - Model
+      - 1 mm geometry
+      - 2 mm geometry
+    * - PMA
+      - 140 × 64 × 33
+      - 140 × 64 × 32
+    * - PMN
+      - 116 × 156 × 49
+      - 116 × 156 × 48
+    * - TS50
+      - 90 × 90 × 44
+      - 90 × 90 × 44
+    * - can
+      - 76 × 76 × 108
+      - 76 × 76 × 108
 
-From the repository root, convert the 1 mm PMN model once:
+Run the example
+===============
+
+From the repository root, in your gprMax Python environment:
 
 .. code-block:: console
 
-    python -m toolboxes.MaterialDatabase convert-geometry \
-        toolboxes/LandmineModels/PMN_1x1x1.h5 \
-        toolboxes/LandmineModels/PMN_materials.txt \
-        --output-geometry PMN_converted.h5 \
-        --output-database PMN_materials.json
+    python -m toolboxes.LandmineModels.examples.free_space --model PMN --resolution-mm 2
 
-Keep the two outputs beside this input file. To insert the model with its
-lower-left corner 10 mm from the domain origin:
+This imports the target, adds a theoretical source and receiver above it,
+and runs a short CPU simulation. The output is
+``landmine_results/PMN_2mm/target.h5``. Choose another target with ``--model PMA``,
+``--model TS50`` or ``--model can``, and use ``--resolution-mm 1`` for 1 mm spacing.
+Use ``--directory results/new_run`` to choose a fresh output folder.
+
+:download:`Edit the example <../../toolboxes/LandmineModels/examples/free_space.py>`
+to set your background, antenna, target position and recording time.
+The default 3 ns run checks model import and execution; it is not a calibrated
+GPR measurement. The example shows how to build the model, execute it, and
+read the receiver's electric field from the output file.
+
+Add a target to your model
+==========================
+
+In a saved Python script launched from the repository root:
+
+.. code-block:: python
+
+    from pathlib import Path
+    import gprMax
+
+    geometry = Path("toolboxes/LandmineModels/PMN_2x2x2.h5").resolve()
+    # Your scene must already define a 2 mm mesh, a sufficiently large domain,
+    # and the background geometry. Add the target after the background.
+    target = gprMax.GeometryObjectsRead(
+        p1=(0.032, 0.032, 0.032),  # Lower corner of the imported array, in metres.
+        geofile=geometry,
+        material_database="PMN_materials",  # JSON filename without .json.
+        averaging=False,
+    )
+    # scene.add(target)
+
+In a hash-command input file, use the equivalent command below, with the
+geometry and JSON files beside your input file:
 
 .. code-block:: none
 
-    #title: PMN landmine (116x156x50mm) in free space
-    #domain: 0.136 0.176 0.070
-    #dx_dy_dz: 0.001 0.001 0.001
-    #time_window: 5e-9
-    #geometry_objects_read: 0.010 0.010 0.010 PMN_converted.h5 PMN_materials
-    #geometry_view: 0 0 0 0.136 0.176 0.070 0.001 0.001 0.001 landmine_PMN_fs n
+    #geometry_objects_read: 0.032 0.032 0.032 PMN_2x2x2.h5 PMN_materials
 
-For further information on the ``#geometry_objects_read`` command see the section on :ref:`object contruction commands<object-construction-commands>`.
+Build the soil or other background before importing the target. Transparent
+voxels (``-1`` in the geometry array) leave that background unchanged; explicitly
+stored air voxels insert air. Changing the simulation mesh does not resample
+the stored target.
+
+Reference and licence
+=====================
+
+**Author/Contact**: Iraklis Giannakis (iraklis.giannakis@abdn.ac.uk), University of Aberdeen, UK
+
+**License**: `Creative Commons Attribution-ShareAlike 4.0 International License <https://creativecommons.org/licenses/by-sa/4.0/>`_
+
+**Attribution/cite**: Giannakis, I., Giannopoulos, A., Warren, C. (2016).
+A Realistic FDTD Numerical Modeling Framework of Ground Penetrating Radar for
+Landmine Detection. *IEEE Journal of Selected Topics in Applied Earth Observations
+and Remote Sensing*, 9(1), 37–51. https://doi.org/10.1109/JSTARS.2015.2468597
+
+The paper describes the models and how their dielectric properties were fitted
+to laboratory measurements of scattered fields in free space. The same licence
+and attribution apply to the current files and the unchanged originals in
+``legacy/``.
 
 .. figure:: ../../images_shared/PMA.png
     :width: 600 px
