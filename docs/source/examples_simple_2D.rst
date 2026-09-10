@@ -169,7 +169,10 @@ This example uses the same geometry as the previous example but this time a B-sc
 
 The differences between this input file and the one from the A-scan are the x coordinates of the source and receiver, and the commands needed to move the source and receiver. As before, the source and receiver are offset by 40mm from each other but they are now shifted to a starting position for the scan. The ``#src_steps`` command is used to move every source in the model by specified steps each time the model is run. Similarly, the ``#rx_steps`` command is used to move every receiver each time the model is run. The invariant z coordinates remain ``inf`` throughout the scan. The same stepping functionality can be achieved by using our Python API to move the source and receiver individually (see the :ref:`Python API <input-api>` section).
 
-To run the model to create a B-scan you must pass an optional argument to specify the number of times the model should be run. In this case, this is the number of A-scans (traces) that will comprise the B-scan. For a B-scan over a distance of 120mm with a step of 2mm that is 60 A-scans.
+To create the B-scan, specify the number of A-scans with ``-n``. This example
+uses 60 traces at 2 mm spacing, giving 59 intervals and 118 mm between the
+first and last positions. A scan including both ends of a 120 mm interval
+would require 61 traces.
 
 .. code-block:: none
 
@@ -201,3 +204,108 @@ You can now view an image of the B-scan using the command:
     :width: 600px
 
     B-scan of the model of a metal cylinder buried in a dielectric half-space.
+
+.. _bscan_csv_study:
+
+B-scan using a CSV study
+========================
+
+This version produces the same 60 traces as the stepping example above.
+It separates the fixed model from the acquisition schedule: the input file
+defines the cylinder, soil, source and receiver, while the CSV gives their
+positions for each trace. gprMax builds the geometry once and resets the
+fields before each simulation.
+
+Download both files and keep them together:
+
+* :download:`Model: cylinder_Bscan_2D_study.in <../../examples/gpr/basic/cylinder_Bscan_2D_study.in>`
+* :download:`Acquisition: cylinder_Bscan_2D_study.csv <../../examples/gpr/basic/cylinder_Bscan_2D_study.csv>`
+
+Define the model
+----------------
+
+.. literalinclude:: ../../examples/gpr/basic/cylinder_Bscan_2D_study.in
+    :language: none
+    :linenos:
+
+Edit the material, geometry, mesh, waveform and recording time in this file.
+The last line selects the acquisition CSV. It replaces ``#src_steps`` and
+``#rx_steps``; do not combine the two acquisition methods in one model.
+
+Edit the acquisition
+--------------------
+
+The first three traces are:
+
+.. literalinclude:: ../../examples/gpr/basic/cylinder_Bscan_2D_study.csv
+    :language: text
+    :lines: 1-7
+
+Each trace has two rows with the same ``case_id``: one for the transmitter
+and one for the receiver. The supplied CSV contains 60 cases (120 data rows).
+
+.. list-table:: CSV columns
+    :header-rows: 1
+    :widths: 25 75
+
+    * - Column
+      - Meaning
+    * - ``case_id``
+      - Name of the simulation, such as ``trace_001``. Cases run in order of first appearance in the CSV.
+    * - ``object_id``
+      - Object to move. ``hertzian_dipole_1`` is the first Hertzian dipole; ``rx_1`` is the first receiver.
+    * - ``x_m``, ``y_m``, ``z_m``
+      - Absolute coordinates in metres, not increments. Supply all three together.
+
+Here the transmitter moves from x = 0.040 to 0.158 m and the receiver from
+x = 0.080 to 0.198 m. Both remain at y = 0.170 m, with 40 mm separation.
+The step is one 2 mm mesh cell.
+
+CSV positions must be finite. This model uses TM mode with z invariant,
+whose active field plane is at z = 0; therefore every ``z_m`` entry is
+``0.000``. The ``inf`` positions in the input file resolve to this same
+plane. For a 3D model, enter the actual z coordinates.
+
+To change the scan, edit the positions or add/remove complete cases. Keep
+both object rows for each moving transmitter-receiver pair: a source omitted
+from a case is inactive, and an omitted receiver stays at its original model
+position. Positions should lie on the mesh and within the usable domain.
+For irregular paths or changing antenna separation, update each object's
+coordinates independently.
+
+Run and display the B-scan
+--------------------------
+
+From the repository root:
+
+.. code-block:: console
+
+    mkdir -p study_results
+    python -m gprMax examples/gpr/basic/cylinder_Bscan_2D_study.in -o study_results/cylinder_Bscan_2D_study
+
+The study determines the number of runs from the CSV and enables geometry
+reuse automatically; ``-n`` and ``--geometry-fixed`` are unnecessary.
+This produces ``cylinder_Bscan_2D_study1.h5`` through
+``cylinder_Bscan_2D_study60.h5`` in ``study_results``. Each file records its
+case ID and resolved acquisition settings in ``/study``.
+
+Merge the receiver traces and display their Ez component:
+
+.. code-block:: console
+
+    python -m toolboxes.Utilities.outputfiles_merge study_results/cylinder_Bscan_2D_study
+    python -m toolboxes.Plotting.plot_Bscan study_results/cylinder_Bscan_2D_study_merged.h5 Ez
+
+The expected B-scan is the same as :numref:`cylinder_Bscan_results` above.
+
+The merged ``rxs/rx1/Ez`` array has time samples along rows and trace number
+along columns. Per-trace source and receiver positions are retained under
+``/trace_metadata``. Keep the individual files to retain their full study
+case records. The plot uses trace number on its horizontal axis; use the
+recorded positions when plotting an irregular acquisition against distance.
+
+This workflow moves theoretical sources and receivers within fixed geometry.
+A physical antenna moving through the scene requires a newly built geometry
+at each position, as in :doc:`the antenna B-scan example <examples_antennas>`.
+The study runs sequential cases on the selected solver; MPI task farming
+is not currently supported for studies.
