@@ -37,6 +37,7 @@ gprMax User Guide
 
     inc_GPRAntennaModels
     inc_AntennaPatterns
+    inc_Optimisation
     inc_AustinMan
     inc_DebyeFit
     inc_LandmineModels

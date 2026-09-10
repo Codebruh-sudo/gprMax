@@ -1,0 +1,1 @@
+{"backend":"local","solver":"cpu","workers":2,"cpu_threads_per_worker":1,"timeout":600}

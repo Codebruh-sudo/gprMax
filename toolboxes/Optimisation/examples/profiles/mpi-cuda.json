@@ -1,0 +1,1 @@
+{"backend":"mpi","solver":"cuda","device_by_rank":{"1":0,"2":1},"cpu_threads_per_worker":2,"timeout":600}
