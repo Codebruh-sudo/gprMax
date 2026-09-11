@@ -26,6 +26,7 @@ from gprMax.materials import create_built_in_materials
 from gprMax.model import Model
 from gprMax.subgrids.grid import SubGridBaseGrid
 from gprMax.subgrids.user_objects import SubGridBase as SubGridUserBase
+from gprMax.subgrids.user_objects import validate_subgrid_id
 from gprMax.user_objects.cmds_geometry.add_grass import AddGrass
 from gprMax.user_objects.cmds_geometry.add_surface_roughness import AddSurfaceRoughness
 from gprMax.user_objects.cmds_geometry.add_surface_water import AddSurfaceWater
@@ -77,6 +78,18 @@ class Scene:
             self.output_objects.append(user_object)
         else:
             raise TypeError(f"Object of type '{type(user_object)}' is unknown to gprMax")
+
+    def validate_subgrids(self, *, enabled):
+        """Validate the Scene's execution requirement and output namespace."""
+        if self.subgrid_objects and not enabled:
+            raise ValueError("Scene contains subgrids; run with subgrid=True (CPU only).")
+        identifiers = set()
+        for subgrid in self.subgrid_objects:
+            identifier = subgrid.kwargs.get("id")
+            validate_subgrid_id(identifier)
+            if identifier in identifiers:
+                raise ValueError(f"Duplicate subgrid ID {identifier!r} in Scene")
+            identifiers.add(identifier)
 
     def build_model_objects(self, objects: Sequence[ModelUserObject], model: Model):
         """Builds objects in models.
@@ -288,6 +301,12 @@ class Scene:
         presents the user with UserObjects in order to build the internal
         Rx(), Cylinder() etc... objects.
         """
+
+        # Repeat the preflight for callers that construct models directly or
+        # mutate a Scene after SimulationConfig has been created.
+        from gprMax import config
+
+        self.validate_subgrids(enabled=config.sim_config.general.get("subgrid", False))
 
         # Create pre-defined (built-in) materials
         create_built_in_materials(model.G)

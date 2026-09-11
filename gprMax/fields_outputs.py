@@ -15,6 +15,8 @@
 # You should have received a copy of the GNU General Public License
 # along with gprMax. If not, see <https://www.gnu.org/licenses/>.
 
+import hashlib
+import json
 import logging
 from pathlib import Path
 
@@ -31,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 SOURCE_EXCITATION_SCHEMA_VERSION = 1
 RECEIVER_TIMING_SCHEMA_VERSION = 1
+RECEIVER_ORDER_SCHEMA_VERSION = 1
 SURFACE_IMPEDANCE_SCHEMA_VERSION = 3
 
 
@@ -66,8 +69,9 @@ def _write_source_excitation(group, source, grid):
     """Write the exact scalar excitation history consumed by a local source.
 
     The time offset refers to the physical Yee time of sample zero. Source
-    arrays contain one extra value for update look-ahead; only the values
-    consumed by the model's ``iterations`` updates are persisted.
+    arrays contain one extra value for update look-ahead. Persist N samples;
+    hard sources include the E(0) prescription and exclude the terminal E(N)
+    update, which lies beyond the stored receiver history.
     """
 
     source_type = type(source).__name__
@@ -86,7 +90,9 @@ def _write_source_excitation(group, source, grid):
     if source_type == "VoltageSource":
         if source.resistance == 0:
             samples = source.waveformvalues_wholedt[:iterations]
-            time_offset = dt
+            # Include the initial E(0) prescription; the terminal E(N)
+            # look-ahead update lies outside the receiver output history.
+            time_offset = 0.0
             evaluation_time_offset = 0.0
             quantity = "imposed_gap_voltage"
             lattice = "electric"
@@ -523,13 +529,37 @@ def write_hd5_data(basegrp, grid, is_subgrid=False):
     # solver's receiver order. Device transfer maps receiver pages by this
     # original order and internal port monitors are intentionally omitted from
     # the public /rxs namespace.
-    public_rxs.sort(key=lambda rx: rx.ID)
+    definitions = getattr(grid, "receiver_definitions", None)
+    if definitions and len(definitions) != len(public_rxs):
+        raise ValueError("Public receiver count differs from the registered declarations after gathering")
+    indices = [getattr(rx, "build_index", None) for rx in public_rxs]
+    if any(index is not None for index in indices):
+        if any(index is None for index in indices) or sorted(indices) != list(range(len(indices))):
+            raise ValueError("Public receiver build indices must be unique and contiguous after gathering")
+        public_rxs.sort(key=lambda rx: rx.build_index)
+        receiver_order = "construction"
+    else:
+        # Support serial callers supplying low-level receiver objects directly.
+        # Do not misrepresent their list order as a global construction identity.
+        if public_rxs and getattr(grid, "is_distributed", False):
+            raise ValueError("Distributed public receivers require global build indices")
+        receiver_order = "runtime"
+    basegrp.attrs["ReceiverOrderSchemaVersion"] = RECEIVER_ORDER_SCHEMA_VERSION
+    basegrp.attrs["ReceiverOrder"] = receiver_order
+    if receiver_order == "construction":
+        if definitions is not None and len(definitions) == len(public_rxs):
+            basegrp.attrs["ReceiverLayout"] = hashlib.sha256(
+                json.dumps(definitions, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
 
     # Create group, add positional data and write field component arrays for receivers
     for rxindex, rx in enumerate(public_rxs):
         grp = basegrp.create_group("rxs/rx" + str(rxindex + 1))
         if rx.ID:
             grp.attrs["Name"] = rx.ID
+        if receiver_order == "construction":
+            grp.attrs["BuildIndex"] = rx.build_index
+            grp.attrs["NameKind"] = rx.name_kind
         if getattr(rx, "study_id", None):
             grp.attrs["StudyID"] = rx.study_id
         grp.attrs["Position"] = _global_position(grid, rx.xcoord, rx.ycoord, rx.zcoord, is_subgrid)

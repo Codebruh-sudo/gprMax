@@ -9,6 +9,21 @@ Information
 
 This package contains various scripts and helper functions.
 
+Receiver identity and numbering
+------------------------------
+
+Public receiver numbering follows construction order, not alphabetical Names.
+Merge and SEG-Y/SEG-2/DT1 collection match receiver identities across files;
+``--receiver N`` selects N in the first file and follows that receiver in later
+files. ``--trace-group name:label`` selects by unique Name. Ambiguous legacy
+multi-receiver files fail rather than silently mix traces. See
+:ref:`receiver-numbering` for the schema and migration policy.
+
+MATLAB users can resolve a unique label with
+``gprmax_receiver_path(file, name, grid)`` or pass ``ReceiverName`` to
+``plot_Ascan`` / ``plot_Bscan``. Numeric paths remain file-local. The legacy
+interactive converter accepts only single-receiver files.
+
 Package contents
 ================
 
@@ -276,6 +291,12 @@ where:
 * ``basefilename`` is the base name file of the output file series, e.g. for ``myoutput1.h5``, ``myoutput2.h5`` the base file name would be ``myoutput``
 * ``remove-files`` is an optional argument (flag) that when given will remove the separate output files after the merge.
 
+The destination must not be an input file, including symbolic-link and
+hard-link aliases. The merger validates all inputs and writes to a temporary
+sibling location before atomically publishing the completed result. A failed
+write preserves an existing destination and all inputs; ``--remove-files``
+is applied only after successful publication.
+
 The columns of every merged receiver dataset correspond to the naturally
 ordered input files. Per-trace physical and grid positions for receivers and
 position-bearing sources are retained below ``/trace_metadata`` (and below
@@ -316,6 +337,15 @@ The resulting voltage B-scan can be plotted directly. For example:
         --trace-group ports/receive
 
 The trace group can similarly be ``tls/tl1`` or ``frills/frill1``.
+
+Physical trace timing and native source-buffer lengths are also shared by the
+SEG-Y/SEG-2/DT1 collectors and Python port plotting. Frill ``Vinc``, ``Vtotal``
+and ``Itot`` use only the first ``Iterations`` samples; their extra allocation
+endpoint is not exported or plotted. Frill current is already averaged onto
+the integer voltage lattice, so its offset is zero, unlike a receiver loop
+current. Native terminal time axes and group metadata are validated, and
+subgrid histories use the owning grid's interval. Malformed time axes are
+rejected rather than replaced with a guessed root-grid axis.
 
 
 outputfiles_segy.py

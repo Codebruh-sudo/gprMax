@@ -139,13 +139,31 @@ def test_mpi_errors_return_nonzero(tmp_path):
     assert not (tmp_path / "bad.h5").exists()
 
 
-def test_taskfarm_finishes_good_jobs_but_reports_failed_jobs(tmp_path):
+@pytest.mark.parametrize("repeat", range(3))
+def test_taskfarm_finishes_good_jobs_but_reports_failed_jobs(tmp_path, repeat):
     result = _run("taskfarm", tmp_path / "farm")
     assert result.returncode != 0
     assert "1 task-farm job(s) failed: job 1" in result.stdout + result.stderr
     assert "missing_waveform" in result.stdout + result.stderr
     assert not (tmp_path / "farm1.h5").exists()
     assert (tmp_path / "farm2.h5").is_file()
+
+
+@pytest.mark.parametrize("result_kind", ["success", "failure", "caught"])
+def test_taskfarm_collective_completion_and_catchable_errors(tmp_path, result_kind):
+    result = _run("taskfarm", tmp_path / "farm", farm_result=result_kind)
+    if result_kind == "failure":
+        assert result.returncode != 0
+        assert "2 task-farm job(s) failed" in result.stdout + result.stderr
+        assert not list(tmp_path.glob("farm*.h5"))
+    else:
+        assert result.returncode == 0, result.stdout + result.stderr
+        if result_kind == "success":
+            _success(result)
+            assert all((tmp_path / f"farm{index}.h5").is_file() for index in (1, 2))
+        else:
+            assert all((tmp_path / f"caught_rank{rank}.txt").is_file() for rank in range(3))
+            assert (tmp_path / "farm2.h5").is_file()
 
 
 @pytest.mark.parametrize("averaging", ("y", "n"))
@@ -236,7 +254,23 @@ def _worker(args):
         good.add(gprMax.Waveform(wave_type="ricker", amp=1, freq=6e9, id="pulse"))
         good.add(gprMax.HertzianDipole(p1=(0.010,) * 3, polarisation="z", waveform_id="pulse"))
         good.add(gprMax.Rx(p1=(0.012,) * 3))
-        gprMax.run(scenes=[scene, good], n=2, taskfarm=True, **options)
+        models = [good, good] if args.farm_result == "success" else [scene, scene] if args.farm_result == "failure" else [scene, good]
+        if args.farm_result == "caught":
+            from gprMax.taskfarm import TaskfarmError
+            from mpi4py import MPI
+
+            try:
+                gprMax.run(scenes=models, n=2, taskfarm=True, **options)
+            except TaskfarmError as error:
+                assert set(error.failures) == {0}
+                # The communicator remains usable and the exception is
+                # catchable on every rank; no implicit MPI.Abort is needed.
+                MPI.COMM_WORLD.Barrier()
+                (output.parent / f"caught_rank{MPI.COMM_WORLD.rank}.txt").write_text(str(error))
+            else:
+                raise AssertionError("Every rank must receive the failed-batch exception")
+        else:
+            gprMax.run(scenes=models, n=2, taskfarm=True, **options)
         return
     if args.case == "scan":
         position = np.array([0.012] * 3)
@@ -336,4 +370,5 @@ if __name__ == "__main__":
     parser.add_argument("--kind", default="hertzian")
     parser.add_argument("--restart", type=int, default=1)
     parser.add_argument("--averaging", default="y")
+    parser.add_argument("--farm-result", default="mixed", choices=("mixed", "success", "failure", "caught"))
     _worker(parser.parse_args())

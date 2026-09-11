@@ -259,8 +259,8 @@ def test_hard_source_port_uses_phase_aligned_ampere_current(tmp_path, polarisati
         assert port.attrs["PortMode"] == "hard_delta_gap"
         assert port.attrs["ReferenceImpedance"] == 50
         assert port.attrs["ReferenceImpedanceSource"] == "voltage_source"
-        assert port.attrs["TimeSampleOffset"] == pytest.approx(output.attrs["dt"])
-        assert port.attrs["CurrentTimeSampleOffset"] == pytest.approx(0.5 * output.attrs["dt"])
+        assert port.attrs["TimeSampleOffset"] == 0.0
+        assert port.attrs["CurrentTimeSampleOffset"] == pytest.approx(-0.5 * output.attrs["dt"])
         assert port.attrs["CurrentTimeAlignment"] == "explicit_fft_half_step_phase"
         assert port["Iloop"].shape == port["time"].shape
         assert port["time_current"].shape == port["time"].shape

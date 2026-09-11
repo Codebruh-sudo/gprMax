@@ -20,6 +20,7 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+from toolboxes.Utilities.receiver_identity import matching_receiver_path
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ def diff_output_files(filename1, filename2):
         datadiffs: numpy array containing power (dB) of differences.
     """
 
+    reference_path = matching_receiver_path(filename1, "/rxs/rx1", filename2) + "/"
     file1 = h5py.File(Path(filename1), "r")
     file2 = h5py.File(Path(filename2), "r")
     # Path to receivers in files
@@ -43,18 +45,18 @@ def diff_output_files(filename1, filename2):
 
     # Get available field output component names
     outputs1 = list(file1[path].keys())
-    outputs2 = list(file2[path].keys())
+    outputs2 = list(file2[reference_path].keys())
     if outputs1 != outputs2:
         logger.exception("Field output components are not the same in each file")
         raise ValueError
 
     # Check that type of float used to store fields matches
     floattype1 = file1[path + outputs1[0]].dtype
-    floattype2 = file2[path + outputs2[0]].dtype
+    floattype2 = file2[reference_path + outputs2[0]].dtype
     if floattype1 != floattype2:
         logger.warning(
             f"Type of floating point number in test model ({file1[path + outputs1[0]].dtype}) "
-            f"does not match type in reference solution ({file2[path + outputs2[0]].dtype})\n"
+            f"does not match type in reference solution ({file2[reference_path + outputs2[0]].dtype})\n"
         )
 
     # Arrays for storing time
@@ -68,7 +70,7 @@ def diff_output_files(filename1, filename2):
     data2 = np.zeros((file2.attrs["Iterations"], len(outputs2)), dtype=floattype2)
     for ID, name in enumerate(outputs1):
         data1[:, ID] = file1[path + str(name)][:]
-        data2[:, ID] = file2[path + str(name)][:]
+        data2[:, ID] = file2[reference_path + str(name)][:]
         if np.any(np.isnan(data1[:, ID])) or np.any(np.isnan(data2[:, ID])):
             logger.exception("Data contains NaNs")
             raise ValueError

@@ -25,6 +25,7 @@ import h5py
 import numpy as np
 import numpy.typing as npt
 
+from toolboxes.Utilities.receiver_identity import matching_receiver_path
 from toolboxes.SFCW.processing import (
     FrequencyResponse,
     _validate_output_path,
@@ -177,6 +178,8 @@ def process_channel(
     source would instead assume identical source histories. One background
     trace may be broadcast across all target traces. A merged receiver file
     can use source metadata from a separate original A-scan file.
+    Unless explicitly overridden, the background receiver is matched by
+    identity, not by reusing the target's file-local group number.
     """
 
     frequency = chirp.frequency
@@ -200,8 +203,10 @@ def process_channel(
         )
         background_receiver = load_receiver(
             background_filename,
-            background_receiver_path or receiver_path,
-            background_component or component,
+            background_receiver_path
+            if background_receiver_path is not None
+            else matching_receiver_path(filename, target_receiver.path.rsplit("/", 1)[0], background_filename),
+            background_component or target_receiver.quantity,
         )
         background = direct_frequency_response(
             background_source,
@@ -251,13 +256,17 @@ def process_incident_referenced_channel(
     do not expose a scalar stored-source history. The returned response is
     ``(total - incident) / incident``. One incident trace may normalise every
     trace of a merged target B-scan.
+    An omitted incident receiver is identity-matched to the total-field
+    receiver. Supply an explicit override for an intentionally different point.
     """
 
     total = load_receiver(filename, receiver_path, component)
     incident = load_receiver(
         incident_filename,
-        incident_receiver_path or receiver_path,
-        incident_component or component,
+        incident_receiver_path
+        if incident_receiver_path is not None
+        else matching_receiver_path(filename, total.path.rsplit("/", 1)[0], incident_filename),
+        incident_component or total.quantity,
     )
     tolerance = 32 * np.finfo(float).eps * total.dt
     if not np.isclose(total.dt, incident.dt, rtol=0, atol=tolerance):

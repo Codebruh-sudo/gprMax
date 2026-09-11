@@ -19,12 +19,14 @@ import argparse
 from pathlib import Path
 
 import h5py
+from toolboxes.Utilities.receiver_identity import natural_key
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 import numpy as np
 
 from gprMax.receivers import Rx
 from gprMax.utilities.utilities import fft_power, handle_plot_output
+from toolboxes.Utilities.trace_time import read_time_history
 
 
 def fft_plot_range(freqs, power, floor_db=-60):
@@ -64,10 +66,12 @@ def mpl_plot(filename, outputs=Rx.defaultoutputs, fft=False, show=True):
         plt: matplotlib plot object.
     """
 
-    file = Path(filename)
+    with h5py.File(filename, "r") as output:
+        return _mpl_plot_file(Path(filename), outputs, fft, show, output)
 
-    # Open output file and read iterations
-    f = h5py.File(file, "r")
+
+def _mpl_plot_file(file, outputs, fft, show, f):
+    """Plot while the public entry point owns the file's lifetime."""
 
     # Paths to grid(s) to traverse for outputs
     paths = ["/"]
@@ -87,19 +91,15 @@ def mpl_plot(filename, outputs=Rx.defaultoutputs, fft=False, show=True):
 
     # Loop through all grids
     for path in paths:
-        iterations = f[path].attrs["Iterations"]
-        nrx = f[path].attrs["nrx"]
-        dt = f[path].attrs["dt"]
-        time = np.linspace(0, (iterations - 1) * dt, num=iterations)
-
         # Check for single output component when doing a FFT
         if fft and not len(outputs) == 1:
             f.close()
             raise ValueError("A single output must be specified when using the -fft option")
 
         # New plot for each receiver
-        for rx in range(1, nrx + 1):
-            rxpath = path + "rxs/rx" + str(rx) + "/"
+        for receiver_key in sorted(f[path + "rxs"], key=natural_key):
+            rx = receiver_key.removeprefix("rx")
+            rxpath = path + "rxs/" + receiver_key + "/"
             availableoutputs = list(f[rxpath].keys())
 
             # If only a single output is required, create one subplot
@@ -122,7 +122,9 @@ def mpl_plot(filename, outputs=Rx.defaultoutputs, fft=False, show=True):
                         + f"{', '.join(availableoutputs)}"
                     )
 
-                outputdata = f[rxpath + output][:] * polarity
+                history = read_time_history(f[rxpath + output], allow_matrix=not fft)
+                outputdata = history.samples * polarity
+                time, dt = history.time, history.dt
 
                 # Plotting if FFT required
                 if fft:
@@ -142,7 +144,7 @@ def mpl_plot(filename, outputs=Rx.defaultoutputs, fft=False, show=True):
                     line1 = ax1.plot(time, outputdata, "r", lw=2, label=outputtext)
                     ax1.set_xlabel("Time [s]")
                     ax1.set_ylabel(outputtext + " field strength [V/m]")
-                    ax1.set_xlim([0, np.amax(time)])
+                    ax1.set_xlim([time[0], time[-1]])
                     ax1.grid(which="both", axis="both", linestyle="-.")
 
                     # Plot frequency spectra
@@ -185,7 +187,7 @@ def mpl_plot(filename, outputs=Rx.defaultoutputs, fft=False, show=True):
                         edgecolor="w",
                     )
                     line = ax.plot(time, outputdata, "r", lw=2, label=outputtext)
-                    ax.set_xlim([0, np.amax(time)])
+                    ax.set_xlim([time[0], time[-1]])
                     # ax.set_ylim([-15, 20])
                     ax.grid(which="both", axis="both", linestyle="-.")
 
@@ -199,7 +201,7 @@ def mpl_plot(filename, outputs=Rx.defaultoutputs, fft=False, show=True):
             # If multiple outputs required, create all nine subplots and
             # populate only the specified ones
             else:
-                plt_cols = 3 if len(outputs) == 9 else 2
+                plt_cols = 3 if any(output.startswith("I") for output in outputs) else 2
 
                 fig, axs = plt.subplots(
                     subplot_kw=dict(xlabel="Time [s]"),
@@ -232,7 +234,9 @@ def mpl_plot(filename, outputs=Rx.defaultoutputs, fft=False, show=True):
                             + f"{', '.join(availableoutputs)}"
                         )
 
-                    outputdata = f[rxpath + output][:] * polarity
+                    history = read_time_history(f[rxpath + output], allow_matrix=True)
+                    outputdata = history.samples * polarity
+                    time = history.time
 
                     if output == "Ex":
                         axs[0, 0].plot(time, outputdata, "r", lw=2, label=outputtext)
@@ -262,7 +266,9 @@ def mpl_plot(filename, outputs=Rx.defaultoutputs, fft=False, show=True):
                         axs[2, 2].plot(time, outputdata, "b", lw=2, label=outputtext)
                         axs[2, 2].set_ylabel(outputtext + ", current [A]")
                 for ax in fig.axes:
-                    ax.set_xlim([0, np.amax(time)])
+                    if ax.lines:
+                        ax.set_xlim([min(line.get_xdata()[0] for line in ax.lines),
+                                     max(line.get_xdata()[-1] for line in ax.lines)])
                     ax.grid(which="both", axis="both", linestyle="-.")
 
             # Show or save this receiver's figure now, rather than after the

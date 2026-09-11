@@ -679,6 +679,7 @@ def _(
         _sample_file = _prev["sample_file"]
 
     _known_components = _prev["known_components"]
+    _receiver_identity = None if _needs_reset else _prev.get("receiver_identity")
     _new_warnings = []
     _new_trace_count = 0
     _should_scan = live_toggle.value or poll_now_button.value or _needs_reset
@@ -695,7 +696,12 @@ def _(
                 continue  # still being written — retry next tick, don't mark seen
 
             _result = process_trace(
-                _fdata, _current_component, len(_cols[0]) if _cols else None, _current_receiver
+                _fdata,
+                _current_component,
+                len(_cols[0]) if _cols else None,
+                _current_receiver,
+                expected_time_ns=_time_ns,
+                expected_identity=_receiver_identity,
             )
             if _result["known_components"]:
                 _known_components = _result["known_components"]
@@ -709,6 +715,7 @@ def _(
                 _time_ns = _result["time_ns"]
             if _sample_file is None:
                 _sample_file = _fdata
+                _receiver_identity = _result["identity"]
             if _result["x"] is None:
                 _all_physical = False
 
@@ -745,6 +752,7 @@ def _(
                 "warnings": _all_warnings,
                 "last_poll": _scan_time,
                 "sample_file": _sample_file,
+                "receiver_identity": _receiver_identity,
             }
         )
 

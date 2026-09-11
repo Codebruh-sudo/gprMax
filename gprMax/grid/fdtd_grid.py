@@ -209,6 +209,9 @@ class FDTDGrid:
         self.virtual_waveguide_specs = {}
         self.virtual_waveguides = []
         self.rxs: List[Rx] = []
+        # Replicated on all MPI ranks, including declarations owned elsewhere.
+        # Separate from runtime pages and private, source-owned port samplers.
+        self.receiver_definitions = []
         self.port_monitors = []  # Source-bound S-parameter/impedance outputs
         self.sar_specs = []  # Deferred tagged-cell SAR output definitions
         self.radiometry_specs = []  # Deferred density-independent absorption outputs
@@ -357,7 +360,18 @@ class FDTDGrid:
         else:
             raise TypeError(f"Source of type '{type(source)}' is unknown to gprMax")
 
+    def register_receiver(self, name, outputs, study_id=None):
+        """Allocate a per-grid public ordinal BEFORE ownership filtering.
+
+        Positions deliberately do not participate: a declared receiver may
+        move between scan runs. Names remain labels, not ordering keys.
+        """
+        index = len(self.receiver_definitions)
+        self.receiver_definitions.append((name, sorted(outputs), study_id))
+        return index
+
     def add_receiver(self, receiver: Rx):
+        # Also used by MPI migration: never allocate/reassign an ordinal here.
         self.rxs.append(receiver)
 
     def build(self) -> None:

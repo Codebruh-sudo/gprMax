@@ -26,9 +26,8 @@ Coverage targets:
 * ``process_python_include_code`` — strips comments and blank lines,
   executes any ``#python:`` blocks and captures the commands they ``print``,
   preserves regular hash lines, then re-runs include-file resolution.
-* ``process_include_files`` — replaces ``#include_file: path`` lines with
-  the contents of the named file; falls back to ``input_file_path.parent``
-  if the path isn't absolute and doesn't exist relative to CWD.
+* ``process_include_files`` — recursively expands includes relative to their
+  containing files, independently of the working directory.
 * ``check_cmd_names`` — routes each command line into the singleuse /
   multiuse / geometry buckets and validates command names, the
   command-name/parameters split, single-instance rule, and essentials
@@ -38,6 +37,7 @@ Coverage targets:
 
 import io
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -104,14 +104,27 @@ class TestProcessPythonIncludeCode:
         with pytest.raises(SyntaxError):
             process_python_include_code(text, {})
 
-    def test_stdout_reset_to_os_stdout_after_python_block(self):
-        # The internal redirect to a StringIO is reverted with the
-        # explicit ``sys.stdout = sys.__stdout__`` line — so after the
-        # block, ``sys.stdout`` is the OS stdout (not whatever wrapper
-        # the surrounding test runner had in place).
+    def test_stdout_restored_to_callers_stream_after_python_block(self):
         text = io.StringIO("#python:\n" "print('#title: demo')\n" "#end_python:\n")
-        process_python_include_code(text, {})
-        assert sys.stdout is sys.__stdout__
+        caller = io.StringIO()
+        with redirect_stdout(caller):
+            process_python_include_code(text, {})
+            assert sys.stdout is caller
+            print("after")
+        assert caller.getvalue() == "after\n"
+
+    @pytest.mark.parametrize("exception", [RuntimeError, SystemExit, KeyboardInterrupt])
+    def test_exception_restores_callers_stdout(self, exception):
+        text = io.StringIO("#python:\nraise failure('test')\n#end_python:\n")
+        caller = io.StringIO()
+        with redirect_stdout(caller):
+            with pytest.raises(exception):
+                process_python_include_code(text, {"failure": exception})
+            assert sys.stdout is caller
+
+    def test_terminal_empty_python_block_reports_missing_end(self):
+        with pytest.raises(SyntaxError, match="missing #end_python"):
+            process_python_include_code(io.StringIO("#python:\n"), {})
 
 
 # ---------------------------------------------------------------------------
@@ -144,22 +157,81 @@ class TestProcessIncludeFiles:
         with pytest.raises(ValueError):
             process_include_files(["#include_file: a b\n"])
 
-    def test_relative_path_falls_back_to_input_file_parent(self, tmp_path, monkeypatch):
+    def test_relative_path_uses_input_file_parent(self, tmp_path, monkeypatch):
         # Place the included file next to a faked input file
         included = tmp_path / "sidecar.in"
         included.write_text("#title: sidecar wins\n")
         fake_input = tmp_path / "main.in"
-        # Path the dispatcher reads when the requested path doesn't exist
+        # The input file determines the include-search root.
         from gprMax import config
 
         fake_sim_config = SimpleNamespace(input_file_path=fake_input)
         monkeypatch.setattr(config, "sim_config", fake_sim_config)
 
-        # Pass only the bare filename — first attempt (relative to CWD) misses,
-        # then the fallback to ``input_file_path.parent`` resolves
+        # Pass only the bare filename.
         cmds = ["#include_file: sidecar.in\n"]
         out = process_include_files(cmds)
         assert out == ["#title: sidecar wins\n"]
+
+    def test_nested_paths_order_repetition_and_cwd_collision(self, tmp_path, monkeypatch):
+        from gprMax import config
+
+        model = tmp_path / "model"
+        model.mkdir()
+        nested = model / "nested"
+        nested.mkdir()
+        caller = tmp_path / "caller"
+        caller.mkdir()
+        (caller / "outer.in").write_text("#title: wrong CWD file\n")
+        (model / "outer.in").write_text(
+            "#box: before\n#include_file: nested/inner.in\n#box: after\n"
+        )
+        (nested / "inner.in").write_text("#box: inner\n")
+        monkeypatch.chdir(caller)
+        monkeypatch.setattr(config, "sim_config", SimpleNamespace(input_file_path=model / "main.in"))
+        expected = ["#box: before\n", "#box: inner\n", "#box: after\n"]
+        assert process_include_files(["#include_file: outer.in\n"] * 2) == expected * 2
+
+    def test_missing_input_relative_file_never_uses_cwd_fallback(self, tmp_path, monkeypatch):
+        from gprMax import config
+
+        (tmp_path / "extra.in").write_text("#title: unrelated\n")
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(config, "sim_config", SimpleNamespace(input_file_path=tmp_path / "model/main.in"))
+        with pytest.raises(FileNotFoundError) as error:
+            process_include_files(["#include_file: extra.in\n"])
+        assert Path(error.value.filename) == tmp_path / "model" / "extra.in"
+
+    @pytest.mark.parametrize("symlink", [False, True])
+    def test_include_cycles_are_rejected_with_chain(self, tmp_path, monkeypatch, symlink):
+        from gprMax import config
+
+        root = tmp_path / "main.in"
+        child = tmp_path / "child.in"
+        root.write_text("#include_file: child.in\n")
+        if symlink:
+            alias = tmp_path / "alias.in"
+            alias.symlink_to(root)
+        child.write_text(f"#include_file: {'alias.in' if symlink else 'main.in'}\n")
+        monkeypatch.setattr(config, "sim_config", SimpleNamespace(input_file_path=root))
+        with pytest.raises(ValueError, match="cycle detected:.*main.in.*child.in.*main.in"):
+            process_include_files(["#include_file: child.in\n"])
+
+    def test_nested_missing_file_raises(self, tmp_path):
+        outer = tmp_path / "outer.in"
+        outer.write_text("#include_file: missing.in\n")
+        with pytest.raises(FileNotFoundError, match="missing.in"):
+            process_include_files([f"#include_file: {outer}\n"])
+
+    def test_python_blocks_in_include_are_explicitly_unsupported(self, tmp_path):
+        outer = tmp_path / "outer.in"
+        outer.write_text("#python:\nraise RuntimeError('must not execute')\n#end_python:\n")
+        with pytest.raises(SyntaxError, match="Python blocks in included files are unsupported"):
+            process_include_files([f"#include_file: {outer}\n"])
+
+    def test_unexpanded_include_cannot_be_silently_dispatched(self):
+        with pytest.raises(ValueError, match="must be expanded"):
+            get_user_objects(["#include_file: unused.in\n"], checkessential=False)
 
 
 # ---------------------------------------------------------------------------

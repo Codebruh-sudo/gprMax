@@ -174,6 +174,7 @@ class ModelConfig:
         self.appendmodelnumber = (
             "" if study_case_count == 1 else str(model_num + 1)
         )  # Indexed from 1
+        self.output_dir_override = None
         self.set_output_file_path()
 
         # Numerical dispersion analysis parameters
@@ -241,6 +242,10 @@ class ModelConfig:
         self.magnetic_averaging_mode = reference.magnetic_averaging_mode
         self.dispersive_averaging = reference.dispersive_averaging
         self.materials = dict(reference.materials)
+        # Preserve the policy, not the first model's already-numbered path.
+        # This also keeps snapshot directories beside their own model output.
+        if reference.output_dir_override is not None:
+            self.set_output_file_path(reference.output_dir_override)
 
     def get_scene(self):
         return sim_config.get_scene(self.model_num)
@@ -277,8 +282,9 @@ class ModelConfig:
         """
 
         if outputdir is not None:
-            Path(outputdir).mkdir(parents=True, exist_ok=True)
-            self.output_file_path = Path(outputdir, sim_config.input_file_path.stem)
+            self.output_dir_override = Path(outputdir).resolve()
+            self.output_dir_override.mkdir(parents=True, exist_ok=True)
+            self.output_file_path = self.output_dir_override / sim_config.input_file_path.stem
         elif sim_config.args.outputfile is not None:
             self.output_file_path = Path(sim_config.args.outputfile)
             if self.output_file_path.suffix.lower() == ".h5":
@@ -324,6 +330,13 @@ class SimulationConfig:
 
         self.args = args
 
+        # Validate declarations before hardware discovery or any model build.
+        # A false flag must never silently select a main-grid-only solve for
+        # a Scene that also contains fine-grid sources, geometry or outputs.
+        for scene in getattr(args, "scenes", None) or ():
+            if isinstance(scene, Scene):
+                scene.validate_subgrids(enabled=bool(getattr(args, "subgrid", False)))
+
         self.geometry_fixed: bool = args.geometry_fixed
         self.study = getattr(args, "study", None)
         self.geometry_only: bool = args.geometry_only
@@ -349,6 +362,9 @@ class SimulationConfig:
         if _multiple_accelerators_requested(non_cpu_solvers):
             logger.error("You cannot use combinations of CUDA, OpenCl and Apple Metal solvers simultaneously.")
             raise ValueError
+
+        if getattr(args, "subgrid", False) and any(solver is not None for solver in non_cpu_solvers):
+            raise ValueError("Subgrids require the CPU solver; CUDA, OpenCL and Metal are unsupported.")
 
         if self.mpi and hasattr(self.args, "subgrid") and self.args.subgrid:
             logger.error("You cannot use subgrids with MPI.")
@@ -477,14 +493,6 @@ class SimulationConfig:
                         " requested single precision."
                     )
                 self.general["precision"] = "double"
-            if (self.general["subgrid"] and self.general["solver"] == "cuda") or (
-                self.general["subgrid"] and self.general["solver"] == "opencl") or (
-                self.general["subgrid"] and self.general["solver"] == "metal"
-            ):
-                logger.error(
-                    "You cannot currently use CUDA, OpenCL, or Metal based solvers with models that contain sub-grids."
-                )
-                raise ValueError
         else:
             self.general["subgrid"] = False
 

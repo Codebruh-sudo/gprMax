@@ -7,6 +7,10 @@ Impulse-response waveform synthesis
 Information
 ===========
 
+Use ``--receiver name:label:Ez`` (or ``study:id:Ez``) for numbering-independent
+selection. A selected subset retains original receiver paths and identity
+metadata, so receiver numbers can have gaps. See :ref:`receiver-numbering`.
+
 This toolbox uses one impulse-excited gprMax model to generate receiver
 histories for many different source pulses. It is useful when the geometry,
 materials, source type, and receiver arrangement remain fixed, but the source
@@ -63,13 +67,21 @@ reference source. gprMax output records both:
 * ``WaveformEvaluationTimeOffset`` -- the time at which the waveform function
   was evaluated during that update.
 
-These are normally identical. A hard voltage source is the important
-exception: its waveform value for update :math:`n` is evaluated at
-:math:`n\Delta t`, but it is imposed on :math:`E^{n+1}` and therefore has a
-physical ``TimeSampleOffset`` of :math:`\Delta t`. The toolbox uses the
-evaluation offset when constructing target samples and retains the physical
-offset in the output. Older files without the new evaluation attribute are
-handled using the source type and driving quantity.
+These are identical for current local sources. A hard voltage source
+prescribes :math:`E^0` before the first observation and then :math:`E^{n+1}`
+using the waveform at :math:`(n+1)\Delta t`; both offsets are zero. Its
+sample-zero impulse is therefore retained in the measured response.
+
+Older hard-source files have an evaluation offset of zero but a physical
+offset of :math:`\Delta t`. The toolbox uses each file's evaluation offset
+when constructing target samples and retains its physical offset in the
+output. Older files without the evaluation attribute are handled using the
+source type and driving quantity; do not manually relabel their time axes.
+
+A zero-valued hard waveform still clamps the feed while the source is active.
+An impulse reference and a directly driven model must use the same feed
+boundary condition. Removing the impulse clamp is not equivalent to leaving
+a hard voltage source in place for subsequent waveform synthesis.
 
 The output receiver samples retain their original electric, magnetic, or
 current Yee-time offset. No additional half-step phase correction is needed.

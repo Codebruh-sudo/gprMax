@@ -357,27 +357,25 @@ class TaskfarmContext(Context):
         executor = self.TaskfarmExecutor(self._run_model, comm=self.comm)
 
         # Check GPU resources versus number of MPI tasks
+        resource_error = None
         if (
             executor.is_master()
             and config.sim_config.general["solver"] == "cuda"
             and executor.size - 1 > len(config.sim_config.devices["devs"])
         ):
-            logger.error(
+            resource_error = (
                 "Not enough GPU resources for number of "
                 "MPI tasks requested. Number of MPI tasks "
                 "should be equal to number of GPUs + 1."
             )
-            raise ValueError
+        resource_error = self.comm.bcast(resource_error, root=executor.master)
+        if resource_error is not None:
+            raise ValueError(resource_error)
 
         jobs = [{"i": i} for i in self.model_range]
-        # Send the workers to their work loop
-        executor.start()
-        try:
-            if executor.is_master():
-                results = executor.submit(jobs)
-        finally:
-            # Failed jobs must still release workers waiting for more work.
-            executor.join()
+        # Join workers before propagating a failed batch collectively. A
+        # master-only exception can be masked by zero-exit workers in Hydra.
+        results = executor.run_collective(jobs)
 
         if executor.is_master():
             self._end_simulation()

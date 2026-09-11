@@ -97,9 +97,32 @@ def test_matlab_reader_and_converter_round_trip(tmp_path):
     batch_mat = tmp_path / "batch-output.mat"
     _write_fixture(first)
     _write_fixture(second, offset=100)
+    renumbered = tmp_path / "renumbered.h5"
+    _write_fixture(renumbered)
+    with h5py.File(renumbered, "r+") as output:
+        output.move("rxs/rx1", "rxs/rx10")
+        output.move("trace_metadata/rxs/rx1", "trace_metadata/rxs/rx10")
+        other = output.create_group("rxs/rx1")
+        other.attrs["Name"] = "other receiver"
+        other["Ex"] = np.ones(4) * 999
 
     script = f"""
 addpath('{_matlab_path(MATLAB_TOOLS)}');
+assert(gprmax_receiver_path('{_matlab_path(renumbered)}', 'test receiver') == "/rxs/rx10");
+[namedFigure, namedScan] = plot_Bscan('{_matlab_path(renumbered)}', 'Ez', ...
+    'ReceiverName', 'test receiver', 'Visible', false);
+assert(isequal(namedScan.values, single(reshape(0:11, 3, 4)')));
+close(namedFigure);
+[namedFigures, namedTraces] = plot_Ascan('{_matlab_path(renumbered)}', ...
+    'ReceiverName', 'test receiver', 'Outputs', 'Ex', 'Visible', false);
+assert(numel(namedFigures) == 1);
+close(namedFigures);
+try
+    gprmax_receiver_path('{_matlab_path(renumbered)}', 'absent');
+    error('gprMax:test:MissingIdentityAccepted', 'Missing name accepted');
+catch exception
+    assert(strcmp(exception.identifier, 'gprMax:MATLAB:ReceiverIdentity'));
+end
 g = gprmax_read_h5('{_matlab_path(first)}', ...
     'Paths', ["/rxs", "/port-feed"]);
 assert(isequal(size(g.data.rxs.rx1.Ez), [4 3]));

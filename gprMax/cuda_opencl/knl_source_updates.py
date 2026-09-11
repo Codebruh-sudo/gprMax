@@ -317,7 +317,10 @@ update_voltage_source = {
             int activity_offset = 4 * NVOLTSRC + 2 * source;
             int first_active = srcinfo1[activity_offset];
             int last_active = srcinfo1[activity_offset + 1];
-            int active = iteration >= first_active && iteration <= last_active;
+            // E(0) was prescribed on the host before upload. This overwrite
+            // lands on E(n+1); keep waveform tables on their physical lattice.
+            int hard_sample = iteration + 1;
+            int active = hard_sample >= first_active && hard_sample <= last_active;
 
             // 'x' polarised source
             if (polarisation == 0) {
@@ -328,7 +331,7 @@ update_voltage_source = {
                                                 srcwaveforms[IDX2D_SRCWAVES(source,iteration)] * area_inv;
                 }
                 else if (active) {
-                    Ex[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(source,iteration)] / dx;
+                    Ex[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(source,hard_sample)] / dx;
                 }
             }
 
@@ -341,7 +344,7 @@ update_voltage_source = {
                                                 srcwaveforms[IDX2D_SRCWAVES(source,iteration)] * area_inv;
                 }
                 else if (active) {
-                    Ey[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(source,iteration)] / dy;
+                    Ey[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(source,hard_sample)] / dy;
                 }
             }
 
@@ -354,7 +357,7 @@ update_voltage_source = {
                                                 srcwaveforms[IDX2D_SRCWAVES(source,iteration)] * area_inv;
                 }
                 else if (active) {
-                    Ez[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(source,iteration)] / dz;
+                    Ez[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(source,hard_sample)] / dz;
                 }
             }
         }

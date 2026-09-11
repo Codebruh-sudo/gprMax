@@ -80,6 +80,28 @@ def test_chirp_uses_endpoint_exclusive_frequencies_and_physical_resolution():
     assert chirp.delay[-1] < chirp.samples / chirp.bandwidth
 
 
+@pytest.mark.parametrize("receiver_offset", [0.0, -0.5], ids=["electric", "magnetic"])
+def test_corrected_and_legacy_hard_source_clocks_give_same_channel(tmp_path, receiver_offset):
+    dt = 2e-11
+    chirp = Chirp(100e6, 900e6, 1e-3, 32)
+    responses = []
+    for source_steps in (0, 1):
+        path = tmp_path / f"hard_{source_steps}.h5"
+        trace = np.zeros(128)
+        trace[9 + source_steps] = 2
+        _write_signal_file(path, 2, trace, dt)
+        with h5py.File(path, "r+") as output:
+            source = output["srcs/src1/excitation"]
+            source.attrs["TimeSampleOffset"] = source_steps * dt
+            source.attrs["WaveformEvaluationTimeOffset"] = 0.0
+            source.attrs["DrivingQuantity"] = "imposed_gap_voltage"
+            output["rxs/rx1/Ez"].attrs["TimeSampleOffset"] = receiver_offset * dt
+        responses.append(process_channel(path, chirp).response)
+    expected = np.exp(-2j * np.pi * chirp.frequency * (9 + receiver_offset) * dt)
+    for response in responses:
+        assert_allclose(response, expected, rtol=2e-12, atol=2e-12)
+
+
 def test_point_target_maps_to_correct_positive_beat_and_fast_time():
     chirp = Chirp(100e6, 900e6, 80e-6, 128)
     delay_index = 11

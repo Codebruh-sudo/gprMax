@@ -19,6 +19,7 @@ import logging
 
 import gprMax.config as config
 from gprMax.model import Model
+from gprMax.sources import initialise_hard_source_fields
 
 from .grid.cuda_grid import CUDAGrid
 from .grid.fdtd_grid import FDTDGrid
@@ -153,6 +154,23 @@ def create_solver(model: Model) -> Solver:
         solver: Solver object.
     """
     grid = model.G
+    if getattr(model, "subgrids", ()) and not config.sim_config.general["subgrid"]:
+        raise ValueError("Model contains subgrids; run with subgrid=True (CPU only).")
+    # Model.build() has reset fields and applied source stepping/Study state.
+    # Do this once per run, before backend constructors upload the host fields
+    # or create the subgrid coupling state. Never advance additive sources here.
+    for source_grid in (grid, *getattr(model, "subgrids", ())):
+        prescribed = initialise_hard_source_fields(source_grid)
+        if getattr(source_grid, "is_distributed", False) is True:
+            from mpi4py import MPI
+
+            # Ranks without a local hard source still need their neighbours'
+            # E(0) before the first H update. Every rank participates in the
+            # decision and, if needed, the exchange; drain sends as well.
+            if source_grid.comm.allreduce(prescribed, op=MPI.LOR):
+                source_grid.halo_swap_electric()
+                source_grid.complete_halo_swaps()
+
     if config.sim_config.general["subgrid"]:
         updates = create_subgrid_updates(model)
         if updates.grid.maxpoles != 0:

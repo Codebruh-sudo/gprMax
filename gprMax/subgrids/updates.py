@@ -44,6 +44,11 @@ def create_updates(model: Model):
             logger.exception(f"{str(sg)} is not a subgrid type")
             raise ValueError
 
+        # The main grid may now have a nonzero hard-source E(0). Seed the
+        # current electric precursor level before hsg_2 first reads it;
+        # the previous (pre-start) level remains zero. The next ordinary
+        # update_electric() then moves this E(0) into its history slot.
+        precursors.update_electric()
         sgu = SubgridUpdater(sg, precursors, model.G)
         updaters.append(sgu)
 

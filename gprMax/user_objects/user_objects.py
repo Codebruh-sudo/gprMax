@@ -60,7 +60,11 @@ class UserObject(ABC):
         return self.order < obj.order
 
     def __str__(self) -> str:
-        """Readable user object as per hash commands."""
+        """Readable hash-style diagnostic, not a general input-file serializer.
+
+        Omitted optional fields need not round-trip through the positional
+        hash grammar. Use the documented hash syntax to author input files.
+        """
         args: List[str] = []
         for value in self.kwargs.values():
             if isinstance(value, (tuple, list)):

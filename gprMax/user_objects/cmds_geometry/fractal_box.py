@@ -213,7 +213,15 @@ class FractalBox(GeometryUserObject):
         )
 
     def build(self, grid: FDTDGrid):
-        if self.do_pre_build:
+        # The two passes belong to a grid build, not to this reusable API
+        # definition's lifetime. A preview, retry, backend change or another
+        # Scene may build the same definition against a fresh grid. Its volume
+        # and material-bin IDs must be registered on that grid before modifiers
+        # run; never rasterise a previous grid's volume during the prepass.
+        prepared_here = any(
+            volume is getattr(self, "volume", None) for volume in grid.fractalvolumes
+        )
+        if self.do_pre_build or not prepared_here:
             self.pre_build(grid)
             self.do_pre_build = False
         else:
@@ -798,10 +806,10 @@ class FractalBox(GeometryUserObject):
 
                 # fractalvolume/mask are only needed to build the voxel data
                 # above (already consumed into grid.solid/rigidE/rigidH/ID) -
-                # nothing later reads them again (generate_fractal_volume()
-                # never reruns for this box: build() only takes this branch
-                # once, and geometry_fixed reuse skips build() entirely on
-                # later runs). Freeing them here matters for multi-scene
+                # nothing later in this grid's solve reads them again. A
+                # fresh grid rebuild prepares a new volume; geometry_fixed
+                # reuse skips geometry construction entirely. Freeing them
+                # here matters for multi-scene
                 # sweeps, where the caller's own scenes list keeps every
                 # Scene - and therefore every FractalBox/FractalVolume -
                 # alive for the whole run; without this, a large fractal

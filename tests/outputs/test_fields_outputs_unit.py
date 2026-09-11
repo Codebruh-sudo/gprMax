@@ -32,11 +32,9 @@ implementation of ``FDTDGrid.calculate_Ix``/``Iy``/``Iz``, tested in PR 9.
 Nothing in the codebase checks that the two agree, and a fix applied to one
 would silently leave the other behind, so a cross-check is included below.
 
-**Receivers must be named.** ``write_hd5_data`` sorts ``grid.rxs`` by
-``rx.ID``, but ``Rx.__init__`` only *annotates* ``self.ID: str`` — it never
-assigns it. An unnamed receiver therefore raises ``AttributeError`` from inside
-the writer. Every receiver built here is given an explicit ID; the defect is
-recorded for the maintainers rather than asserted.
+Low-level receiver fixtures supply IDs explicitly. Public command-built
+receivers additionally carry construction indices; their output-order
+contract is tested in ``test_receiver_order.py``.
 """
 
 import logging
@@ -601,12 +599,8 @@ class TestWriteReceivers:
         _, data = read_h5(path)
         assert data["rxs/rx1/Ex"] == pytest.approx([1, 2, 3, 4, 5])
 
-    def test_receivers_are_sorted_by_id(self, make_view_grid, make_rx, tmp_path, read_h5):
-        """Expects ``rx1`` to be the alphabetically first ID, not the first
-        one added.
-
-        The sort exists so that a multi-rank MPI run, where receivers arrive in
-        arbitrary order, always writes them in the same sequence."""
+    def test_low_level_receivers_keep_runtime_order(self, make_view_grid, make_rx, tmp_path, read_h5):
+        """Unindexed low-level serial objects retain list order, not name order."""
         import h5py
 
         g = make_view_grid(nx=8, ny=8, nz=8)
@@ -618,7 +612,8 @@ class TestWriteReceivers:
         with h5py.File(path, "w") as f:
             write_hd5_data(f, g)
         attrs, _ = read_h5(path)
-        assert attrs["rxs/rx1/Name"] == "alpha"
+        assert attrs["rxs/rx1/Name"] == "zulu"
+        assert attrs["ReceiverOrder"] == "runtime"
 
     def test_the_sort_mutates_the_grids_receiver_list(self, make_view_grid, make_rx, tmp_path):
         """``grid.rxs`` is NOT mutated — the writer sorts a local copy, so

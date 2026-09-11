@@ -506,10 +506,10 @@ class Snapshot(OutputUserObject):
 
     def build(self, model: Model, grid: FDTDGrid):
         uip = self._create_uip(grid)
-        self.lower_bound = uip.resolve_inf_point(self.lower_bound, role="lower")
-        self.upper_bound = uip.resolve_inf_point(self.upper_bound, role="upper")
+        lower_bound = uip.resolve_inf_point(self.lower_bound, role="lower")
+        upper_bound = uip.resolve_inf_point(self.upper_bound, role="upper")
         discretised_lower_bound, discretised_upper_bound = uip.check_output_object_bounds(
-            self.lower_bound, self.upper_bound, self.params_str()
+            lower_bound, upper_bound, self.params_str()
         )
         geometry = mode2d_geometry(config.get_model_config().mode)
         if geometry is not None:
@@ -768,9 +768,9 @@ class NTFFSurface(OutputUserObject):
             raise ValueError(f"{self.params_str()} must leave at least one active NTFF face")
         self.omit_faces = tuple(face for face in valid_faces if face in self.omit_faces)
         uip = self._create_uip(grid)
-        self.lower_bound = uip.resolve_inf_point(self.lower_bound, role="lower")
-        self.upper_bound = uip.resolve_inf_point(self.upper_bound, role="upper")
-        lower, upper = uip.check_output_object_bounds(self.lower_bound, self.upper_bound, self.params_str())
+        lower_bound = uip.resolve_inf_point(self.lower_bound, role="lower")
+        upper_bound = uip.resolve_inf_point(self.upper_bound, role="upper")
+        lower, upper = uip.check_output_object_bounds(lower_bound, upper_bound, self.params_str())
         # Main-grid user coordinates are translated into each rank's local
         # frame during MPI parsing. NTFF surfaces are global objects which
         # are partitioned only after the Yee grid has been built, so retain
@@ -793,7 +793,7 @@ class NTFFSurface(OutputUserObject):
         )
         logger.info(
             f"{self.grid_name(grid)}NTFF integration surface {self.ID!r} from "
-            f"{tuple(self.lower_bound)}m to {tuple(self.upper_bound)}m registered"
+            f"{tuple(lower_bound)}m to {tuple(upper_bound)}m registered"
             + (
                 "."
                 if not self.omit_faces
@@ -1886,10 +1886,10 @@ class GeometryView(OutputUserObject):
 
     def build(self, model: Model, grid: FDTDGrid):
         uip = self._create_uip(grid)
-        self.lower_bound = uip.resolve_inf_point(self.lower_bound, role="lower")
-        self.upper_bound = uip.resolve_inf_point(self.upper_bound, role="upper")
+        lower_bound = uip.resolve_inf_point(self.lower_bound, role="lower")
+        upper_bound = uip.resolve_inf_point(self.upper_bound, role="upper")
         discretised_lower_bound, discretised_upper_bound = uip.check_output_object_bounds(
-            self.lower_bound, self.upper_bound, self.params_str()
+            lower_bound, upper_bound, self.params_str()
         )
         discretised_dl = uip.discretise_static_point(self.dl)
 
@@ -1926,8 +1926,8 @@ class GeometryView(OutputUserObject):
             raise ValueError(f"{self.params_str()} requires type to be either n (normal) or f (fine).")
 
         if g is not None:
-            p1 = uip.round_to_grid_static_point(self.lower_bound)
-            p2 = uip.round_to_grid_static_point(self.upper_bound)
+            p1 = uip.round_to_grid_static_point(lower_bound)
+            p2 = uip.round_to_grid_static_point(upper_bound)
             dl = discretised_dl * grid.dl
 
             logger.info(
@@ -1971,18 +1971,18 @@ class GeometryObjectsWrite(OutputUserObject):
             raise ValueError(f"{self.params_str()} do not add geometry objects to subgrids.")
 
         uip = self._create_uip(grid)
-        self.lower_bound = uip.resolve_inf_point(self.lower_bound, role="lower")
-        self.upper_bound = uip.resolve_inf_point(self.upper_bound, role="upper")
+        lower_bound = uip.resolve_inf_point(self.lower_bound, role="lower")
+        upper_bound = uip.resolve_inf_point(self.upper_bound, role="upper")
 
         discretised_lower_bound, discretised_upper_bound = uip.check_output_object_bounds(
-            self.lower_bound, self.upper_bound, self.params_str()
+            lower_bound, upper_bound, self.params_str()
         )
 
         g = model.add_geometry_object(grid, discretised_lower_bound, discretised_upper_bound, self.basefilename)
 
         if g is not None:
-            p1 = uip.round_to_grid_static_point(self.lower_bound)
-            p2 = uip.round_to_grid_static_point(self.upper_bound)
+            p1 = uip.round_to_grid_static_point(lower_bound)
+            p2 = uip.round_to_grid_static_point(upper_bound)
 
             logger.info(
                 f"Geometry objects in the volume from {p1[0]:g}m,"

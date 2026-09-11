@@ -21,6 +21,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 from reframe_tests.utilities.data import calculate_diffs, get_data_from_h5_file
+from toolboxes.Utilities.receiver_identity import matching_receiver_path
 
 
 def _plot_data(subplots, time, data, label=None, colour="r", line_style="-"):
@@ -119,7 +120,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     input_time, input_data = get_data_from_h5_file(args.input_file)
-    ref_time, ref_data = get_data_from_h5_file(args.reference_file)
+    reference_receiver = matching_receiver_path(args.input_file, "/rxs/rx1", args.reference_file)
+    ref_time, ref_data = get_data_from_h5_file(args.reference_file, receiver=reference_receiver)
 
     figure = plot_dataset_comparison(input_time, input_data, ref_time, ref_data, args.model_name)
     figure.tight_layout(h_pad=3, w_pad=4, pad=2)

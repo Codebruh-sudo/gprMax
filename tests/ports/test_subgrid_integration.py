@@ -90,7 +90,7 @@ def test_subgrid_port_uses_owning_grid_and_returns_api_result(subgrid_port_resul
         assert port.attrs["PortMode"] == "hard_delta_gap"
         assert port.attrs["CellLength"] == pytest.approx(0.001)
         assert port.attrs["NyquistFrequency"] == pytest.approx(1 / (2 * subgrid.attrs["dt"]))
-        assert port["time"].size == subgrid.attrs["Iterations"] - 1
+        assert port["time"].size == subgrid.attrs["Iterations"]
         assert port["Iloop"].shape == port["time"].shape
         assert port["valid_Zin"][...].astype(bool).any()
 
@@ -173,7 +173,7 @@ def test_ratio_one_subgrid_hard_source_current_has_uniform_grid_phase(tmp_path):
         actual = localised["subgrids/fine_grid/ports/feed"]
         assert actual.attrs["CurrentTimeAlignment"] == "explicit_fft_half_step_phase"
         assert actual.attrs["CurrentTimeSampleOffset"] == pytest.approx(
-            0.5 * localised["subgrids/fine_grid"].attrs["dt"]
+            -0.5 * localised["subgrids/fine_grid"].attrs["dt"], rel=1e-12, abs=0
         )
 
         for dataset in ("Vtotal", "Iloop"):

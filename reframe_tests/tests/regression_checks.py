@@ -20,9 +20,12 @@ from pathlib import Path
 from shutil import copyfile
 from typing import Literal, Optional, Union
 
+import h5py
 import reframe.utility.sanity as sn
 from reframe.core.runtime import runtime
 from reframe.utility import osext
+
+from toolboxes.Utilities.receiver_identity import match_receiver, receiver_catalogue, select_receiver
 
 
 class RegressionCheck:
@@ -42,6 +45,7 @@ class RegressionCheck:
         self.reference_file = Path(reference_file)
         self.cmd = "diff"
         self.options: list[str] = []
+        self.objects: list[str] = []
 
     @property
     def error_msg(self) -> str:
@@ -93,19 +97,28 @@ class RegressionCheck:
                 *self.options,
                 str(self.output_file.absolute()),
                 str(self.reference_file),
+                *self.objects,
             ]
         )
 
-        return sn.assert_true(
-            sn.path_isfile(self.output_file),
-            f"Expected output file '{self.output_file}' does not exist",
-        ) and sn.assert_false(
-            completed_process.stdout,
-            (
-                f"{self.error_msg}\n"
-                f"For more details run: '{' '.join(completed_process.args)}'\n"
-                f"To re-create regression file, delete '{self.reference_file}' and rerun the test."
-            ),
+        return (
+            sn.assert_true(
+                sn.path_isfile(self.output_file),
+                f"Expected output file '{self.output_file}' does not exist",
+            )
+            and sn.assert_eq(
+                completed_process.returncode,
+                0,
+                f"{self.error_msg}\n{completed_process.stdout}\n{completed_process.stderr}",
+            )
+            and sn.assert_false(
+                completed_process.stdout,
+                (
+                    f"{self.error_msg}\n"
+                    f"For more details run: '{' '.join(completed_process.args)}'\n"
+                    f"To re-create regression file, delete '{self.reference_file}' and rerun the test."
+                ),
+            )
         )
 
 
@@ -152,9 +165,23 @@ class ReceiverRegressionCheck(H5RegressionCheck):
         self.output_receiver = output_receiver
         self.reference_receiver = reference_receiver
 
-        self.options.append(f"rxs/{self.output_receiver}")
-        if self.reference_receiver is not None:
-            self.options.append(f"rxs/{self.reference_receiver}")
+    def run(self) -> Literal[True]:
+        # Resolve only after the simulation has written the output. Explicit
+        # reference selections still permit intentional different-point checks.
+        with h5py.File(self.output_file) as output, h5py.File(self.reference_file) as reference:
+            selected = select_receiver(receiver_catalogue(output), self.output_receiver)
+            candidates = receiver_catalogue(reference)
+            counterpart = (
+                match_receiver(selected, candidates)
+                if self.reference_receiver is None
+                else select_receiver(candidates, self.reference_receiver)
+            )
+        original = self.objects
+        self.objects = [selected.path, counterpart.path]
+        try:
+            return super().run()
+        finally:
+            self.objects = original
 
     @property
     def error_msg(self) -> str:

@@ -31,6 +31,9 @@ The output file has the following HDF5 attributes at the root (``/``):
   source histories stored below local source groups.
 - ``ReceiverTimingSchemaVersion`` identifies the schema used for receiver
   dataset time offsets.
+- ``ReceiverOrderSchemaVersion=1`` identifies the public receiver ordering
+  contract. ``ReceiverOrder=construction`` means rank-independent construction
+  order; ``ReceiverLayout`` identifies the ordered receiver declarations.
 
 The output file contains HDF5 groups for sources (``srcs``), transmission lines
 (``tls``), magnetic frill sources (``frills``), receivers (``rxs``),
@@ -647,6 +650,94 @@ Within each individual ``rx`` group are the following attributes:
 * ``Position`` is the x, y, z position (in metres) of the receiver in the model.
 * ``GridPosition`` is the integer x, y, z position of the receiver on its
   owning grid.
+* ``BuildIndex`` is the zero-based public construction ordinal within this
+  grid. For ordinary solver output, ``rxN`` has ``BuildIndex=N-1``.
+* ``NameKind`` distinguishes a user label (``user``) from an automatically
+  generated coordinate label (``generated``).
+
+.. _receiver-numbering:
+
+Receiver numbering and cross-version processing
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Public receivers are numbered in construction order, independently of their
+names and the MPI partition. Receiver arrays follow their x/y/z traversal
+order (z varies fastest). Private port samplers do not consume public numbers.
+Each subgrid has its own numbering namespace. The solver's runtime receiver
+list and accelerator buffer pages are not reordered when writing a file.
+
+Construction order follows command build priorities: individual ``Rx``
+commands are built before ``RxArray`` commands. It is not a promise of literal
+input-line order across interleaved command types. The ordinal survives MPI
+migration and geometry reuse. ``ReceiverLayout`` is a SHA-256 digest of the
+ordered declarations (explicit label or null, sorted requested components,
+study ID). Coordinates are intentionally excluded so a declared acquisition
+can move between runs. This digest describes an acquisition layout, **not**
+a model UUID or proof that two arbitrary simulations are physically equivalent.
+Do not reorder anonymous declarations between runs and assume their ordinal
+identities remain the same. Prefer unique names for independently built models.
+
+Earlier v4 development outputs sorted receiver Names lexicographically;
+v3 used insertion order. Neither has the new ordering metadata. Consequently,
+the same ``/rxs/rx1`` path can refer to different receivers across versions.
+Existing files are not rewritten. Low-level serial writers given receiver
+objects without build ordinals report ``ReceiverOrder=runtime`` and do not
+claim stable construction identities. Distributed output requires ordinals.
+
+The current Python merge, SEG-Y/SEG-2/DT1 collection and Marimo stacking tools
+anchor the selected receiver in the first file, then match its identity in
+later files. Unique ``StudyID`` takes precedence, followed by unique ``Name``;
+matching construction layout/index also supports generated or duplicate names.
+For generated names in the same layout, the ordinal takes precedence over
+coordinates embedded in the name, which may change during a scan. Ambiguous
+matches fail (Marimo skips the trace with a warning). Legacy single-receiver
+files without labels remain supported; unlabeled or duplicate-labeled legacy
+multi-receiver files require explicit, verified per-file selections rather
+than an inferred mapping. Positions may move and are kept with their samples.
+
+Merging retains the first file's paths and identity metadata. Each receiver's
+``trace_metadata/rxs/rxN/InputReceiverPath`` and ``Name`` datasets retain its
+per-input mapping alongside the existing per-trace positions. Derived
+ImpulseResponse files retain selected receivers' original paths/indices;
+these subsets can contain gaps, so readers should enumerate actual groups
+and sort numeric suffixes rather than construct paths from ``1..nrx``.
+
+Use name-based selections when migrating saved scripts:
+
+.. code-block:: python
+
+    from toolboxes.SFCW.processing import load_receiver
+    trace = load_receiver("run.h5", "name:surface", "Ez")
+
+    from toolboxes.Utilities.outputfiles_merge import get_output_data
+    data, dt = get_output_data("merged.h5", 1, "Ez", receiver_name="surface")
+
+SFCW/FMCW ``--receiver`` and ImpulseResponse receiver selections also accept
+``name:surface`` or ``study:identifier``. ImpulseResponse CLI syntax appends
+the component, for example ``--receiver name:surface:Ez``. Export utilities
+and Python B-scan plotting accept ``--trace-group name:surface``. Export
+``--receiver N`` selects N in the **first** input file. The shared Python
+``receiver_identity`` utility also offers per-grid ``build:N`` selection.
+
+FMCW automatically identity-matches an omitted background/incident receiver.
+An explicitly supplied background/incident receiver is an intentional
+per-file override, allowing reference measurements at a different point.
+AntennaPatterns still uses its own zero-padded radius/angle Names to order bins;
+do not replace that consumer-side sort with public group order. Native ports
+and NTFF retain their separate ID-based namespaces.
+
+MATLAB ``plot_Ascan`` and ``plot_Bscan`` accept ``ReceiverName`` (and ``Grid``
+for a subgrid). ``gprmax_receiver_path(file, name, grid)`` resolves a unique Name
+for lower-level readers/converters. Numeric/path selections remain file-local.
+The interactive legacy converter accepts only a single receiver; use an
+explicitly selected modern reader/exporter for multi-receiver data.
+
+Upgrade processing tools together with the solver. Old installed tools and
+external scripts cannot infer this mapping from numeric paths alone. Review
+stored numeric selections against ``Name``/``StudyID`` and positions. Regression
+comparisons now match receiver identities, but strict whole-group/file HDF5
+comparisons will still report the new metadata: verify the signals and then
+deliberately update reference files, rather than regenerating them blindly.
 
 Within each individual ``rx`` group can be the following datasets:
 
@@ -666,6 +757,9 @@ represent :math:`E^n`. Magnetic fields and magnetic-loop currents have
 ``TimeSampleOffset=-\Delta t/2`` and represent :math:`H^{n-1/2}` at stored
 sample index :math:`n`. These explicit physical times are important when
 combining electric and magnetic quantities or deconvolving a source.
+Receivers are observed before each field update. Sample zero is the initial
+state: magnetic fields are zero, but an active zero-resistance voltage source
+can prescribe a nonzero electric field at its edge before this observation.
 
 Within each individual ``src`` group are the following attributes:
 
@@ -683,8 +777,13 @@ the update look-ahead sample removed. ``SampleInterval`` and
 ``WaveformEvaluationTimeOffset`` attribute separately records the time used
 to evaluate the waveform function for source sample :math:`n`. A
 resistive voltage source and Hertzian electric dipole, for example, use
-:math:`t_0=\Delta t/2`, while a hard voltage source is imposed on
-:math:`E^{n+1}` and uses :math:`t_0=\Delta t`. Transmission-line sources store
+:math:`t_0=\Delta t/2`. Hard voltage sources initialise :math:`E^0` and then
+prescribe :math:`E^{n+1}` at :math:`(n+1)\Delta t`; their two offsets are zero.
+Their history contains samples 0 through :math:`N-1`, including the initial
+prescription, but not the terminal :math:`E^N` update. Older hard-source files
+have physical offset :math:`\Delta t` and evaluation offset zero; readers
+must honour the stored metadata rather than assuming either convention.
+Transmission-line sources store
 their two staggered histories as ``samples_whole`` and ``samples_half``;
 ``samples`` is a non-duplicating HDF5 link to the whole-step generator-voltage
 reference.
@@ -977,6 +1076,17 @@ including every Debye, Lorentz, Drude, or inclusive pole,
 This reduces to :math:`G_\mathrm{bg}+j\widetilde{\omega}C_\mathrm{gap}`
 for a nondispersive conductive material. Hard voltage ports use their sampled
 Ampere-loop current and are not yet supported on dispersive source edges.
+
+Hard-source port histories retain all :math:`N` receiver samples, including
+the initial voltage. ``TimeSampleOffset=0`` and
+``CurrentTimeSampleOffset=-\Delta t/2`` locate the voltage and raw loop-current
+histories respectively; their Fourier transforms apply these separate offsets.
+Native frequencies are based on :math:`N\Delta t`. Older hard-port outputs
+dropped the first sample and used :math:`N-1` samples with offsets
+:math:`\Delta t` and :math:`\Delta t/2`. Finite-resistance ports are unchanged:
+they still use :math:`N-1` half-step-aligned samples. Always use the stored
+``time``, ``time_current``, and ``frequency`` datasets, not an assumed length
+or a frequency axis borrowed from a different port.
 
 Important attributes include:
 

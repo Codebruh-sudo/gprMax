@@ -173,7 +173,7 @@ def test_hard_voltage_source_records_applied_electric_time(tmp_path):
 
     with h5py.File(output, "r") as file:
         excitation = file["srcs/src1/excitation"]
-        assert excitation.attrs["TimeSampleOffset"] == grid.dt
+        assert excitation.attrs["TimeSampleOffset"] == 0.0
         assert excitation.attrs["WaveformEvaluationTimeOffset"] == 0.0
         assert excitation.attrs["DrivingQuantity"] == "imposed_gap_voltage"
 

@@ -42,10 +42,10 @@ def build_parser() -> argparse.ArgumentParser:
     process.add_argument("--source-file", type=Path)
     process.add_argument("--background-source-file", type=Path)
     process.add_argument("--source", help="target HDF5 source group")
-    process.add_argument("--receiver", help="target HDF5 receiver group")
+    process.add_argument("--receiver", help="target receiver path, name:label, or study:id")
     process.add_argument("--component", help="receiver component, e.g. Ez")
     process.add_argument("--background-source", help="background HDF5 source group")
-    process.add_argument("--background-receiver", help="background HDF5 receiver group")
+    process.add_argument("--background-receiver", help="explicit background path/name:label override; otherwise match target identity")
     process.add_argument("--background-component", help="background receiver component")
     process.add_argument(
         "--incident-reference",

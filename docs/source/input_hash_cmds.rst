@@ -191,6 +191,23 @@ Allows you to include commands from a file. It will insert the commands from the
 
 ``file1`` can be the name of the file containing the commands in the same directory as the input file, or ``file`` can be the full path to the file containing the commands (allowing you to specify any location).
 
+Includes may be nested. Each relative include path is resolved against the
+directory of the file containing that command, not the process working
+directory. Commands retain their inclusion order. Repeated includes are allowed,
+but cycles and nesting beyond 100 files are rejected. Python blocks inside
+included files are not supported; keep legacy Python blocks in the top-level
+input file or use the Python API.
+
+Study and array-codebook preflight use the same include traversal and path
+rules as model parsing. ``#study`` and ``#array_codebook`` must be literal
+commands in the top-level input or an included file, not printed by a
+``#python`` block: they determine the run before Python preprocessing occurs.
+Their CSV/JSON paths remain relative to the top-level input file.
+
+Older development versions searched the working directory first and could
+silently ignore nested includes. Models relying on that search order should use
+an absolute path or a path relative to the containing file.
+
 
 #time_step_stability_factor:
 ----------------------------
@@ -279,6 +296,12 @@ Allows you to control the directory where output file(s) will be stored.  The sy
     #output_dir: str1
 
 where ``str1`` can be either the absolute path to the directory for the output file(s) or a path relative to the directory of the input files. The default value is the same as the directory of the input files.
+
+Relative paths are based on the **top-level** input file, including when this
+command is declared in an included file. The directory is preserved across
+``--geometry-fixed`` runs; each model still receives its own numbered filename
+and snapshot directory. Python API ``OutputDir`` paths remain relative to the
+process working directory.
 
 
 #omp_threads:
@@ -1452,7 +1475,15 @@ The amplitude values will be interpolated using either the aforementioned user s
     #excitation_file: file1 [str1 str2]
 
 * ``file1`` can be the name of the file containing the specified waveform in the same directory as the input file, or ``file`` can be the full path to the file containing the specified waveform (allowing you to specify any location).
-* ``str1`` and ``str2`` are an optional parameter pair that allow values for ``kind`` and ``fill_value`` to be passed to the interpolation function (`scipy.interpolate.interp1d <https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.interp1d.html>`_). If they are not given the default values for the function will be used.
+* ``str1`` and ``str2`` are an optional parameter pair that allow values for ``kind`` and ``fill_value`` to be passed to the interpolation function (`scipy.interpolate.interp1d <https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.interp1d.html>`_). If omitted, gprMax uses linear interpolation and zero outside the supplied time axis. A numeric fill value applies at both ends; extrapolation occurs only when explicitly requested with ``linear extrapolate`` (or another interpolation kind).
+
+Without a time column, the time axis is exactly ``arange(iterations) * dt``.
+Electric-current sources (resistive voltage sources and Hertzian dipoles)
+retain their half-step sampling and can request a sample past the final
+supplied whole-step value; the selected fill policy applies there. Magnetic
+dipoles retain their whole-step sampling.
+A zero-resistance voltage source evaluates only its required whole-step
+electric-field samples. These rules do not change source start/stop gating.
 
 For example, to specify the file ``my_waves.txt``, which contains two custom waveform shapes, use: ``#excitation_file: my_waves.txt``. The contents of the file ``my_waves.txt`` would take the form:
 
@@ -1639,6 +1670,21 @@ Allows you to introduce a voltage source at an electric field location. It can b
   to 50 Ohms. A finite-resistance source uses ``f4`` and must not supply
   ``f7``.
 * ``str1`` is the identifier of the waveform that should be used with the source.
+
+For a zero-resistance source, the initial electric field is prescribed at
+:math:`t=0` before receiver/snapshot sampling or the first magnetic update.
+After each electric update the source prescribes :math:`E^{n+1}` using the
+waveform at :math:`(n+1)\Delta t`. Its start/stop interval is inclusive and
+tested at this physical electric-field time, including the initial sample.
+Other source types retain their own staggered update times.
+
+An ``impulse`` waveform is nonzero for one sampled time step, but a hard
+source continues to clamp its edge to zero while it remains active. To
+prescribe only the initial impulse and then release the edge, use
+``f5=0`` and :math:`0<f6<\Delta t` (the source's local time step, if inside
+a subgrid). ``f6=\Delta t`` includes a second, zero-valued prescription.
+This initialisation occurs once per run, including geometry reuse, on CPU,
+CUDA, OpenCL, Metal, MPI CPU grids, and supported CPU subgrids.
 
 Every 3-D voltage source automatically stores its terminal voltage and
 frequency-domain ``S11``, ``Zin``, and ``Yin``. No separate receiver-port

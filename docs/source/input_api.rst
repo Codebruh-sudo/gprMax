@@ -20,6 +20,16 @@ The Python API in gprMax allows users to access gprMax functions directly from P
 
 The syntax of the API is generally more verbose than the input file (hash) command syntax. However, for input file commands where there are an undefined number of parameters, such as adding dispersive properties, the user may find the API more manageable.
 
+Source/receiver positions and output bounds containing ``inf`` are resolved
+against each grid when it is built. The declaration retains its symbolic
+coordinates, so reusing it with a different grid spacing or domain does not
+freeze the first build's resolved position.
+
+``str(user_object)`` is a readable, hash-style diagnostic, not a general
+API-to-input-file exporter. In particular, omitted optional fields do not
+always round-trip through the positional hash grammar. Use the documented
+hash syntax when writing an input file.
+
 .. note::
 
     In prior versions of gprMax (<4) the input file could be scripted using Python inserted between two commands (`#python:` and `#end_python:`). This feature is now deprecated and will be removed entirely in later versions. Users are encouraged to move to the new Python API. Antenna models can still be inserted between `#python:` and `#end_python:` commands but will need to make a small change to their input file. An example of this is provided in `examples/gpr/antennas/gssi_1500/antenna_like_GSSI_1500_fs.in`. Alternatively a switch to the Python API can be made using the adjacent `examples/gpr/antennas/gssi_1500/antenna_like_GSSI_1500_fs.py` example.
@@ -148,6 +158,12 @@ Output Directory
 ----------------
 .. autoclass:: gprMax.user_objects.cmds_singleuse.OutputDir
 
+Relative ``OutputDir(dir=...)`` paths are resolved against the working directory
+when the Scene is built. This differs from hash ``#output_dir`` paths, which are
+relative to the top-level input file. The resolved directory is retained during
+``geometry_fixed=True`` repetition, with distinct numbered model and snapshot
+paths.
+
 Magnetic Averaging
 ------------------
 .. autoclass:: gprMax.user_objects.cmds_singleuse.MagneticAveraging
@@ -201,6 +217,12 @@ The available source overrides are ``active``, ``position``,
 study determines the run count automatically; pass ``i=N`` to restart at the
 one-based case number ``N``. For a text input model the equivalent
 ``#study`` command reads the same information from CSV.
+
+Study ``start``/``stop`` overrides must be finite. ``active`` and ``record``
+accept Python or NumPy boolean scalars; strings, numeric flags and boolean
+arrays are rejected rather than interpreted by truthiness. These checks also
+apply before reusing a study in another run. ``record=False`` remains
+unsupported and is rejected for both boolean types.
 
 For a complete acquisition that users can edit in a spreadsheet, see the
 :ref:`CSV B-scan example <bscan_csv_study>`. A Python model can use that same
@@ -1044,6 +1066,11 @@ Fractal Box
 -----------
 .. autoclass:: gprMax.user_objects.cmds_geometry.fractal_box.FractalBox
 
+Fractal definitions can be reused for a geometry preview followed by a solve,
+or in multiple rebuilt Scenes. Each fresh grid gets its own fractal volume and
+material-bin mapping. Supply a seed for reproducible geometry. With
+``geometry_fixed=True``, the already-built geometry is retained instead.
+
 .. note::
 
     * We are not aware of a formulation of Perfectly Matched Layer (PML) absorbing boundary that can specifically handle distributions of material properties (such as those created by fractals) throughout the thickness of the PML, i.e. this is a required area of research. Our PML formulations can work to an extent depending on your modelling scenario and requirements. You may need to increase the thickness of the PML and/or consider tuning the parameters of the PML (:ref:`pml-tuning`) to improve performance for your specific model.
@@ -1279,11 +1306,24 @@ The callable can also be a closure, which is a convenient way to generate a fami
 
 Exactly one of ``user_func`` and ``user_values`` must be supplied. When
 ``user_values`` is used without ``user_time``, gprMax associates the samples
-with its simulation time vector. ``kind`` and ``fill_value`` are passed to
-``scipy.interpolate.interp1d`` and apply only to sampled waveforms. User-defined
+with exactly ``iterations`` times, ``arange(iterations) * dt``. The number of
+values must match; supply an explicit, strictly increasing ``user_time`` for
+another sampling grid. Sampled waveforms default to linear interpolation
+inside the supplied time axis and **zero outside it**. ``kind`` and
+``fill_value`` override those defaults (including explicit ``'extrapolate'``)
+and apply only to sampled waveforms. Numeric fill values are honoured outside
+both ends of the time axis. Callables retain their own boundary behaviour.
+User-defined
 waveforms can drive local Hertzian or magnetic dipoles, voltage sources,
 transmission lines, and magnetic-frill sources. The discrete-plane-wave
 formulation currently requires a built-in analytic waveform.
+
+Hard voltage sources evaluate only whole-step samples, including the initial
+electric field at time zero. Resistive voltage sources and Hertzian dipoles
+use their existing half-step current samples; a final half-step outside a
+sampled waveform's time axis uses the selected fill value. Zero waveform
+amplitude does not remove an active hard-source clamp: its start/stop window
+still controls whether the electric edge is prescribed.
 
 Eigenmode band, ports, excitation, and virtual guides
 ------------------------------------------------------
@@ -1492,6 +1532,13 @@ resistance creates a hard source and therefore requires a separate
 The waveform amplitude is the generator voltage in volts. See
 :ref:`#voltage_source <voltage_source>` for the one-cell source equation and
 the definition of the automatic port spectra.
+
+A hard source also prescribes the initial electric field before sample zero
+is stored. Subsequent prescriptions use the new electric time level
+:math:`(n+1)\Delta t`. ``start`` and ``stop`` are inclusive at these physical
+times. A zero waveform still clamps the edge while active; ``start=0`` and
+:math:`0<\mathtt{stop}<\Delta t` apply only the initial impulse and then release
+the edge. In a subgrid, use its local :math:`\Delta t`.
 
 Hertzian Dipole Source
 ----------------------
@@ -2564,6 +2611,11 @@ A subgrid is added to the main scene, but its materials and geometry are added
 to the subgrid object. With ``autotranslate=True`` these objects can use main
 grid coordinates. Refining subgrids use the double-precision CPU solver.
 CUDA, OpenCL, and Metal subgrid execution are not part of this release.
+
+Pass ``subgrid=True`` even for a geometry-only preview; a Scene containing
+subgrids without that flag is rejected before model construction. Every subgrid
+must have a nonempty ``id`` unique within its Scene. IDs cannot contain path
+separators or NUL, or be ``.`` or ``..``, because they identify HDF5 groups.
 
 ``ratio=1`` selects an **equal-resolution embedded region**. This is exposed
 through ``SubGridHSG`` to avoid a second, overlapping object API, but it does

@@ -145,9 +145,16 @@ class Study:
     def reset_runtime(self) -> None:
         """Clear bindings/state retained only for one call to :func:`gprMax.run`."""
 
+        self.validate_parameters()
         self._scene_bound = False
         self._runtime_baselines.clear()
         self._current_resolved_case = None
+
+    def validate_parameters(self) -> None:
+        """Normalise common API/CSV parameters before building any case."""
+        for case in self.cases:
+            for state in case.states:
+                state.parameters = _validated_state_parameters(state.parameters)
 
     @classmethod
     def from_csv(cls, type: str, path: Union[str, Path]) -> "Study":
@@ -246,6 +253,7 @@ class Study:
     def bind_scene(self, scene) -> None:
         """Assign stable IDs and resolve API object references before build."""
 
+        self.validate_parameters()
         if self._scene_bound:
             return
 
@@ -495,6 +503,7 @@ class Study:
     def _apply_state(self, grid, study_id: str, item, parameters: Mapping[str, Any]) -> dict[str, Any]:
         from gprMax.user_inputs import MainGridUserInput
 
+        parameters = _validated_state_parameters(parameters)
         applied: dict[str, Any] = {}
         if "position" in parameters:
             point = tuple(float(value) for value in parameters["position"])
@@ -533,7 +542,13 @@ class Study:
             item.start = float(parameters["start"])
         if "stop" in parameters:
             item.stop = float(parameters["stop"])
-        if item.start < 0 or item.stop <= item.start or item.stop > grid.timewindow:
+        if (
+            not math.isfinite(item.start)
+            or not math.isfinite(item.stop)
+            or item.start < 0
+            or item.stop <= item.start
+            or item.stop > grid.timewindow
+        ):
             raise ValueError(f"Study object '{study_id}' requires 0 <= start < stop <= the model time window.")
         scale = float(parameters.get("scale", 1.0))
         if not math.isfinite(scale):
@@ -618,6 +633,7 @@ class SourceStudy(Study):
     def bind_scene(self, scene) -> None:
         """Bind fixed main-grid terminal definitions and validate cases."""
 
+        self.validate_parameters()
         if self._scene_bound:
             return
 
@@ -853,6 +869,7 @@ class PlaneWaveStudy(Study):
     def bind_scene(self, scene) -> None:
         """Bind one main-grid DPW template and validate every case override."""
 
+        self.validate_parameters()
         if self._scene_bound:
             return
 
@@ -2338,6 +2355,7 @@ class EigenmodeStudy(Study):
     def bind_scene(self, scene) -> None:
         """Validate a complete, unambiguous modal-channel schedule."""
 
+        self.validate_parameters()
         if self._scene_bound:
             return
         from gprMax.user_objects.cmds_multiuse import EigenmodeExcitation, EigenmodePort
@@ -3138,8 +3156,17 @@ def preflight_study_args(args) -> Optional[Study]:
     if study is not None and not isinstance(study, Study):
         raise TypeError("The study API argument must be a Study instance.")
 
-    hash_spec = _find_hash_study(getattr(args, "inputfile", None))
-    hash_codebook = _find_hash_array_codebook(getattr(args, "inputfile", None))
+    from gprMax.hash_includes import static_hash_commands
+
+    inputfile = getattr(args, "inputfile", None)
+    commands = static_hash_commands(inputfile)
+    # The parser may subsequently execute top-level Python. Controls that size
+    # the run must not appear/change only then, after preflight has chosen it.
+    args._hash_preflight_controls = tuple(
+        line.strip() for line in commands if line.startswith(("#study:", "#array_codebook:"))
+    )
+    hash_spec = _find_hash_study(inputfile, commands=commands)
+    hash_codebook = _find_hash_array_codebook(inputfile, commands=commands)
     if study is not None and hash_spec is not None:
         raise ValueError("Specify a study through either the Python API or #study, not both.")
     if study is not None and hash_codebook is not None:
@@ -3183,101 +3210,66 @@ def preflight_study_args(args) -> Optional[Study]:
     return study
 
 
-def _find_hash_study(inputfile: Optional[Union[str, Path]]) -> Optional[tuple[str, Path]]:
+def _find_hash_study(inputfile: Optional[Union[str, Path]], *, commands=None) -> Optional[tuple[str, Path]]:
     if inputfile is None:
         return None
     main_path = Path(inputfile).expanduser().resolve()
     found: list[tuple[str, Path]] = []
-    visited: set[Path] = set()
+    if commands is None:
+        from gprMax.hash_includes import static_hash_commands
 
-    def scan(path: Path) -> None:
-        path = path.resolve()
-        if path in visited:
-            return
-        visited.add(path)
-        in_python = False
-        for line in path.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("##"):
-                continue
-            if stripped.startswith("#python:"):
-                in_python = True
-                continue
-            if stripped.startswith("#end_python:"):
-                in_python = False
-                continue
-            if in_python:
-                # Preflight intentionally does not execute deprecated Python.
-                continue
-            if stripped.startswith("#include_file:"):
-                values = shlex.split(stripped.split(":", 1)[1])
-                if len(values) != 1:
-                    raise ValueError("#include_file requires exactly one parameter.")
-                include = Path(values[0]).expanduser()
-                if not include.exists():
-                    include = main_path.parent / include
-                scan(include)
-            elif stripped.startswith("#study:"):
-                values = shlex.split(stripped.split(":", 1)[1])
-                if len(values) != 2:
-                    raise ValueError("#study requires exactly two parameters: type and CSV path.")
-                csv_path = Path(values[1]).expanduser()
-                if not csv_path.is_absolute():
-                    csv_path = main_path.parent / csv_path
-                found.append((values[0].lower(), csv_path.resolve()))
-
-    scan(main_path)
+        commands = static_hash_commands(main_path)
+    for line in commands:
+        if line.startswith("#study:"):
+            values = shlex.split(line.split(":", 1)[1])
+            if len(values) != 2:
+                raise ValueError("#study requires exactly two parameters: type and CSV path.")
+            csv_path = Path(values[1]).expanduser()
+            if not csv_path.is_absolute():
+                csv_path = main_path.parent / csv_path
+            found.append((values[0].lower(), csv_path.resolve()))
     if len(found) > 1:
         raise ValueError("Only one #study command may be specified.")
     return found[0] if found else None
 
 
-def _find_hash_array_codebook(inputfile: Optional[Union[str, Path]]) -> Optional[Path]:
+def _find_hash_array_codebook(inputfile: Optional[Union[str, Path]], *, commands=None) -> Optional[Path]:
     if inputfile is None:
         return None
     main_path = Path(inputfile).expanduser().resolve()
     found: list[Path] = []
-    visited: set[Path] = set()
+    if commands is None:
+        from gprMax.hash_includes import static_hash_commands
 
-    def scan(path: Path) -> None:
-        path = path.resolve()
-        if path in visited:
-            return
-        visited.add(path)
-        in_python = False
-        for line in path.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("##"):
-                continue
-            if stripped.startswith("#python:"):
-                in_python = True
-                continue
-            if stripped.startswith("#end_python:"):
-                in_python = False
-                continue
-            if in_python:
-                continue
-            if stripped.startswith("#include_file:"):
-                values = shlex.split(stripped.split(":", 1)[1])
-                if len(values) != 1:
-                    raise ValueError("#include_file requires exactly one parameter.")
-                include = Path(values[0]).expanduser()
-                if not include.is_absolute():
-                    include = main_path.parent / include
-                scan(include)
-            elif stripped.startswith("#array_codebook:"):
-                values = shlex.split(stripped.split(":", 1)[1])
-                if len(values) != 1:
-                    raise ValueError("#array_codebook requires exactly one JSON path.")
-                codebook = Path(values[0]).expanduser()
-                if not codebook.is_absolute():
-                    codebook = main_path.parent / codebook
-                found.append(codebook.resolve())
-
-    scan(main_path)
+        commands = static_hash_commands(main_path)
+    for line in commands:
+        if line.startswith("#array_codebook:"):
+            values = shlex.split(line.split(":", 1)[1])
+            if len(values) != 1:
+                raise ValueError("#array_codebook requires exactly one JSON path.")
+            codebook = Path(values[0]).expanduser()
+            if not codebook.is_absolute():
+                codebook = main_path.parent / codebook
+            found.append(codebook.resolve())
     if len(found) > 1:
         raise ValueError("Only one #array_codebook command may be specified.")
     return found[0] if found else None
+
+
+def _validated_state_parameters(parameters):
+    parameters = dict(parameters)
+    for name in ("active", "record"):
+        if name in parameters:
+            if not isinstance(parameters[name], (bool, np.bool_)):
+                raise ValueError(f"Study parameter '{name}' must be a boolean.")
+            parameters[name] = bool(parameters[name])
+    for name in ("start", "stop"):
+        if name in parameters:
+            value = float(parameters[name])
+            if not math.isfinite(value):
+                raise ValueError(f"Study parameter '{name}' must be finite.")
+            parameters[name] = value
+    return parameters
 
 
 def _is_source(item: Any) -> bool:

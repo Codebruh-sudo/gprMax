@@ -34,6 +34,11 @@ For example to plot the ``Ez`` output component with it's FFT:
 
     python -m toolboxes.Plotting.plot_Ascan my_outputfile.h5 --outputs Ez -fft
 
+Any supported component subset may include currents, for example
+``--outputs Ez Ix Iz-``. Each curve uses its dataset's ``SampleInterval`` and
+``TimeSampleOffset``. H-field and receiver loop-current traces therefore
+normally start at ``-dt/2``, not zero; electric traces normally start at zero.
+
 
 plot_Bscan.py
 -------------
@@ -65,6 +70,15 @@ Voltage-source and rational-network ports use ``ports/<ID>``. Transmission
 lines and magnetic frills use paths such as ``tls/tl1`` and
 ``frills/frill1``. S-parameters, impedance, and spectra are intentionally not
 B-scan quantities and cannot be selected here.
+
+Image pixel centres are placed at the physical sample times. Gathering
+receivers rejects mismatched time axes. For Python callers,
+``get_output_data(..., return_time_offset=True)`` and
+``gather_receiver_outputs(..., return_time_offset=True)`` return
+``(samples, dt, offset)``; pass the offset as ``time_offset=offset`` to
+``plot_Bscan.mpl_plot``. The default two-value loader return is unchanged.
+Direct matrix plotting without an explicit offset uses the receiver-component
+convention; terminal voltages should always use the offset from the loader.
 
 plot_port.py
 ------------

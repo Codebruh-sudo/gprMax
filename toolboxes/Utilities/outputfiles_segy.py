@@ -509,7 +509,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=(
             "group containing a real time-domain quantity and Position metadata, "
-            "e.g. tls/tl1 for Vtotal (default: rxs/rxN)"
+            "e.g. tls/tl1 for Vtotal, or name:surface (default: rxs/rxN in first file)"
         ),
     )
     parser.add_argument("--line-number", type=int, default=1, help="SEG-Y line number")

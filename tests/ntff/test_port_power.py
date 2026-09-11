@@ -460,15 +460,18 @@ def test_rational_network_port_uses_external_network_current_sign(monkeypatch):
     assert result.accepted_power[0] > 0
 
 
-def test_hard_voltage_port_uses_time_aligned_loop_current(monkeypatch):
+@pytest.mark.parametrize("voltage_offset", [0.0, 1.0], ids=["initial-E0", "legacy"])
+def test_hard_voltage_port_uses_time_aligned_loop_current(monkeypatch, voltage_offset):
     dt = 1e-3
     nsamples = 64
     frequency = 1 / (nsamples * dt)
-    voltage_time = (np.arange(nsamples) + 1) * dt
-    current_time = (np.arange(nsamples) + 0.5) * dt
+    voltage_time = (np.arange(nsamples) + voltage_offset) * dt
+    current_time = (np.arange(nsamples) + voltage_offset - 0.5) * dt
     voltage = 2.0 * np.cos(2 * np.pi * frequency * voltage_time + 0.2)
     current = 0.04 * np.cos(2 * np.pi * frequency * current_time - 0.1)
     output, grid = _hard_voltage_port(voltage, current, dt=dt)
+    output.hard_voltage_time_offset = voltage_offset * dt
+    output.hard_current_time_offset = (voltage_offset - 0.5) * dt
     monkeypatch.setattr(
         ports,
         "_port_mesh_valid",
@@ -476,12 +479,12 @@ def test_hard_voltage_port_uses_time_aligned_loop_current(monkeypatch):
     )
 
     result = evaluate_port_power_spectrum(output, grid, [frequency])
-    expected_voltage = engineering_dft(voltage, [frequency], dt, time_offset=dt)
+    expected_voltage = engineering_dft(voltage, [frequency], dt, time_offset=voltage_offset * dt)
     expected_current = engineering_dft(
         current,
         [frequency],
         dt,
-        time_offset=0.5 * dt,
+        time_offset=(voltage_offset - 0.5) * dt,
     )
     expected_incident = 0.5 * (expected_voltage + output.reference_impedance * expected_current)
 

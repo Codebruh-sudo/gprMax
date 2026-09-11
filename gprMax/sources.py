@@ -2910,17 +2910,22 @@ class VoltageSource(Source):
             G: FDTDGrid class describing a grid in a model.
         """
 
-        names = ("waveformvalues_halfdt", "waveformvalues_wholedt")
+        # A hard voltage prescribes E on whole steps; a resistive voltage
+        # injects J on half steps. Do not evaluate an unused lattice (notably
+        # the out-of-range final half step of a sampled hard excitation).
+        name = "waveformvalues_wholedt" if self.resistance == 0 else "waveformvalues_halfdt"
+        names = (name,)
+        self.waveformvalues_halfdt = None
+        self.waveformvalues_wholedt = None
         src_match = self._reuse_waveform_values(G, G.voltagesources, names)
 
         if not src_match:
             waveform = next(x for x in G.waveforms if x.ID == self.waveformID)
-            self.waveformvalues_halfdt = np.zeros(
+            values = np.zeros(
                 (G.iterations + 1), dtype=config.sim_config.dtypes["float_or_double"]
             )
-            self.waveformvalues_wholedt = np.zeros(
-                (G.iterations + 1), dtype=config.sim_config.dtypes["float_or_double"]
-            )
+            setattr(self, name, values)
+            offset = 0.0 if self.resistance == 0 else 0.5 * G.dt
 
             for iteration in range(G.iterations + 1):
                 time = G.dt * iteration
@@ -2928,12 +2933,27 @@ class VoltageSource(Source):
                     # Set the time of the waveform evaluation to account for any
                     # delay in the start
                     time -= self.start
-                    self.waveformvalues_halfdt[iteration] = waveform.calculate_value(
-                        time + 0.5 * G.dt, G.dt
-                    )
-                    self.waveformvalues_wholedt[iteration] = waveform.calculate_value(time, G.dt)
+                    values[iteration] = waveform.calculate_value(time + offset, G.dt)
 
         self._cache_waveform_values(G, names)
+
+    def impose_electric_field(self, sample, Ex, Ey, Ez, G):
+        """Prescribe a hard-source edge at physical electric time ``sample*dt``.
+
+        Used for E(0) initialisation and for E(n+1) after each electric update.
+        Activity is independent of amplitude: an active zero voltage clamps
+        the edge, whereas an inactive source releases it. Return whether the
+        edge was prescribed, including a zero-valued prescription.
+        """
+        if self.resistance != 0:
+            raise ValueError("Only a zero-resistance voltage source can prescribe E")
+        if not self.start <= sample * G.dt <= self.stop:
+            return False
+        field, dl = {"x": (Ex, G.dx), "y": (Ey, G.dy), "z": (Ez, G.dz)}[self.polarisation]
+        field[self.xcoord, self.ycoord, self.zcoord] = (
+            -self.waveformvalues_wholedt[sample] / dl
+        )
+        return True
 
     def update_electric(self, iteration, updatecoeffsE, ID, Ex, Ey, Ez, G):
         """Updates electric field values for a voltage source.
@@ -2948,6 +2968,10 @@ class VoltageSource(Source):
             G: FDTDGrid class describing a grid in a model.
         """
 
+        if self.resistance == 0:
+            self.impose_electric_field(iteration + 1, Ex, Ey, Ez, G)
+            return
+
         if iteration * G.dt >= self.start and iteration * G.dt <= self.stop:
             i = self.xcoord
             j = self.ycoord
@@ -2955,34 +2979,25 @@ class VoltageSource(Source):
             componentID = f"E{self.polarisation}"
 
             if self.polarisation == "x":
-                if self.resistance != 0:
-                    Ex[i, j, k] -= (
-                        updatecoeffsE[ID[G.IDlookup[componentID], i, j, k], 4]
-                        * self.waveformvalues_halfdt[iteration]
-                        * (1 / (self.resistance * G.dy * G.dz))
-                    )
-                else:
-                    Ex[i, j, k] = -1 * self.waveformvalues_wholedt[iteration] / G.dx
+                Ex[i, j, k] -= (
+                    updatecoeffsE[ID[G.IDlookup[componentID], i, j, k], 4]
+                    * self.waveformvalues_halfdt[iteration]
+                    * (1 / (self.resistance * G.dy * G.dz))
+                )
 
             elif self.polarisation == "y":
-                if self.resistance != 0:
-                    Ey[i, j, k] -= (
-                        updatecoeffsE[ID[G.IDlookup[componentID], i, j, k], 4]
-                        * self.waveformvalues_halfdt[iteration]
-                        * (1 / (self.resistance * G.dx * G.dz))
-                    )
-                else:
-                    Ey[i, j, k] = -1 * self.waveformvalues_wholedt[iteration] / G.dy
+                Ey[i, j, k] -= (
+                    updatecoeffsE[ID[G.IDlookup[componentID], i, j, k], 4]
+                    * self.waveformvalues_halfdt[iteration]
+                    * (1 / (self.resistance * G.dx * G.dz))
+                )
 
             elif self.polarisation == "z":
-                if self.resistance != 0:
-                    Ez[i, j, k] -= (
-                        updatecoeffsE[ID[G.IDlookup[componentID], i, j, k], 4]
-                        * self.waveformvalues_halfdt[iteration]
-                        * (1 / (self.resistance * G.dx * G.dy))
-                    )
-                else:
-                    Ez[i, j, k] = -1 * self.waveformvalues_wholedt[iteration] / G.dz
+                Ez[i, j, k] -= (
+                    updatecoeffsE[ID[G.IDlookup[componentID], i, j, k], 4]
+                    * self.waveformvalues_halfdt[iteration]
+                    * (1 / (self.resistance * G.dx * G.dy))
+                )
 
     def create_material(self, G):
         """Create a new material at the voltage source location that adds the
@@ -3176,6 +3191,21 @@ class MagneticDipole(Source):
                 )
 
 
+def initialise_hard_source_fields(G):
+    """Apply only active hard voltage sources to a run's initial host fields.
+
+    Call after field reset and per-case source setup, before device uploads
+    and the first field observation. Preserve declaration/list precedence
+    for coincident hard sources. No other source or material state advances.
+    Return whether any local edge was prescribed (even to zero).
+    """
+    prescribed = False
+    for source in getattr(G, "voltagesources", ()):
+        if source.resistance == 0:
+            prescribed |= source.impose_electric_field(0, G.Ex, G.Ey, G.Ez, G)
+    return prescribed
+
+
 def htod_src_arrays(sources, G, queue=None):
     """Initialise arrays on compute device for source coordinates/polarisation,
         other source information, and source waveform values.
@@ -3227,8 +3257,10 @@ def htod_src_arrays(sources, G, queue=None):
     if sources and sources[0].__class__.__name__ == "VoltageSource":
         # Keep the existing four-int coordinate stride and all float layouts.
         # The shared voltage kernel reads this compact tail using NVOLTSRC.
-        # Search exact host n*dt values, matching the CPU's inclusive predicate
-        # without device-precision rounding or a per-timestep activity buffer.
+        # Store physical waveform-sample indices, not solver-loop indices.
+        # The hard-source kernel tests sample n+1 against this interval; its
+        # sample 0 is imposed on the host before upload. Search exact host
+        # sample*dt values without device-precision rounding.
         iterations = range(G.iterations + 1)
         sample_time = lambda iteration: iteration * G.dt
         activity = np.asarray(

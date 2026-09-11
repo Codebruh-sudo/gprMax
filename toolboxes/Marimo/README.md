@@ -9,6 +9,13 @@ The dashboards use [marimo](https://marimo.io), whose reactive cells update only
 the calculations affected by a changed control. Reusable numerical operations
 are kept in ordinary Python modules and do not depend on marimo.
 
+Receiver menus use numeric group order (`rx9` before `rx10`). When stacking
+files or monitoring live traces, the first accepted receiver's identity is
+matched in later files even if its group number changes. Missing or ambiguous
+identities are skipped with a warning; a missing requested receiver is not
+silently replaced by `rx1`. Review saved numeric selections when upgrading
+from the earlier v4 alphabetical numbering policy.
+
 ## Installation
 
 Install gprMax with the optional dashboard dependencies:
@@ -101,6 +108,13 @@ target_only = subtract_traces(
 Both runs must use the same grid, source, receiver, and time sampling. The
 helper checks shape and time-step compatibility, but it cannot prove that the
 geometries differ only by the target.
+
+The A-scan dashboard additionally matches the selected receiver's identity in
+the background file and compares the two physical sample axes. It does not
+assume that `rx1` in both files names the same receiver. The reusable
+`reference.subtract_receiver_reference` helper provides this behaviour for
+loaded files. Missing/ambiguous identities or mismatched timing produce a
+warning in the dashboard and leave the trace unsubtracted.
 
 Mean-trace removal is a different operation. It is appropriate when the
 direct wave and layered background response are stationary across a B-scan.

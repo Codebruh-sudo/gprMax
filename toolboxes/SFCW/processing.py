@@ -25,6 +25,8 @@ import numpy as np
 import numpy.typing as npt
 from scipy.signal import czt, fftconvolve
 
+from toolboxes.Utilities.receiver_identity import natural_key
+
 
 @dataclass(frozen=True)
 class SampledSignal:
@@ -137,7 +139,7 @@ def list_receivers(filename: str | Path) -> dict[str, tuple[str, ...]]:
                 result["/" + name.strip("/")] = components
 
         output.visititems(visitor)
-    return dict(sorted(result.items()))
+    return dict(sorted(result.items(), key=lambda item: natural_key(item[0])))
 
 
 def _nearest_dt(item) -> float:
@@ -196,6 +198,9 @@ def load_receiver(
 ) -> SampledSignal:
     """Load a field/current history and its sample-zero time in seconds.
 
+    ``receiver_path`` may instead be ``name:label`` or ``study:id``; these
+    must resolve uniquely across the file's receiver grid namespaces.
+
     Dataset timing metadata takes precedence. Without an explicit offset,
     E samples start at zero and H/current samples at ``-dt/2``. The sample
     interval falls back to the nearest ancestor carrying a ``dt`` attribute,
@@ -210,6 +215,20 @@ def load_receiver(
                 f"available receivers: {list(available)}"
             )
         receiver_path = next(iter(available))
+    for prefix, attribute in (("name:", "Name"), ("study:", "StudyID")):
+        if receiver_path.startswith(prefix):
+            with h5py.File(filename, "r") as output:
+                matches = [
+                    path
+                    for path in available
+                    if _text(output[path].attrs.get(attribute, "")) == receiver_path[len(prefix) :]
+                ]
+            if len(matches) != 1:
+                raise ValueError(
+                    f"Receiver selector {receiver_path!r} has {len(matches)} matches; use a unique identity"
+                )
+            receiver_path = matches[0]
+            break
     receiver_path = _normalise_path(receiver_path)
     if receiver_path not in available:
         raise ValueError(f"receiver group {receiver_path!r} is not present in {filename}")
@@ -670,21 +689,9 @@ def _validate_output_path(filename: str | Path, input_filenames) -> Path:
     catches distinct hard links. Empty provenance names carry no input path.
     """
 
-    path = Path(filename)
-    resolved_output = path.resolve()
-    for input_filename in input_filenames:
-        if not input_filename:
-            continue
-        input_path = Path(input_filename)
-        aliases_input = resolved_output == input_path.resolve()
-        if not aliases_input:
-            try:
-                aliases_input = path.samefile(input_path)
-            except FileNotFoundError:
-                aliases_input = False
-        if aliases_input:
-            raise ValueError("processed output must not overwrite an input HDF5 file")
-    return path
+    from toolboxes.Utilities.output_paths import validate_output_path
+
+    return validate_output_path(filename, input_filenames)
 
 
 def write_sfcw_output(

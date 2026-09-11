@@ -11,6 +11,7 @@ tick) and its load-files path (all traces at once).
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 import numpy as np
@@ -22,6 +23,7 @@ from toolboxes.Marimo.h5_reader import (
     list_components,
     list_receivers,
 )
+from toolboxes.Utilities.receiver_identity import ReceiverIdentity, match_receiver
 
 ProcessedTrace = dict[str, Any]
 # success: {"ok": True, "component", "receiver", "array", "time_ns", "x",
@@ -41,20 +43,45 @@ def process_trace(
     expected_len: int | None,
     preferred_receiver: str | None = None,
     expected_time_ns: np.ndarray | None = None,
+    expected_identity: ReceiverIdentity | None = None,
 ) -> ProcessedTrace:
     """Validate and extract one column from a loaded single-trace file.
 
     `expected_len`, if given, must match the trace's sample count — this
     is what catches a run where dt or iteration count drifted mid-sequence.
-    `preferred_receiver` picks a specific receiver key when the file has
-    more than one; falls back to the first receiver found otherwise.
+    `preferred_receiver` selects a file-local key; a missing explicit key is
+    rejected. `expected_identity` anchors later traces to the first selection,
+    even when another file assigns that receiver a different key.
     """
     rxs = list_receivers(file_data)
-    rx = preferred_receiver if preferred_receiver in rxs else (rxs[0] if rxs else "rx1")
+    rx = preferred_receiver if preferred_receiver is not None else (rxs[0] if rxs else "rx1")
+    receiver_infos = file_data.get("receivers", {})
+    names = Counter(info.get("name", "") for info in receiver_infos.values())
+    identities = {
+        f"rxs/{key}": info.get(
+            "identity",
+            ReceiverIdentity(
+                path=f"rxs/{key}",
+                name=info.get("name", ""),
+                name_unique=bool(info.get("name")) and names[info.get("name")] == 1,
+                count=len(receiver_infos),
+            ),
+        )
+        for key, info in receiver_infos.items()
+    }
+    if expected_identity is not None:
+        try:
+            rx = match_receiver(expected_identity, identities).path.split("/")[-1]
+        except ValueError as error:
+            return {"ok": False, "reason": str(error), "known_components": []}
+    if rx not in rxs:
+        return {"ok": False, "reason": f"receiver {rx!r} is missing", "known_components": []}
     comps = list_components(file_data, rx)
 
     if not comps:
         return {"ok": False, "reason": "no field components found", "known_components": comps}
+    if expected_identity is not None and preferred_component not in comps:
+        return {"ok": False, "reason": f"component {preferred_component!r} is missing", "known_components": comps}
 
     comp = (
         preferred_component
@@ -87,6 +114,7 @@ def process_trace(
         "ok": True,
         "component": comp,
         "receiver": rx,
+        "identity": identities.get(f"rxs/{rx}"),
         "array": arr,
         "time_ns": time_ns,
         "x": x,
@@ -114,6 +142,7 @@ def stack_traces(
     component = preferred_component
     receiver = None
     all_physical = True
+    identity = None
 
     for i, fdata in enumerate(file_datas):
         expected_len = len(cols[0]) if cols else None
@@ -123,6 +152,7 @@ def stack_traces(
             expected_len,
             preferred_receiver,
             expected_time_ns=time_ns,
+            expected_identity=identity,
         )
 
         if not result["ok"]:
@@ -130,7 +160,9 @@ def stack_traces(
             continue
 
         component = result["component"]
-        receiver = result["receiver"]
+        if receiver is None:
+            receiver = result["receiver"]
+            identity = result["identity"]
         if time_ns is None:
             time_ns = result["time_ns"]
 

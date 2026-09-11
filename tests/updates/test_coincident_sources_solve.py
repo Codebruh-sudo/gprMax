@@ -229,19 +229,22 @@ def _voltage_specs(case):
 def _check_hard_assignments(result, polarisation, case):
     """The last active hard source writes -V/dl at its electric edge."""
     edge = result["fields"][f"edge/E{polarisation}"]
-    iterations = np.arange(edge.size) - 1  # Output precedes the next field update.
-    time = iterations * result["dt"]
+    samples = np.arange(edge.size)
+    iterations = samples - 1  # Additive updates precede this stored E sample.
     expected, prescribed = np.zeros_like(edge), np.zeros(edge.size, dtype=bool)
     soft_active = np.zeros(edge.size, dtype=bool)
     for source in result["sources"]:
         if not isinstance(source, gprMax.VoltageSource):
             continue
         internal = source._source
-        active = (iterations >= 0) & (time >= internal.start) & (time <= internal.stop)
         if internal.resistance == 0:
-            expected[active] = -internal.waveformvalues_wholedt[iterations[active]] / DL
+            time = samples * result["dt"]
+            active = (time >= internal.start) & (time <= internal.stop)
+            expected[active] = -internal.waveformvalues_wholedt[samples[active]] / DL
             prescribed |= active
         else:
+            time = iterations * result["dt"]
+            active = (iterations >= 0) & (time >= internal.start) & (time <= internal.stop)
             soft_active |= active
     if case == "hard_then_soft":
         # A later soft source adds its correction; it must not be erased by

@@ -215,6 +215,15 @@ For example, in figure :numref:`fractal_domain_decomposition_figure`, surface ro
 Task farm
 ---------
 
+A failed task does not discard the other jobs: the batch finishes, successful
+outputs remain available, and workers are joined before a ``TaskfarmError``
+is raised on **every MPI rank**. An uncaught failed batch therefore reports a
+nonzero launcher exit status. Python API callers that handle the error must
+catch it on all ranks; the communicator remains usable. The exception's
+``failures`` mapping identifies failed zero-based job indices. Complete
+``results`` are retained on the master; workers receive failure records with
+``None`` placeholders for successful results.
+
 By default, the MPI task farm functionality is turned off. It can be used with the ``--taskfarm`` command line option, which specifies the total number of MPI tasks, i.e. master + workers, for the MPI task farm. This option is most usefully combined with ``-n`` to allow individual models to be farmed out using an MPI task farm, e.g. to create a B-scan with 60 traces and use MPI to farm out each trace:
 
 .. code-block:: console
