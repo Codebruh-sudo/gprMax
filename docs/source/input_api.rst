@@ -20,6 +20,16 @@ The Python API in gprMax allows users to access gprMax functions directly from P
 
 The syntax of the API is generally more verbose than the input file (hash) command syntax. However, for input file commands where there are an undefined number of parameters, such as adding dispersive properties, the user may find the API more manageable.
 
+Source/receiver positions and output bounds containing ``inf`` are resolved
+against each grid when it is built. The declaration retains its symbolic
+coordinates, so reusing it with a different grid spacing or domain does not
+freeze the first build's resolved position.
+
+``str(user_object)`` is a readable, hash-style diagnostic, not a general
+API-to-input-file exporter. In particular, omitted optional fields do not
+always round-trip through the positional hash grammar. Use the documented
+hash syntax when writing an input file.
+
 .. note::
 
     In prior versions of gprMax (<4) the input file could be scripted using Python inserted between two commands (`#python:` and `#end_python:`). This feature is now deprecated and will be removed entirely in later versions. Users are encouraged to move to the new Python API. Antenna models can still be inserted between `#python:` and `#end_python:` commands but will need to make a small change to their input file. An example of this is provided in `examples/gpr/antennas/gssi_1500/antenna_like_GSSI_1500_fs.in`. Alternatively a switch to the Python API can be made using the adjacent `examples/gpr/antennas/gssi_1500/antenna_like_GSSI_1500_fs.py` example.
@@ -1296,11 +1306,24 @@ The callable can also be a closure, which is a convenient way to generate a fami
 
 Exactly one of ``user_func`` and ``user_values`` must be supplied. When
 ``user_values`` is used without ``user_time``, gprMax associates the samples
-with its simulation time vector. ``kind`` and ``fill_value`` are passed to
-``scipy.interpolate.interp1d`` and apply only to sampled waveforms. User-defined
+with exactly ``iterations`` times, ``arange(iterations) * dt``. The number of
+values must match; supply an explicit, strictly increasing ``user_time`` for
+another sampling grid. Sampled waveforms default to linear interpolation
+inside the supplied time axis and **zero outside it**. ``kind`` and
+``fill_value`` override those defaults (including explicit ``'extrapolate'``)
+and apply only to sampled waveforms. Numeric fill values are honoured outside
+both ends of the time axis. Callables retain their own boundary behaviour.
+User-defined
 waveforms can drive local Hertzian or magnetic dipoles, voltage sources,
 transmission lines, and magnetic-frill sources. The discrete-plane-wave
 formulation currently requires a built-in analytic waveform.
+
+Hard voltage sources evaluate only whole-step samples, including the initial
+electric field at time zero. Resistive voltage sources and Hertzian dipoles
+use their existing half-step current samples; a final half-step outside a
+sampled waveform's time axis uses the selected fill value. Zero waveform
+amplitude does not remove an active hard-source clamp: its start/stop window
+still controls whether the electric edge is prescribed.
 
 Eigenmode band, ports, excitation, and virtual guides
 ------------------------------------------------------

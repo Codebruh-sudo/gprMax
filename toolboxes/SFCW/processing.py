@@ -689,21 +689,9 @@ def _validate_output_path(filename: str | Path, input_filenames) -> Path:
     catches distinct hard links. Empty provenance names carry no input path.
     """
 
-    path = Path(filename)
-    resolved_output = path.resolve()
-    for input_filename in input_filenames:
-        if not input_filename:
-            continue
-        input_path = Path(input_filename)
-        aliases_input = resolved_output == input_path.resolve()
-        if not aliases_input:
-            try:
-                aliases_input = path.samefile(input_path)
-            except FileNotFoundError:
-                aliases_input = False
-        if aliases_input:
-            raise ValueError("processed output must not overwrite an input HDF5 file")
-    return path
+    from toolboxes.Utilities.output_paths import validate_output_path
+
+    return validate_output_path(filename, input_filenames)
 
 
 def write_sfcw_output(

@@ -2910,17 +2910,22 @@ class VoltageSource(Source):
             G: FDTDGrid class describing a grid in a model.
         """
 
-        names = ("waveformvalues_halfdt", "waveformvalues_wholedt")
+        # A hard voltage prescribes E on whole steps; a resistive voltage
+        # injects J on half steps. Do not evaluate an unused lattice (notably
+        # the out-of-range final half step of a sampled hard excitation).
+        name = "waveformvalues_wholedt" if self.resistance == 0 else "waveformvalues_halfdt"
+        names = (name,)
+        self.waveformvalues_halfdt = None
+        self.waveformvalues_wholedt = None
         src_match = self._reuse_waveform_values(G, G.voltagesources, names)
 
         if not src_match:
             waveform = next(x for x in G.waveforms if x.ID == self.waveformID)
-            self.waveformvalues_halfdt = np.zeros(
+            values = np.zeros(
                 (G.iterations + 1), dtype=config.sim_config.dtypes["float_or_double"]
             )
-            self.waveformvalues_wholedt = np.zeros(
-                (G.iterations + 1), dtype=config.sim_config.dtypes["float_or_double"]
-            )
+            setattr(self, name, values)
+            offset = 0.0 if self.resistance == 0 else 0.5 * G.dt
 
             for iteration in range(G.iterations + 1):
                 time = G.dt * iteration
@@ -2928,10 +2933,7 @@ class VoltageSource(Source):
                     # Set the time of the waveform evaluation to account for any
                     # delay in the start
                     time -= self.start
-                    self.waveformvalues_halfdt[iteration] = waveform.calculate_value(
-                        time + 0.5 * G.dt, G.dt
-                    )
-                    self.waveformvalues_wholedt[iteration] = waveform.calculate_value(time, G.dt)
+                    values[iteration] = waveform.calculate_value(time + offset, G.dt)
 
         self._cache_waveform_values(G, names)
 

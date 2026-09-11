@@ -26,6 +26,8 @@ These tests drive the dispatcher with hand-built dicts so each command's
 branch is exercised in isolation — no file I/O, no globals.
 """
 
+from pathlib import Path
+
 import pytest
 
 from gprMax.hash_cmds_multiuse import process_multicmds
@@ -82,7 +84,7 @@ class TestOutputDir:
         objs = process_singlecmds(singlecmds_template)
         assert isinstance(objs[0], OutputDir)
         # OutputDir kwarg is ``dir``
-        assert objs[0].kwargs["dir"] == "results/run1"
+        assert Path(objs[0].kwargs["dir"]) == Path("results") / "run1"
 
 
 class TestOMPThreads:

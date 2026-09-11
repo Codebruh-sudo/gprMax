@@ -15,7 +15,6 @@
 # You should have received a copy of the GNU General Public License
 # along with gprMax. If not, see <https://www.gnu.org/licenses/>.
 
-import inspect
 import logging
 import math
 import operator
@@ -199,9 +198,9 @@ class ExcitationFile(GridUserObject):
         Args:
             filepath: Excitation file path.
             kind: Optional interpolation kind passed to
-                scipy.interpolate.interp1d. Default None.
+                scipy.interpolate.interp1d. None selects linear interpolation.
             fill_value: Optional float value or 'extrapolate' passed to
-                scipy.interpolate.interp1d. Default None.
+                scipy.interpolate.interp1d. None selects zero outside the time axis.
         """
         super().__init__(filepath=filepath, kind=kind, fill_value=fill_value)
         self.filepath = filepath
@@ -278,12 +277,15 @@ class ExcitationFile(GridUserObject):
                 )
 
             # Interpolate waveform values
-            if self.kind is None and self.fill_value is None:
-                w.userfunc = interpolate.interp1d(waveformtime, singlewaveformvalues)
-            else:
-                w.userfunc = interpolate.interp1d(
-                    waveformtime, singlewaveformvalues, kind=self.kind, fill_value=self.fill_value
-                )
+            # A sampled excitation is zero outside its supplied time axis,
+            # unless the user explicitly requests a different fill policy.
+            # Half-step current sources can sample beyond the final E sample.
+            w.userfunc = interpolate.interp1d(
+                waveformtime, singlewaveformvalues,
+                kind="linear" if self.kind is None else self.kind,
+                bounds_error=False,
+                fill_value=0.0 if self.fill_value is None else self.fill_value,
+            )
 
             logger.info(
                 self.grid_name(grid) + f"User waveform {w.ID} created using {timestr} and, if "
@@ -457,9 +459,6 @@ class Waveform(GridUserObject):
                     raise ValueError(
                         self.params_str() + " 'user_values' must contain only finite values."
                     )
-                fullargspec = inspect.getfullargspec(interpolate.interp1d)
-                kwargs = dict(zip(reversed(fullargspec.args), reversed(fullargspec.defaults)))
-
                 if "user_time" in self.kwargs:
                     try:
                         waveformtime = np.asarray(self.kwargs["user_time"], dtype=float)
@@ -468,7 +467,7 @@ class Waveform(GridUserObject):
                             self.params_str() + " 'user_time' must be a real numeric array."
                         ) from exc
                 else:
-                    waveformtime = np.arange(0, grid.timewindow + grid.dt, grid.dt)
+                    waveformtime = np.arange(grid.iterations, dtype=np.float64) * grid.dt
 
                 if waveformtime.ndim != 1 or waveformtime.size != uservalues.size:
                     raise ValueError(
@@ -481,13 +480,12 @@ class Waveform(GridUserObject):
                         "increasing values."
                     )
 
-                # Set args for interpolation if given by user
-                if "kind" in self.kwargs:
-                    kwargs["kind"] = self.kwargs["kind"]
-                if "fill_value" in self.kwargs:
-                    kwargs["fill_value"] = self.kwargs["fill_value"]
-
-                w.userfunc = interpolate.interp1d(waveformtime, uservalues, **kwargs)
+                w.userfunc = interpolate.interp1d(
+                    waveformtime, uservalues,
+                    kind="linear" if self.kwargs.get("kind") is None else self.kwargs["kind"],
+                    bounds_error=False,
+                    fill_value=0.0 if self.kwargs.get("fill_value") is None else self.kwargs["fill_value"],
+                )
 
                 logger.info(
                     self.grid_name(grid) + (f"Waveform {w.ID} that is user-defined created.")
@@ -869,13 +867,13 @@ class NetworkTerminal(GridUserObject):
             ) from exc
 
         uip = self._create_uip(grid)
-        self.point = uip.resolve_inf_point(self.point)
+        point = uip.resolve_inf_point(self.point)
         grid.networkterminal_specs[self.ID] = {
             "polarisation": self.polarisation,
             "network_id": self.network_id,
-            "point": tuple(float(value) for value in self.point),
+            "point": tuple(float(value) for value in point),
         }
-        point_within_grid, coord = uip.check_src_rx_point(self.point, self.params_str())
+        point_within_grid, coord = uip.check_src_rx_point(point, self.params_str())
         if not point_within_grid:
             return
         if any(
@@ -888,7 +886,7 @@ class NetworkTerminal(GridUserObject):
 
         terminal = RationalNetworkTerminal(self.ID, model, coord, self.polarisation)
         grid.networkterminals.append(terminal)
-        position = uip.round_to_grid_static_point(self.point)
+        position = uip.round_to_grid_static_point(point)
         logger.info(
             self.grid_name(grid) + f"Network terminal {self.ID!r} using {self.network_id!r}, "
             f"{self.polarisation}-polarised at {position[0]:g}m, "
@@ -1164,7 +1162,7 @@ class VoltageSource(GridUserObject):
         voltage_source.coord = coord
         voltage_source.coordorigin = coord.copy()
         uip = self._create_uip(grid)
-        x, y, z = uip.discretise_static_point(self.point)
+        x, y, z = uip.discretise_static_point(uip.resolve_inf_point(self.point))
         voltage_source.ID = f"{voltage_source.__class__.__name__}({x},{y},{z})"
         voltage_source.study_id = getattr(self, "_study_id", None)
         voltage_source.resistance = self.resistance
@@ -1267,13 +1265,13 @@ class VoltageSource(GridUserObject):
         self._port_output_id = None
         # Check the position of the voltage source
         uip = self._create_uip(grid)
-        self.point = uip.resolve_inf_point(self.point)
-        point_within_grid, discretised_point = uip.check_src_rx_point(self.point, self.params_str())
+        point = uip.resolve_inf_point(self.point)
+        point_within_grid, discretised_point = uip.check_src_rx_point(point, self.params_str())
 
         # Every MPI rank parses the same scene. Reserve the public ID before
         # reducing the point object to its owning rank so automatic IDs remain
         # globally deterministic.
-        global_discretised_point = uip.discretise_static_point(self.point)
+        global_discretised_point = uip.discretise_static_point(point)
         mpi_port_supported = _hard_source_current_loop_available(
             self.polarisation, self.resistance, global_discretised_point
         )
@@ -1310,7 +1308,7 @@ class VoltageSource(GridUserObject):
                         discretised_point,
                         self._port_output_id,
                     )
-            position = uip.round_to_grid_static_point(self.point)
+            position = uip.round_to_grid_static_point(point)
             self._log(grid, voltage_source, *position)
 
 
@@ -1440,7 +1438,7 @@ class HertzianDipole(GridUserObject):
         h.coord = coord
         h.coordorigin = coord
         uip = self._create_uip(grid)
-        x, y, z = uip.discretise_static_point(self.point)
+        x, y, z = uip.discretise_static_point(uip.resolve_inf_point(self.point))
         h.ID = f"{h.__class__.__name__}({x},{y},{z})"
         h.study_id = getattr(self, "_study_id", None)
         h.waveformID = self.waveform_id
@@ -1483,14 +1481,14 @@ class HertzianDipole(GridUserObject):
     def build(self, grid: FDTDGrid):
         # Check the position of the hertzian dipole
         uip = self._create_uip(grid)
-        self.point = uip.resolve_inf_point(self.point)
-        point_within_grid, discretised_point = uip.check_src_rx_point(self.point, self.params_str())
+        point = uip.resolve_inf_point(self.point)
+        point_within_grid, discretised_point = uip.check_src_rx_point(point, self.params_str())
 
         if point_within_grid:
             self._validate_parameters(grid, discretised_point)
             hertzian_dipole = self._create_hertzian_dipole(grid, discretised_point)
             grid.add_source(hertzian_dipole)
-            position = uip.round_to_grid_static_point(self.point)
+            position = uip.round_to_grid_static_point(point)
             self._log(grid, hertzian_dipole, *position)
 
 
@@ -1536,14 +1534,14 @@ class MagneticDipole(GridUserObject):
     def build(self, grid: FDTDGrid):
         # Check the position of the magnetic dipole
         uip = self._create_uip(grid)
-        self.point = uip.resolve_inf_point(self.point)
-        point_within_grid, discretised_point = uip.check_src_rx_point(self.point, self.params_str())
+        point = uip.resolve_inf_point(self.point)
+        point_within_grid, discretised_point = uip.check_src_rx_point(point, self.params_str())
 
         if point_within_grid:
             self._validate_parameters(grid, discretised_point)
             magnetic_dipole = self._create_magnetic_dipole(grid, discretised_point)
             grid.add_source(magnetic_dipole)
-            position = uip.round_to_grid_static_point(self.point)
+            position = uip.round_to_grid_static_point(point)
             self._log(grid, magnetic_dipole, *position)
 
     def _validate_parameters(
@@ -1625,7 +1623,7 @@ class MagneticDipole(GridUserObject):
         m.coord = coord
         m.coordorigin = coord
         uip = self._create_uip(grid)
-        x, y, z = uip.discretise_static_point(self.point)
+        x, y, z = uip.discretise_static_point(uip.resolve_inf_point(self.point))
         m.ID = f"{m.__class__.__name__}({x},{y},{z})"
         m.study_id = getattr(self, "_study_id", None)
         m.waveformID = self.waveform_id
@@ -1705,14 +1703,14 @@ class TransmissionLine(GridUserObject):
     def build(self, grid: FDTDGrid):
         # Check the position of the voltage source
         uip = self._create_uip(grid)
-        self.point = uip.resolve_inf_point(self.point)
-        point_within_grid, discretised_point = uip.check_src_rx_point(self.point, self.params_str())
+        point = uip.resolve_inf_point(self.point)
+        point_within_grid, discretised_point = uip.check_src_rx_point(point, self.params_str())
 
         if point_within_grid:
             self._validate_parameters(grid)
             transmission_line = self._create_transmission_line(grid, discretised_point)
             grid.add_source(transmission_line)
-            position = uip.round_to_grid_static_point(self.point)
+            position = uip.round_to_grid_static_point(point)
             self._log(grid, transmission_line, *position)
 
     def _validate_parameters(self, grid: FDTDGrid):
@@ -1778,7 +1776,7 @@ class TransmissionLine(GridUserObject):
         t.polarisation = self.polarisation
         t.coord = coord
         uip = self._create_uip(grid)
-        x, y, z = uip.discretise_static_point(self.point)
+        x, y, z = uip.discretise_static_point(uip.resolve_inf_point(self.point))
         t.ID = f"{t.__class__.__name__}({x},{y},{z})"
         t.study_id = getattr(self, "_study_id", None)
         t.resistance = self.resistance
@@ -1882,12 +1880,12 @@ class MagneticFrillSource(GridUserObject):
 
     def build(self, grid: FDTDGrid):
         uip = self._create_uip(grid)
-        self.point = uip.resolve_inf_point(self.point)
-        point_within_grid, discretised_point = uip.check_src_rx_point(self.point, self.params_str())
+        point = uip.resolve_inf_point(self.point)
+        point_within_grid, discretised_point = uip.check_src_rx_point(point, self.params_str())
 
         self._validate_parameters(grid)
         if config.sim_config.mpi:
-            global_coord = np.asarray(uip.discretise_static_point(self.point), dtype=np.int32)
+            global_coord = np.asarray(uip.discretise_static_point(point), dtype=np.int32)
             global_index = len(grid.magneticfrill_specs) + 1
             grid.magneticfrill_specs.append(
                 {
@@ -1903,12 +1901,12 @@ class MagneticFrillSource(GridUserObject):
             frill_source.mpi_primary = bool(point_within_grid)
             grid.add_source(frill_source)
             if point_within_grid:
-                position = uip.round_to_grid_static_point(self.point)
+                position = uip.round_to_grid_static_point(point)
                 self._log(grid, frill_source, *position)
         elif point_within_grid:
             frill_source = self._create_magnetic_frill_source(grid, discretised_point)
             grid.add_source(frill_source)
-            position = uip.round_to_grid_static_point(self.point)
+            position = uip.round_to_grid_static_point(point)
             self._log(grid, frill_source, *position)
 
     def _validate_parameters(self, grid: FDTDGrid):
@@ -1960,7 +1958,7 @@ class MagneticFrillSource(GridUserObject):
         f.polarisation = self.polarisation
         f.coord = coord
         uip = self._create_uip(grid)
-        x, y, z = uip.discretise_static_point(self.point)
+        x, y, z = uip.discretise_static_point(uip.resolve_inf_point(self.point))
         f.ID = f"{f.__class__.__name__}({x},{y},{z})"
         f.study_id = getattr(self, "_study_id", None)
         f.Z0 = self.zcoax
@@ -3668,23 +3666,20 @@ class Rx(GridUserObject):
 
         if self.id is None:
             uip = self._create_uip(grid)
-            x, y, z = uip.discretise_static_point(self.point)
+            x, y, z = uip.discretise_static_point(uip.resolve_inf_point(self.point))
             r.ID = f"{r.__class__.__name__}({x},{y},{z})"
         else:
             r.ID = self.id
         r.study_id = getattr(self, "_study_id", None)
 
-        if self.outputs is None:
-            self.outputs = RxUser.defaultoutputs
-
-        self.outputs.sort()
+        outputs = sorted(RxUser.defaultoutputs if self.outputs is None else self.outputs)
         # Get allowable outputs
         if config.sim_config.general["solver"] in ["cuda", "opencl", "metal"]:
             allowableoutputs = RxUser.allowableoutputs_dev
         else:
             allowableoutputs = RxUser.allowableoutputs
         # Check and add field output names
-        for field in self.outputs:
+        for field in outputs:
             if field in allowableoutputs:
                 r.outputs[field] = np.zeros(
                     grid.iterations, dtype=config.sim_config.dtypes["float_or_double"]
@@ -3702,8 +3697,10 @@ class Rx(GridUserObject):
     def build(self, grid: FDTDGrid):
         # Check position of the receiver
         uip = self._create_uip(grid)
-        self.point = uip.resolve_inf_point(self.point)
-        point_within_grid, discretised_point = uip.check_src_rx_point(self.point, self.params_str())
+        # Keep symbolic coordinates in the reusable declaration. The active
+        # plane/domain edge is a property of this build, not of the object.
+        point = uip.resolve_inf_point(self.point)
+        point_within_grid, discretised_point = uip.check_src_rx_point(point, self.params_str())
 
         build_index = grid.register_receiver(
             self.id,
@@ -3716,7 +3713,7 @@ class Rx(GridUserObject):
             receiver.name_kind = "generated" if self.id is None else "user"
             grid.add_receiver(receiver)
 
-            x, y, z = uip.round_to_grid_static_point(self.point)
+            x, y, z = uip.round_to_grid_static_point(point)
             logger.info(
                 f"{self.grid_name(grid)}Receiver at {x:g}m,"
                 f" {y:g}m, {z:g}m with output component(s)"

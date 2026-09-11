@@ -252,9 +252,18 @@ class TaskfarmExecutor(object):
         down = [False] * len(self.workers)
         while True:
             for i, worker in enumerate(self.workers):
-                if self.comm.Iprobe(source=worker, tag=Tags.EXIT):
-                    self.comm.recv(source=worker, tag=Tags.EXIT)
-                    down[i] = True
+                if down[i]:
+                    continue
+                status = MPI.Status()
+                if self.comm.Iprobe(source=worker, tag=MPI.ANY_TAG, status=status):
+                    # Workers send READY before waiting for the next job or
+                    # EXIT. Drain it, and any in-flight DONE after a master
+                    # exception, before accepting the shutdown acknowledgement.
+                    # Do not leave unmatched messages at a collective/restart.
+                    self.comm.recv(source=worker, tag=status.tag)
+                    self.busy[i] = False
+                    if status.tag == Tags.EXIT:
+                        down[i] = True
             if all(down):
                 break
 
@@ -314,6 +323,45 @@ class TaskfarmExecutor(object):
 
         if any(isinstance(result, TaskFailure) for result in results):
             raise TaskfarmError(results)
+        return results
+
+    def run_collective(self, jobs):
+        """Run one batch and join workers, reporting failure on every rank.
+
+        Successful results are returned only on the master. After a failed
+        batch, the master's TaskfarmError retains all results; workers receive
+        the same indexed failure records, with None for successful job results.
+        No communicator abort is used: API callers can catch the exception on
+        all ranks. An uncaught failure therefore cannot leave zero-exit worker
+        ranks masking the master's failure in an MPI launcher's exit status.
+        """
+        results = None
+        failure = None
+        report = None
+        self.start()
+        try:
+            if self.is_master():
+                results = self.submit(jobs)
+        except BaseException as error:
+            failure = error
+            if isinstance(error, TaskfarmError):
+                report = (len(error.results), error.failures, None)
+            else:
+                report = (0, {}, f"{type(error).__name__}: {error}")
+        finally:
+            self.join()
+
+        report = self.comm.bcast(report, root=self.master)
+        if failure is not None:
+            raise failure
+        if report is not None:
+            count, failures, unexpected = report
+            if unexpected is not None:
+                raise RuntimeError(f"Task-farm master failed: {unexpected}")
+            failed_results = [None] * count
+            for index, record in failures.items():
+                failed_results[index] = record
+            raise TaskfarmError(failed_results)
         return results
 
     def __wait(self):

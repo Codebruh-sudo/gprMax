@@ -198,8 +198,9 @@ class TestProcessIncludeFiles:
         (tmp_path / "extra.in").write_text("#title: unrelated\n")
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(config, "sim_config", SimpleNamespace(input_file_path=tmp_path / "model/main.in"))
-        with pytest.raises(FileNotFoundError, match="model/extra.in"):
+        with pytest.raises(FileNotFoundError) as error:
             process_include_files(["#include_file: extra.in\n"])
+        assert str(tmp_path / "model" / "extra.in") in str(error.value)
 
     @pytest.mark.parametrize("symlink", [False, True])
     def test_include_cycles_are_rejected_with_chain(self, tmp_path, monkeypatch, symlink):

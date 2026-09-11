@@ -24,6 +24,7 @@ import h5py
 import numpy as np
 
 from gprMax.utilities.utilities import natural_keys
+from toolboxes.Utilities.output_paths import atomic_output_path, validate_output_path
 from toolboxes.Utilities.receiver_identity import match_receiver, receiver_catalogue, select_receiver
 from toolboxes.Utilities.trace_time import read_time_history
 
@@ -523,8 +524,9 @@ def merge_files(outputfiles, merged_outputfile=None, removefiles=False):
     merged_outputfile = (
         Path(merged_outputfile) if merged_outputfile is not None else _default_merged_filename(outputfiles)
     )
-    if merged_outputfile.resolve() in {filename.resolve() for filename in outputfiles}:
-        raise ValueError("Merged output file must not overwrite an input file")
+    validate_output_path(
+        merged_outputfile, outputfiles, message="Merged output file must not overwrite an input file"
+    )
 
     with h5py.File(outputfiles[0], "r") as reference:
         grid_paths = _output_grid_paths(reference)
@@ -554,7 +556,7 @@ def merge_files(outputfiles, merged_outputfile=None, removefiles=False):
                     )
             receiver_mappings.append(file_mapping)
 
-        with h5py.File(merged_outputfile, "w") as merged:
+        with atomic_output_path(merged_outputfile) as temporary, h5py.File(temporary, "w") as merged:
             for name, value in reference.attrs.items():
                 merged.attrs[name] = value
 

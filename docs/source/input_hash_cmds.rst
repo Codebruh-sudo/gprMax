@@ -1475,7 +1475,15 @@ The amplitude values will be interpolated using either the aforementioned user s
     #excitation_file: file1 [str1 str2]
 
 * ``file1`` can be the name of the file containing the specified waveform in the same directory as the input file, or ``file`` can be the full path to the file containing the specified waveform (allowing you to specify any location).
-* ``str1`` and ``str2`` are an optional parameter pair that allow values for ``kind`` and ``fill_value`` to be passed to the interpolation function (`scipy.interpolate.interp1d <https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.interp1d.html>`_). If they are not given the default values for the function will be used.
+* ``str1`` and ``str2`` are an optional parameter pair that allow values for ``kind`` and ``fill_value`` to be passed to the interpolation function (`scipy.interpolate.interp1d <https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.interp1d.html>`_). If omitted, gprMax uses linear interpolation and zero outside the supplied time axis. A numeric fill value applies at both ends; extrapolation occurs only when explicitly requested with ``linear extrapolate`` (or another interpolation kind).
+
+Without a time column, the time axis is exactly ``arange(iterations) * dt``.
+Electric-current sources (resistive voltage sources and Hertzian dipoles)
+retain their half-step sampling and can request a sample past the final
+supplied whole-step value; the selected fill policy applies there. Magnetic
+dipoles retain their whole-step sampling.
+A zero-resistance voltage source evaluates only its required whole-step
+electric-field samples. These rules do not change source start/stop gating.
 
 For example, to specify the file ``my_waves.txt``, which contains two custom waveform shapes, use: ``#excitation_file: my_waves.txt``. The contents of the file ``my_waves.txt`` would take the form:
 

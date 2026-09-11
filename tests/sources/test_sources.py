@@ -141,10 +141,11 @@ class TestVoltageSourceInit:
 
 
 class TestVoltageSourceCalculateWaveformValues:
-    def test_populates_both_arrays_inside_window(self, fake_grid, make_constant_waveform):
+    @pytest.mark.parametrize("resistance", [0, 50])
+    def test_populates_only_required_lattice_inside_window(self, fake_grid, make_constant_waveform, resistance):
         w = make_constant_waveform(ID="wf", value=2.5)
         G = fake_grid(iterations=10, dt=1e-12, waveforms=[w])
-        src = _make_voltage_source(polarisation="x", resistance=50.0)
+        src = _make_voltage_source(polarisation="x", resistance=resistance)
         src.start = 0.0
         src.stop = G.timewindow
 
@@ -152,11 +153,12 @@ class TestVoltageSourceCalculateWaveformValues:
 
         # All in-window values equal the constant waveform value (2.5).
         # _ConstantWaveform returns 2.5 for any t >= 0.
-        assert np.all(src.waveformvalues_wholedt == 2.5)
-        assert np.all(src.waveformvalues_halfdt == 2.5)
+        values = src.waveformvalues_wholedt if resistance == 0 else src.waveformvalues_halfdt
+        unused = src.waveformvalues_halfdt if resistance == 0 else src.waveformvalues_wholedt
+        assert np.all(values == 2.5)
+        assert unused is None
         # Shape is iterations + 1 (so the solver can index past the last step).
-        assert src.waveformvalues_wholedt.shape == (G.iterations + 1,)
-        assert src.waveformvalues_halfdt.shape == (G.iterations + 1,)
+        assert values.shape == (G.iterations + 1,)
 
     def test_zero_outside_window(self, fake_grid, make_constant_waveform):
         w = make_constant_waveform(value=1.0)
@@ -172,7 +174,7 @@ class TestVoltageSourceCalculateWaveformValues:
         for it in range(G.iterations + 1):
             t = G.dt * it
             expected = 1.0 if src.start <= t <= src.stop else 0.0
-            assert src.waveformvalues_wholedt[it] == expected
+            assert src.waveformvalues_halfdt[it] == expected
 
     def test_reuses_precomputed_values_from_matching_source(
         self, fake_grid, make_constant_waveform

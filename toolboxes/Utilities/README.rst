@@ -291,6 +291,12 @@ where:
 * ``basefilename`` is the base name file of the output file series, e.g. for ``myoutput1.h5``, ``myoutput2.h5`` the base file name would be ``myoutput``
 * ``remove-files`` is an optional argument (flag) that when given will remove the separate output files after the merge.
 
+The destination must not be an input file, including symbolic-link and
+hard-link aliases. The merger validates all inputs and writes to a temporary
+sibling location before atomically publishing the completed result. A failed
+write preserves an existing destination and all inputs; ``--remove-files``
+is applied only after successful publication.
+
 The columns of every merged receiver dataset correspond to the naturally
 ordered input files. Per-trace physical and grid positions for receivers and
 position-bearing sources are retained below ``/trace_metadata`` (and below
