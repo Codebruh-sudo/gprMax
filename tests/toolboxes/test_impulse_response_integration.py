@@ -55,7 +55,9 @@ def _hard_voltage_scene(wave_type):
     scene.add(gprMax.DomainMode(mode="TM"))
     scene.add(gprMax.Discretisation(p1=(0.005, 0.005, 0.005)))
     scene.add(gprMax.Domain(p1=(0.2, 0.2, inf)))
-    scene.add(gprMax.TimeWindow(time=20e-9))
+    # An exact iteration window keeps the hard boundary active through the
+    # last observation, also for waveforms that have not decayed at the end.
+    scene.add(gprMax.TimeWindow(iterations=1700))
     scene.add(gprMax.OMPThreads(n=2))
     scene.add(gprMax.Waveform(wave_type=wave_type, amp=1, freq=500e6, id="source"))
     scene.add(
@@ -66,7 +68,7 @@ def _hard_voltage_scene(wave_type):
             waveform_id="source",
         )
     )
-    scene.add(gprMax.Rx(p1=(0.12, 0.1, inf), id="response", outputs=["Ez"]))
+    scene.add(gprMax.Rx(p1=(0.12, 0.1, inf), id="response", outputs=["Ez", "Hy", "Iz"]))
     return scene
 
 
@@ -97,9 +99,10 @@ def test_toolbox_ricker_synthesis_reproduces_direct_fdtd_run(tmp_path):
     assert relative_error < 1e-11
 
 
-def test_toolbox_preserves_hard_voltage_source_evaluation_timing(tmp_path):
+@pytest.mark.parametrize("wave_type", ["ricker", "gaussian", "contsine"])
+def test_toolbox_preserves_hard_voltage_source_evaluation_timing(tmp_path, wave_type):
     files = {}
-    for waveform_type in ("impulse", "ricker"):
+    for waveform_type in ("impulse", wave_type):
         output = tmp_path / f"hard_{waveform_type}"
         gprMax.run(
             scenes=[_hard_voltage_scene(waveform_type)],
@@ -112,14 +115,17 @@ def test_toolbox_preserves_hard_voltage_source_evaluation_timing(tmp_path):
         files[waveform_type] = output.with_suffix(".h5")
 
     impulse_source = load_source_sampling(files["impulse"])
-    target = sample_builtin_waveform(impulse_source, "ricker", 1, 500e6, "ricker500")
-    synthesis = synthesise_output(files["impulse"], target)
-    direct_source = load_source(files["ricker"])
-    direct_receiver = load_receiver(files["ricker"])
+    target = sample_builtin_waveform(impulse_source, wave_type, 1, 500e6, "target500")
+    direct_source = load_source(files[wave_type])
 
-    assert impulse_source.signal.time_offset == pytest.approx(impulse_source.signal.dt)
+    assert impulse_source.signal.time_offset == 0.0
     assert impulse_source.evaluation_time_offset == 0.0
     np.testing.assert_allclose(target.samples, direct_source.samples, rtol=2e-13, atol=2e-16)
-    peak = np.max(np.abs(direct_receiver.samples))
-    relative_error = np.max(np.abs(synthesis.receivers[0].samples - direct_receiver.samples)) / peak
-    assert relative_error < 1e-11
+    for component in ("Ez", "Hy", "Iz"):
+        synthesis = synthesise_output(
+            files["impulse"], target, receiver_selections=[("rxs/rx1", component)]
+        )
+        direct_receiver = load_receiver(files[wave_type], component=component)
+        peak = np.max(np.abs(direct_receiver.samples))
+        relative_error = np.max(np.abs(synthesis.receivers[0].samples - direct_receiver.samples)) / peak
+        assert relative_error < 1e-11

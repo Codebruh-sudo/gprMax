@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import h5py
+from toolboxes.Utilities.receiver_identity import natural_key, receiver_catalogue
 import numpy as np
 
 # ComponentMap: {"Ez": np.ndarray, "Hx": np.ndarray, ...}
@@ -352,7 +353,8 @@ def _read_receivers(f: h5py.File) -> dict[str, ReceiverInfo]:
     if "rxs" not in f:
         return receivers
 
-    for rx_key in f["rxs"].keys():
+    identities = receiver_catalogue(f)
+    for rx_key in sorted(f["rxs"].keys(), key=natural_key):
         rx_group = f["rxs"][rx_key]
         rx_attrs = dict(rx_group.attrs)
 
@@ -371,6 +373,7 @@ def _read_receivers(f: h5py.File) -> dict[str, ReceiverInfo]:
         position = list(map(float, rx_attrs.get("Position", [0.0, 0.0, 0.0])))
 
         receivers[rx_key] = {
+            "identity": identities[f"rxs/{rx_key}"],
             "name": str(rx_attrs.get("Name", rx_key)),
             "position": position,
             "components": components,

@@ -29,6 +29,7 @@ be asserted without any physics by recording the call sequence.
 
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from gprMax.subgrids.precursor_nodes import (
@@ -100,6 +101,27 @@ class TestCreateUpdates:
     def test_updater_holds_the_subgrid(self, make_model):
         model, _ = make_model()
         assert create_updates(model).updaters[0].grid is model.subgrids[0]
+
+    @pytest.mark.parametrize("ratio", [1, 3, 5])
+    @pytest.mark.parametrize("filtered", [False, True])
+    def test_initial_electric_precursors_are_seeded_before_first_half_step(
+        self, make_model, ratio, filtered
+    ):
+        model, _ = make_model(filtered=filtered, ratio=ratio)
+        # A nonzero E(0) must reach the coupling surfaces before hsg_2;
+        # pre-start E and both H history levels remain zero.
+        model.G.Ex.fill(2)
+        model.G.Ey.fill(3)
+        model.G.Ez.fill(4)
+        precursors = create_updates(model).updaters[0].precursors
+        precursors.calc_exact_electric_in_time()
+        for name in precursors.fn_e:
+            expected = {"ex": 2, "ey": 3, "ez": 4}[name[:2]]
+            np.testing.assert_allclose(getattr(precursors, name), expected)
+            np.testing.assert_array_equal(getattr(precursors, name + "_0"), 0)
+        for name in precursors.fn_m:
+            for level in ("_0", "_1"):
+                np.testing.assert_array_equal(getattr(precursors, name + level), 0)
 
 
 class TestSubgridUpdaterState:

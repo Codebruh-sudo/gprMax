@@ -27,6 +27,8 @@ import h5py
 import numpy as np
 
 from gprMax.utilities.utilities import natural_keys
+from toolboxes.Utilities.receiver_identity import match_receiver, receiver_catalogue, select_receiver
+from toolboxes.Utilities.trace_time import read_time_history, receiver_time_offset
 
 TIME_DOMAIN_QUANTITIES = {
     "Ex",
@@ -120,11 +122,7 @@ def default_time_offset(component: str, dt: float) -> float:
     dataset offsets override this fallback, including source-specific timing.
     """
 
-    if component.startswith("E"):
-        return 0.0
-    if component.startswith(("H", "I")):
-        return -0.5 * dt
-    return 0.0
+    return receiver_time_offset(component, dt)
 
 
 def quantity_units(component: str) -> str:
@@ -171,6 +169,9 @@ def collect_traces(
 
     ``rxnumber`` is one-based. Source and trace-group paths are relative to
     ``grid_path``; a supplied trace group replaces the default ``rxs/rxN``.
+    A public receiver path/number selects in the first file; later files are
+    matched by identity. ``trace_group`` also accepts ``name:``/``study:``
+    selectors. Ambiguous legacy multi-receiver identities are rejected.
     Only finite, real, one-dimensional histories with matching sample counts,
     intervals and time offsets are accepted. Stored positions are copied
     without another coordinate transform.
@@ -198,13 +199,23 @@ def collect_traces(
     expected_offset: float | None = None
     resolved_source: str | None = None
     title = ""
+    reference_receiver = None
 
     for filename in files:
         with h5py.File(filename, "r") as output:
             grid = _grid_group(output, grid_path)
-            receiver_path = (
-                trace_group.strip("/") if trace_group is not None else f"rxs/rx{rxnumber}"
-            )
+            receiver_path = trace_group.strip("/") if trace_group is not None else f"rxs/rx{rxnumber}"
+            # Public paths/selectors identify the first file's receiver;
+            # source/terminal trace groups keep their independent namespaces.
+            if receiver_path.startswith(("rxs/", "name:", "study:", "build:")):
+                catalogue = receiver_catalogue(grid)
+                selected = (
+                    select_receiver(catalogue, receiver_path)
+                    if reference_receiver is None
+                    else match_receiver(reference_receiver, catalogue)
+                )
+                reference_receiver = reference_receiver or selected
+                receiver_path = selected.path
             dataset_path = f"{receiver_path}/{rxcomponent}"
             if receiver_path not in grid:
                 raise ValueError(f"Trace group {receiver_path!r} is not available in {filename}")
@@ -221,21 +232,9 @@ def collect_traces(
                     f"{filename}:{dataset_path} has shape {dataset.shape}; export requires "
                     "original one-dimensional A-scan files, not a legacy merged file"
                 )
-            raw_samples = np.asarray(dataset)
-            if np.iscomplexobj(raw_samples):
-                raise ValueError(f"Complex-valued trace data cannot be exported: {filename}")
-            samples = np.asarray(raw_samples, dtype=np.float64)
-            if not np.all(np.isfinite(samples)):
-                raise ValueError(f"Trace data contain NaN or infinite values: {filename}")
-
-            dt = float(dataset.attrs.get("SampleInterval", grid.attrs.get("dt", math.nan)))
-            if not math.isfinite(dt) or dt <= 0:
-                raise ValueError(f"Invalid or missing sample interval in {filename}")
-            offset = float(
-                dataset.attrs.get("TimeSampleOffset", default_time_offset(rxcomponent, dt))
-            )
-            if not math.isfinite(offset):
-                raise ValueError(f"Invalid sample-zero time offset in {filename}")
+            history = read_time_history(dataset)
+            samples = np.asarray(history.samples, dtype=np.float64)
+            dt, offset = history.dt, history.offset
 
             candidate = _resolve_source_path(grid, source_path)
             if resolved_source is None:

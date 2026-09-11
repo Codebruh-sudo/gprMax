@@ -297,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--grid", default="/", help="HDF5 grid path (default: /)")
     parser.add_argument("--source", default=None, help="source position path, e.g. srcs/src1")
     parser.add_argument(
-        "--trace-group", default=None, help="position-bearing trace group, e.g. tls/tl1"
+        "--trace-group", default=None, help="trace group (e.g. tls/tl1) or receiver selector (e.g. name:surface)"
     )
     parser.add_argument("--overwrite", action="store_true", help="replace an existing output file")
     args = parser.parse_args(argv)

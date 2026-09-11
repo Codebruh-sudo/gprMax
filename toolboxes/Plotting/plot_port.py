@@ -239,22 +239,10 @@ def _source_type(path, group):
 def _time_trace(output, group, name, label, quantity, time_names):
     if name not in group:
         return None
-    values = np.asarray(group[name], dtype=np.float64)
-    if values.ndim != 1:
-        raise ValueError(f"{group.name}/{name} must be a one-dimensional history")
-    time = None
-    for time_name in time_names:
-        if time_name in group:
-            candidate = np.asarray(group[time_name], dtype=np.float64)
-            if candidate.shape == values.shape:
-                time = candidate
-                break
-    if time is None:
-        dt = output.attrs.get("dt")
-        if dt is None:
-            return None
-        time = np.arange(values.size, dtype=np.float64) * float(dt)
-    return TimeTrace(name, label, time, values, quantity)
+    from toolboxes.Utilities.trace_time import read_time_history
+
+    history = read_time_history(group[name])
+    return TimeTrace(name, label, history.time, np.asarray(history.samples, dtype=np.float64), quantity)
 
 
 def read_port_output(filename: str | Path, port: str | None = None) -> PortData:

@@ -72,7 +72,9 @@ def test_every_registered_multiuse_command_has_parser_dispatch():
     process_multicmds(tracked)
 
     # Include files are expanded before multi-use user objects are constructed.
-    assert tracked.accessed == set(commands) - {"#include_file"}
+    # Includes are expanded upstream, but the dispatcher must explicitly
+    # reject any residual include instead of silently dropping it.
+    assert tracked.accessed == set(commands)
 
 
 def test_omp_threads_hash_round_trip_uses_documented_command():

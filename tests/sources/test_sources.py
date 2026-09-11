@@ -237,7 +237,7 @@ class TestVoltageSourceUpdateElectric:
         self, fake_grid, polarisation, field_idx, d_along
     ):
         """Per ``sources.py:187`` hard-source case (``resistance == 0``):
-        E[i,j,k] = -waveform_wholedt[it] / d_along
+        E[i,j,k] = -waveform_wholedt[it + 1] / d_along
         """
         IDlookup, ID, updatecoeffsE, _ = _make_id_arrays()
         G = fake_grid(dt=1.0, dx=2.0, dy=2.0, dz=2.0, iterations=5, IDlookup=IDlookup, ID=ID)
@@ -248,7 +248,7 @@ class TestVoltageSourceUpdateElectric:
         src.stop = G.timewindow
         src.xcoord = src.ycoord = src.zcoord = 1
         src.waveformvalues_halfdt = np.zeros(6)
-        src.waveformvalues_wholedt = np.array([0.0, 3.0, 0.0, 0.0, 0.0, 0.0])
+        src.waveformvalues_wholedt = np.array([0.0, 7.0, 3.0, 0.0, 0.0, 0.0])
 
         # Seed the cell with a known value to confirm the assignment is a
         # *replacement*, not a decrement.

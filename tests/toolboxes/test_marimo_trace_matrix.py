@@ -152,10 +152,11 @@ class TestProcessTrace:
         assert result["receiver"] == "rx2"
         assert result["array"][0] == pytest.approx(2.0)
 
-    def test_falls_back_to_first_receiver_if_preferred_not_present(self, tmp_path):
+    def test_rejects_missing_explicit_receiver(self, tmp_path):
         fdata = load_file(_write_trace_two_receivers(tmp_path / "t1.h5", x_pos=0.05))
         result = process_trace(fdata, "Ez", expected_len=None, preferred_receiver="rx99")
-        assert result["receiver"] == "rx1"
+        assert not result["ok"]
+        assert "missing" in result["reason"]
 
 
 class TestStackTraces:

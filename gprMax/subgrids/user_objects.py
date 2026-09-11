@@ -37,6 +37,20 @@ from gprMax.user_objects.user_objects import (
 logger = logging.getLogger(__name__)
 
 
+def validate_subgrid_id(identifier):
+    """Require a stable, nonempty name for one HDF5 path component."""
+    if (
+        not isinstance(identifier, str)
+        or not identifier.strip()
+        or identifier in (".", "..")
+        or any(char in identifier for char in ("/", "\\", "\x00"))
+    ):
+        raise ValueError(
+            f"Subgrid ID {identifier!r} must be a nonempty string without path separators "
+            "or NUL, and cannot be '.' or '..'."
+        )
+
+
 class SubGridBase(ModelUserObject):
     """Allows UserObjectMulti and UserObjectGeometry to be nested in SubGrid
     type user objects.
@@ -102,6 +116,9 @@ class SubGridBase(ModelUserObject):
 
     def setup(self, sg: SubGridBaseGrid, model: Model):
         """ "Common setup to both all subgrid types."""
+        validate_subgrid_id(self.kwargs["id"])
+        if any(existing.name == self.kwargs["id"] for existing in model.subgrids):
+            raise ValueError(f"Duplicate subgrid ID {self.kwargs['id']!r} in model")
         p1 = self.kwargs["p1"]
         p2 = self.kwargs["p2"]
 
@@ -175,7 +192,8 @@ class SubGridHSG(SubGridBase):
                 directly, without temporal or spatial interpolation, filtering,
                 or a subgrid-boundary PML. This mode inherits the precision of
                 the main CPU grid.
-        id: string identifier for the sub-grid.
+        id: required nonempty string identifier, unique within the Scene.
+            Path separators, NUL, '.' and '..' are not allowed.
         is_os_sep: int for the number of main grid cells between the Inner
                     Surface and the Outer Surface. Defaults to 3.
         pml_separation: retained for API compatibility, but the HSG formulation

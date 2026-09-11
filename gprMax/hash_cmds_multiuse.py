@@ -103,6 +103,8 @@ def process_multicmds(multicmds):
         scene_objects: list that holds objects in scene.
     """
 
+    if multicmds.get("#include_file"):
+        raise ValueError("#include_file must be expanded by input-file preprocessing before command dispatch")
     scene_objects = []
 
     cmdname = "#waveform"

@@ -25,22 +25,38 @@ import numpy as np
 from gprMax.utilities.utilities import handle_plot_output
 
 from ..Utilities.outputfiles_merge import get_output_data
+from ..Utilities.receiver_identity import natural_key
+from ..Utilities.trace_time import receiver_time_offset
 
 
-def gather_receiver_outputs(filename, rxcomponent):
+def gather_receiver_outputs(filename, rxcomponent, *, return_time_offset=False):
     """Gather one component from all receivers without duplicating rx1."""
     with h5py.File(filename, "r") as output:
         nrx = int(output.attrs["nrx"])
+        receivers = sorted(output.get("rxs", {}), key=natural_key)
 
     if nrx == 0:
         raise ValueError(f"No receivers found in {filename}")
 
     traces = []
     dt = None
-    for rx in range(1, nrx + 1):
-        outputdata, dt = get_output_data(filename, rx, rxcomponent)
+    offset = None
+    for key in receivers:
+        rx = int(key.removeprefix("rx"))
+        outputdata, candidate_dt, candidate_offset = get_output_data(
+            filename, rx, rxcomponent, return_time_offset=True
+        )
+        if dt is not None and (
+            not np.isclose(dt, candidate_dt, rtol=1e-12, atol=0.0)
+            or not np.isclose(offset, candidate_offset, rtol=1e-12, atol=1e-30)
+            or outputdata.shape[0] != traces[0].shape[0]
+        ):
+            raise ValueError("Gathered receivers have inconsistent sample times")
+        dt, offset = candidate_dt, candidate_offset
         traces.append(np.asarray(outputdata))
 
+    if return_time_offset:
+        return np.column_stack(traces), dt, offset
     return np.column_stack(traces), dt
 
 
@@ -52,6 +68,7 @@ def mpl_plot(
     rxcomponent,
     show=True,
     trace_group=None,
+    time_offset=None,
 ):
     """Creates a plot of the B-scan.
 
@@ -65,12 +82,27 @@ def mpl_plot(
             if the current matplotlib backend is not interactive, the plot
             is saved to file instead.
         trace_group: optional HDF5 group for a terminal-voltage B-scan.
+        time_offset: physical sample-zero time from the loader. Without it,
+            use the legacy receiver component convention (voltage defaults to zero).
 
     Returns:
         plt: matplotlib plot object.
     """
 
     file = Path(filename)
+    outputdata = np.asarray(outputdata)
+    if (
+        outputdata.ndim != 2
+        or 0 in outputdata.shape
+        or not np.all(np.isfinite(outputdata))
+        or np.iscomplexobj(outputdata)
+    ):
+        raise ValueError("A B-scan must be a nonempty finite real time-by-trace matrix")
+    if not np.isfinite(dt) or dt <= 0:
+        raise ValueError("B-scan sample interval must be finite and positive")
+    time_offset = receiver_time_offset(rxcomponent, dt) if time_offset is None else float(time_offset)
+    if not np.isfinite(time_offset):
+        raise ValueError("B-scan time offset must be finite")
 
     trace_id = str(trace_group).strip("/") if trace_group else f"rx{rxnumber}"
     safe_trace_id = trace_id.replace("/", "_")
@@ -86,7 +118,7 @@ def mpl_plot(
 
     plt.imshow(
         outputdata,
-        extent=[0, outputdata.shape[1], outputdata.shape[0] * dt, 0],
+        extent=[0, outputdata.shape[1], time_offset + (outputdata.shape[0] - 0.5) * dt, time_offset - 0.5 * dt],
         interpolation="nearest",
         aspect="auto",
         cmap="seismic",
@@ -131,7 +163,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--trace-group",
         default=None,
-        help=("time-domain terminal-voltage group in a merged file, e.g. " "ports/receive, tls/tl1, or frills/frill1"),
+        help="trace group (e.g. ports/receive) or receiver selector (e.g. name:surface)",
     )
     parser.add_argument(
         "-gather",
@@ -150,13 +182,14 @@ if __name__ == "__main__":
     if args.trace_group is not None:
         if args.gather:
             parser.error("--trace-group and -gather cannot be used together")
-        if args.rx_component != "Vtotal":
+        if args.rx_component != "Vtotal" and not args.trace_group.startswith(("name:", "study:", "build:", "rxs/")):
             parser.error("--trace-group requires the Vtotal component")
-        outputdata, dt = get_output_data(
+        outputdata, dt, offset = get_output_data(
             args.outputfile,
             1,
             args.rx_component,
             trace_group=args.trace_group,
+            return_time_offset=True,
         )
         mpl_plot(
             args.outputfile,
@@ -166,19 +199,22 @@ if __name__ == "__main__":
             args.rx_component,
             show=not args.save,
             trace_group=args.trace_group,
+            time_offset=offset,
         )
     elif args.rx_component == "Vtotal":
         parser.error("Vtotal requires --trace-group")
     elif args.gather:
-        rxsgather, dt = gather_receiver_outputs(args.outputfile, args.rx_component)
+        rxsgather, dt, offset = gather_receiver_outputs(args.outputfile, args.rx_component, return_time_offset=True)
         with h5py.File(args.outputfile, "r") as f:
             nrx = int(f.attrs["nrx"])
-        mpl_plot(args.outputfile, rxsgather, dt, nrx, args.rx_component, show=not args.save)
+        mpl_plot(args.outputfile, rxsgather, dt, nrx, args.rx_component, show=not args.save, time_offset=offset)
     else:
         with h5py.File(args.outputfile, "r") as f:
             nrx = int(f.attrs["nrx"])
+            receivers = sorted(f.get("rxs", {}), key=natural_key)
         if nrx == 0:
             raise ValueError(f"No receivers found in {args.outputfile}")
-        for rx in range(1, nrx + 1):
-            outputdata, dt = get_output_data(args.outputfile, rx, args.rx_component)
-            mpl_plot(args.outputfile, outputdata, dt, rx, args.rx_component, show=not args.save)
+        for key in receivers:
+            rx = int(key.removeprefix("rx"))
+            outputdata, dt, offset = get_output_data(args.outputfile, rx, args.rx_component, return_time_offset=True)
+            mpl_plot(args.outputfile, outputdata, dt, rx, args.rx_component, show=not args.save, time_offset=offset)

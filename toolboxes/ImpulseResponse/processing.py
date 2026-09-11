@@ -58,8 +58,9 @@ class SourceSampling:
     """Stored scalar source and its waveform-evaluation convention.
 
     ``evaluation_time_offset`` is in seconds and can differ from the physical
-    sample-zero time in ``signal``. For a hard voltage source, waveform sample
-    n is evaluated at ``n*dt`` but imposed on the field stored at ``(n+1)*dt``.
+    sample-zero time in ``signal``. Older hard-source files evaluate sample
+    n at ``n*dt`` but impose it at ``(n+1)*dt``; corrected files initialise
+    E(0) and use zero for both offsets. Preserve each file's convention.
     """
 
     signal: SampledSignal
@@ -154,8 +155,9 @@ def load_source_sampling(
         if "WaveformEvaluationTimeOffset" in excitation.attrs:
             evaluation_offset = float(excitation.attrs["WaveformEvaluationTimeOffset"])
         elif driving_quantity == "imposed_gap_voltage":
-            # A hard voltage source evaluates waveform sample n at n*dt but
-            # imposes it on the electric field stored at (n+1)*dt.
+            # Legacy hard-source files can omit the evaluation attribute.
+            # Their waveform clock starts at zero even if the physical
+            # history is delayed by dt. Corrected files also evaluate at zero.
             evaluation_offset = 0.0
         else:
             evaluation_offset = signal.time_offset
@@ -273,7 +275,8 @@ def sample_builtin_waveform(
 
     Activation is tested at update indices ``n*dt`` with inclusive start/stop
     bounds. Active values are evaluated at ``n*dt-start_time+evaluation_offset``.
-    Using the physical output offset instead would shift hard-source values.
+    Using the physical output offset instead would shift legacy hard-source
+    values. Corrected hard sources use zero for both offsets.
     """
 
     if not np.isfinite(start_time) or start_time < 0:
@@ -469,7 +472,11 @@ def _receiver_selections(
         return requested
     requested: list[tuple[str, str]] = []
     for path, component in selections:
-        normalised = _normalise_path(path)
+        normalised = (
+            load_receiver(filename, path, component).path.rsplit("/", 1)[0]
+            if path.startswith(("name:", "study:"))
+            else _normalise_path(path)
+        )
         if normalised not in available or component not in available[normalised]:
             raise ValueError(
                 f"receiver selection {normalised}:{component} is unavailable; "
@@ -604,6 +611,9 @@ def write_synthesised_output(filename: str | Path, result: SynthesisResult) -> P
         for receiver in result.receivers:
             dataset_path = _normalise_path(receiver.input.path)
             group_path = dataset_path.rsplit("/", 1)[0]
+            grid_path = group_path.rsplit("/rxs/", 1)[0]
+            if grid_path:
+                _copy_attrs(original[grid_path], output.require_group(grid_path))
             group = output.require_group(group_path)
             _copy_group_attrs(result.receiver_file, group_path, group)
             dataset = group.create_dataset(
@@ -616,4 +626,11 @@ def write_synthesised_output(filename: str | Path, result: SynthesisResult) -> P
                 _copy_attrs(receiver_source[dataset_path], dataset)
             dataset.attrs["SynthesisedFromImpulse"] = True
             dataset.attrs["ImpulseTailRelativeDB"] = receiver.impulse_tail_relative_db
+        # A selected subset retains original paths/BuildIndices, not a new
+        # acquisition layout. Counts are local to each emitted grid namespace.
+        grids = [output]
+        if "subgrids" in output:
+            grids.extend(output["subgrids"].values())
+        for grid in grids:
+            grid.attrs["nrx"] = len(grid.get("rxs", {}))
     return path

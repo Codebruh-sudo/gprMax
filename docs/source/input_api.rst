@@ -148,6 +148,12 @@ Output Directory
 ----------------
 .. autoclass:: gprMax.user_objects.cmds_singleuse.OutputDir
 
+Relative ``OutputDir(dir=...)`` paths are resolved against the working directory
+when the Scene is built. This differs from hash ``#output_dir`` paths, which are
+relative to the top-level input file. The resolved directory is retained during
+``geometry_fixed=True`` repetition, with distinct numbered model and snapshot
+paths.
+
 Magnetic Averaging
 ------------------
 .. autoclass:: gprMax.user_objects.cmds_singleuse.MagneticAveraging
@@ -201,6 +207,12 @@ The available source overrides are ``active``, ``position``,
 study determines the run count automatically; pass ``i=N`` to restart at the
 one-based case number ``N``. For a text input model the equivalent
 ``#study`` command reads the same information from CSV.
+
+Study ``start``/``stop`` overrides must be finite. ``active`` and ``record``
+accept Python or NumPy boolean scalars; strings, numeric flags and boolean
+arrays are rejected rather than interpreted by truthiness. These checks also
+apply before reusing a study in another run. ``record=False`` remains
+unsupported and is rejected for both boolean types.
 
 For a complete acquisition that users can edit in a spreadsheet, see the
 :ref:`CSV B-scan example <bscan_csv_study>`. A Python model can use that same
@@ -1044,6 +1056,11 @@ Fractal Box
 -----------
 .. autoclass:: gprMax.user_objects.cmds_geometry.fractal_box.FractalBox
 
+Fractal definitions can be reused for a geometry preview followed by a solve,
+or in multiple rebuilt Scenes. Each fresh grid gets its own fractal volume and
+material-bin mapping. Supply a seed for reproducible geometry. With
+``geometry_fixed=True``, the already-built geometry is retained instead.
+
 .. note::
 
     * We are not aware of a formulation of Perfectly Matched Layer (PML) absorbing boundary that can specifically handle distributions of material properties (such as those created by fractals) throughout the thickness of the PML, i.e. this is a required area of research. Our PML formulations can work to an extent depending on your modelling scenario and requirements. You may need to increase the thickness of the PML and/or consider tuning the parameters of the PML (:ref:`pml-tuning`) to improve performance for your specific model.
@@ -1492,6 +1509,13 @@ resistance creates a hard source and therefore requires a separate
 The waveform amplitude is the generator voltage in volts. See
 :ref:`#voltage_source <voltage_source>` for the one-cell source equation and
 the definition of the automatic port spectra.
+
+A hard source also prescribes the initial electric field before sample zero
+is stored. Subsequent prescriptions use the new electric time level
+:math:`(n+1)\Delta t`. ``start`` and ``stop`` are inclusive at these physical
+times. A zero waveform still clamps the edge while active; ``start=0`` and
+:math:`0<\mathtt{stop}<\Delta t` apply only the initial impulse and then release
+the edge. In a subgrid, use its local :math:`\Delta t`.
 
 Hertzian Dipole Source
 ----------------------
@@ -2564,6 +2588,11 @@ A subgrid is added to the main scene, but its materials and geometry are added
 to the subgrid object. With ``autotranslate=True`` these objects can use main
 grid coordinates. Refining subgrids use the double-precision CPU solver.
 CUDA, OpenCL, and Metal subgrid execution are not part of this release.
+
+Pass ``subgrid=True`` even for a geometry-only preview; a Scene containing
+subgrids without that flag is rejected before model construction. Every subgrid
+must have a nonempty ``id`` unique within its Scene. IDs cannot contain path
+separators or NUL, or be ``.`` or ``..``, because they identify HDF5 groups.
 
 ``ratio=1`` selects an **equal-resolution embedded region**. This is exposed
 through ``SubGridHSG`` to avoid a second, overlapping object API, but it does

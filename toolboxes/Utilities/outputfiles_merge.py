@@ -24,6 +24,8 @@ import h5py
 import numpy as np
 
 from gprMax.utilities.utilities import natural_keys
+from toolboxes.Utilities.receiver_identity import match_receiver, receiver_catalogue, select_receiver
+from toolboxes.Utilities.trace_time import read_time_history
 
 
 TIME_DOMAIN_RECEIVER_OUTPUTS = frozenset(("Ex", "Ey", "Ez", "Hx", "Hy", "Hz", "Ix", "Iy", "Iz"))
@@ -37,7 +39,9 @@ def _grid_group(output, grid_path="/"):
     return output[grid_path] if grid_path else output
 
 
-def get_output_data(filename, rxnumber, rxcomponent, grid_path="/", trace_group=None):
+def get_output_data(
+    filename, rxnumber, rxcomponent, grid_path="/", trace_group=None, *, receiver_name=None, return_time_offset=False
+):
     """Gets B-scan output data from a model.
 
     Args:
@@ -46,28 +50,35 @@ def get_output_data(filename, rxnumber, rxcomponent, grid_path="/", trace_group=
         rxcomponent: string of receiver output field/current component.
         grid_path: optional main-grid or subgrid HDF5 path.
         trace_group: optional voltage-trace group, e.g. ``ports/receive``.
+        return_time_offset: if True, also return physical sample-zero time.
 
     Returns:
         outputdata: array of A-scans, i.e. B-scan data.
-        dt: float of temporal resolution of the model.
+        dt: float of temporal sample interval.
+        time_offset: physical sample-zero time, only if requested.
     """
 
     # Open output file and read some attributes
     with h5py.File(filename, "r") as f:
         grid = _grid_group(f, grid_path)
-        dt = grid.attrs["dt"]
         if trace_group is None:
             nrx = int(grid.attrs["nrx"])
             if nrx == 0:
                 raise ValueError(f"No receivers found in {filename}")
-            if rxnumber < 1 or rxnumber > nrx:
+            if receiver_name is None and f"rxs/rx{rxnumber}" not in grid:
                 raise ValueError(f"Receiver {rxnumber} is outside the valid range 1-{nrx}")
-            path = f"rxs/rx{rxnumber}"
+            path = select_receiver(
+                receiver_catalogue(grid), f"name:{receiver_name}" if receiver_name is not None else rxnumber
+            ).path
             allowed = TIME_DOMAIN_RECEIVER_OUTPUTS
             description = f"receiver {rxnumber}"
         else:
             path = str(trace_group).strip("/")
-            allowed = TIME_DOMAIN_VOLTAGE_OUTPUTS
+            if path.startswith(("name:", "study:", "build:", "rxs/")):
+                path = select_receiver(receiver_catalogue(grid), path).path
+                allowed = TIME_DOMAIN_RECEIVER_OUTPUTS
+            else:
+                allowed = TIME_DOMAIN_VOLTAGE_OUTPUTS
             description = f"trace group {path}"
             if path not in grid or not isinstance(grid[path], h5py.Group):
                 raise ValueError(f"Trace group {path!r} was not found in {filename}")
@@ -84,11 +95,11 @@ def get_output_data(filename, rxnumber, rxcomponent, grid_path="/", trace_group=
                 + f"{', '.join(availableoutputs)}"
             )
 
-        dataset = grid[f"{path}/{rxcomponent}"]
-        outputdata = np.asarray(dataset)
-        if outputdata.ndim not in (1, 2) or np.iscomplexobj(outputdata):
-            raise ValueError(f"{path}/{rxcomponent} is not a real time-domain A-scan or B-scan")
+        history = read_time_history(grid[f"{path}/{rxcomponent}"], allow_matrix=True)
+        outputdata, dt = history.samples, history.dt
 
+    if return_time_offset:
+        return outputdata, dt, history.offset
     return outputdata, dt
 
 
@@ -306,62 +317,63 @@ def _validate_grid(reference, candidate, grid_path, filename):
             raise ValueError(f"Inconsistent {attribute} for grid {grid_path or '/'} in {filename}")
 
     nrx = int(reference.attrs["nrx"])
-    for rx in range(1, nrx + 1):
-        rxpath = f"rxs/rx{rx}"
+    reference_receivers = receiver_catalogue(reference)
+    candidate_receivers = receiver_catalogue(candidate)
+    receiver_paths = {}
+    if len(reference_receivers) != nrx or len(candidate_receivers) != nrx:
+        raise ValueError(f"Receiver count does not match nrx in grid {grid_path or '/'} of {filename}")
+    for rxpath in reference_receivers:
         if rxpath not in reference:
             raise ValueError(f"Missing {rxpath} in reference grid {grid_path or '/'}")
-        if rxpath not in candidate:
-            raise ValueError(f"Missing {rxpath} in grid {grid_path or '/'} of {filename}")
-        if set(reference[rxpath].keys()) != set(candidate[rxpath].keys()):
+        if reference.file.filename == candidate.file.filename:
+            candidate_path = rxpath
+        else:
+            candidate_path = match_receiver(reference_receivers[rxpath], candidate_receivers).path
+        receiver_paths[rxpath] = candidate_path
+        if set(reference[rxpath].keys()) != set(candidate[candidate_path].keys()):
             raise ValueError(f"Receiver outputs differ for {rxpath} in grid {grid_path or '/'} of {filename}")
-        for attribute in ("Name", "StudyID"):
-            if (attribute in reference[rxpath].attrs) != (attribute in candidate[rxpath].attrs):
-                raise ValueError(
-                    f"Receiver metadata {attribute} differs for {rxpath} " f"in grid {grid_path or '/'} of {filename}"
-                )
-            if attribute in reference[rxpath].attrs and not _values_equal(
-                reference[rxpath].attrs[attribute], candidate[rxpath].attrs[attribute]
-            ):
-                raise ValueError(
-                    f"Receiver metadata {attribute} differs for {rxpath} " f"in grid {grid_path or '/'} of {filename}"
-                )
         _validate_position(
-            candidate[rxpath],
+            candidate[candidate_path],
             "Position",
             f"{grid_path or '/'}/{rxpath} in {filename}",
         )
         _validate_position(
-            candidate[rxpath],
+            candidate[candidate_path],
             "GridPosition",
             f"{grid_path or '/'}/{rxpath} in {filename}",
         )
         for output, dataset in reference[rxpath].items():
             _validate_receiver_dataset(
                 dataset,
-                candidate[f"{rxpath}/{output}"],
+                candidate[f"{candidate_path}/{output}"],
                 f"{grid_path or '/'}/{rxpath}/{output}",
                 filename,
                 int(reference.attrs["Iterations"]),
                 float(reference.attrs["dt"]),
             )
 
+    if len(set(receiver_paths.values())) != nrx:
+        raise ValueError(f"Receiver identity mapping is not one-to-one in {filename}")
     _validate_voltage_traces(reference, candidate, grid_path, filename)
 
     reference_paths = set(_position_group_paths(reference))
-    candidate_paths = set(_position_group_paths(candidate))
+    inverse_receivers = {value: key for key, value in receiver_paths.items()}
+    candidate_paths = {inverse_receivers.get(path, path) for path in _position_group_paths(candidate)}
     if candidate_paths != reference_paths:
         raise ValueError(
             f"Position-bearing source/receiver structure differs in " f"grid {grid_path or '/'} of {filename}"
         )
     for path in reference_paths:
-        _validate_position(candidate[path], "Position", f"{grid_path or '/'}/{path} in {filename}")
-        if ("GridPosition" in reference[path].attrs) != ("GridPosition" in candidate[path].attrs):
+        candidate_path = receiver_paths.get(path, path)
+        _validate_position(candidate[candidate_path], "Position", f"{grid_path or '/'}/{path} in {filename}")
+        if ("GridPosition" in reference[path].attrs) != ("GridPosition" in candidate[candidate_path].attrs):
             raise ValueError(f"GridPosition metadata differs for {grid_path or '/'}/{path} in {filename}")
         _validate_position(
-            candidate[path],
+            candidate[candidate_path],
             "GridPosition",
             f"{grid_path or '/'}/{path} in {filename}",
         )
+    return receiver_paths
 
 
 def _position_group_paths(grid):
@@ -394,12 +406,15 @@ def _create_trace_metadata(destination_grid, reference_grid, outputfiles):
 
     for path in _position_group_paths(reference_grid):
         group = metadata.require_group(path)
+        if path.startswith("rxs/"):
+            group.create_dataset("InputReceiverPath", shape=(len(outputfiles),), dtype=string_dtype)
+            group.create_dataset("Name", shape=(len(outputfiles),), dtype=string_dtype)
         group.create_dataset("Position", shape=(len(outputfiles), 3), dtype=np.float64)
         if "GridPosition" in reference_grid[path].attrs:
             group.create_dataset("GridPosition", shape=(len(outputfiles), 3), dtype=np.int64)
 
 
-def _write_trace_metadata(destination_grid, source_grid, index, filename):
+def _write_trace_metadata(destination_grid, source_grid, index, filename, receiver_paths):
     """Write acquisition positions for one B-scan column."""
 
     metadata = destination_grid["trace_metadata"]
@@ -411,11 +426,16 @@ def _write_trace_metadata(destination_grid, source_grid, index, filename):
                 for name in metadata[parent_name]
                 if isinstance(metadata[f"{parent_name}/{name}"], h5py.Group)
             )
-    if set(_position_group_paths(source_grid)) != expected_paths:
+    inverse_receivers = {value: key for key, value in receiver_paths.items()}
+    if {inverse_receivers.get(path, path) for path in _position_group_paths(source_grid)} != expected_paths:
         raise ValueError(f"Position-bearing source/receiver structure differs in {filename}")
 
     for path in expected_paths:
-        source = source_grid[path]
+        source_path = receiver_paths.get(path, path)
+        source = source_grid[source_path]
+        if path.startswith("rxs/"):
+            metadata[f"{path}/InputReceiverPath"][index] = source_path
+            metadata[f"{path}/Name"][index] = source.attrs.get("Name", "")
         _validate_position(source, "Position", f"{path} in {filename}")
         if "Position" not in source.attrs:
             raise ValueError(f"Missing Position metadata for {path} in {filename}")
@@ -519,17 +539,20 @@ def merge_files(outputfiles, merged_outputfile=None, removefiles=False):
             )
 
         # Validate every input before creating/truncating the destination.
+        receiver_mappings = []
         for outputfile in outputfiles:
+            file_mapping = {}
             with h5py.File(outputfile, "r") as source:
                 if _output_grid_paths(source) != grid_paths:
                     raise ValueError(f"Grid structure differs in {outputfile}")
                 for grid_path in grid_paths:
-                    _validate_grid(
+                    file_mapping[grid_path] = _validate_grid(
                         _grid_group(reference, grid_path),
                         _grid_group(source, grid_path),
                         grid_path,
                         outputfile,
                     )
+            receiver_mappings.append(file_mapping)
 
         with h5py.File(merged_outputfile, "w") as merged:
             for name, value in reference.attrs.items():
@@ -545,9 +568,7 @@ def merge_files(outputfiles, merged_outputfile=None, removefiles=False):
                 destination_grid.attrs["MergedContent"] = "real_time_domain_receivers_and_terminal_voltages"
                 destination_grid.attrs["ntraces"] = len(outputfiles)
 
-                nrx = int(source_grid.attrs["nrx"])
-                for rx in range(1, nrx + 1):
-                    rxpath = f"rxs/rx{rx}"
+                for rxpath in receiver_catalogue(source_grid):
                     source_rx = source_grid[rxpath]
                     destination_rx = destination_grid.require_group(rxpath)
                     for name, value in source_rx.attrs.items():
@@ -568,12 +589,14 @@ def merge_files(outputfiles, merged_outputfile=None, removefiles=False):
                     for grid_path in grid_paths:
                         source_grid = _grid_group(source, grid_path)
                         destination_grid = _grid_group(merged, grid_path)
-                        _write_trace_metadata(destination_grid, source_grid, index, outputfile)
+                        receiver_paths = receiver_mappings[index][grid_path]
+                        _write_trace_metadata(destination_grid, source_grid, index, outputfile, receiver_paths)
                         _write_voltage_outputs(destination_grid, source_grid, index)
-                        for rx in range(1, int(source_grid.attrs["nrx"]) + 1):
-                            rxpath = f"rxs/rx{rx}"
-                            for output in source_grid[rxpath]:
-                                destination_grid[f"{rxpath}/{output}"][:, index] = source_grid[f"{rxpath}/{output}"][:]
+                        for rxpath, source_rxpath in receiver_paths.items():
+                            for output in source_grid[source_rxpath]:
+                                destination_grid[f"{rxpath}/{output}"][:, index] = source_grid[
+                                    f"{source_rxpath}/{output}"
+                                ][:]
 
     if removefiles:
         for outputfile in outputfiles:

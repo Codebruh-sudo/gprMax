@@ -7,6 +7,12 @@ Frequency-Modulated Continuous-Wave GPR
 Information
 ===========
 
+Receiver selections accept ``name:label`` and ``study:id`` as well as paths.
+An omitted background/incident receiver is matched by identity, not by the
+target's numeric path. Explicit background selections are intentional
+per-file overrides. Missing/ambiguous identity is rejected. See
+:ref:`receiver-numbering` for old/new output compatibility.
+
 This toolbox synthesises frequency-modulated continuous-wave (FMCW) GPR
 outputs from one broadband gprMax simulation. It follows the short-pulse FDTD
 method of Eide *et al.* [EID2022FMCW]_, including background removal, source

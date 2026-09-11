@@ -1508,7 +1508,9 @@ class VoltageSourcePortMonitor:
                 f"Voltage-source port {self.output_id!r} hard source has no terminal-current samples"
             )
 
-        nsamples = grid.iterations - 1
+        # Hard voltages include the prescribed E(0). Finite-resistance ports
+        # still pair adjacent E samples at half steps and need N-1 samples.
+        nsamples = grid.iterations if self.hard_source else grid.iterations - 1
         self.aligned_samples = nsamples
         full_frequency = np.fft.rfftfreq(nsamples, d=grid.dt)
         cells, limiting_material = minimum_wavelength_sampling(grid, full_frequency)
@@ -1711,22 +1713,21 @@ class VoltageSourcePortMonitor:
                 f"Voltage-source port {self.output_id!r} receiver history has the wrong length"
             )
 
-        # At receiver-storage index m, E is at m*dt and H is at
-        # (m-1/2)*dt. Drop the unexcited initial fields so each retained pair
-        # is exactly V^(n+1), I_loop^(n+1/2). Their separate transform offsets
-        # remove the half-step phase difference without the cosine attenuation
-        # introduced by time-domain averaging.
-        total_voltage = np.asarray(-self.dl * electric[1:], dtype=real_dtype)
-        loop_current = np.asarray(loop_half[1:], dtype=real_dtype)
+        # At storage index m, E is at m*dt and H is at (m-1/2)*dt. E(0)
+        # may contain the entire drive of a hard impulse, so retain it.
+        # Separate transform offsets preserve the half-step phase without
+        # the cosine attenuation introduced by time-domain averaging.
+        total_voltage = np.asarray(-self.dl * electric, dtype=real_dtype)
+        loop_current = np.asarray(loop_half, dtype=real_dtype)
         generator_voltage = total_voltage.copy()
-        self.hard_voltage_time_offset = float(grid.dt)
-        self.hard_current_time_offset = float(0.5 * grid.dt)
+        self.hard_voltage_time_offset = 0.0
+        self.hard_current_time_offset = float(-0.5 * grid.dt)
         time = np.asarray(
-            (np.arange(total_voltage.size, dtype=real_dtype) + 1) * grid.dt,
+            np.arange(total_voltage.size, dtype=real_dtype) * grid.dt,
             dtype=real_dtype,
         )
         self._hard_current_time = np.asarray(
-            (np.arange(loop_current.size, dtype=real_dtype) + 0.5) * grid.dt,
+            (np.arange(loop_current.size, dtype=real_dtype) - 0.5) * grid.dt,
             dtype=real_dtype,
         )
 

@@ -170,14 +170,20 @@ def test_builtin_samples_match_gprmax_waveform_definition(waveform_type):
     assert_allclose(result.samples, expected, rtol=2e-13, atol=2e-13)
 
 
-def test_hard_source_uses_evaluation_offset_not_physical_output_offset(tmp_path):
+@pytest.mark.parametrize("physical_steps", [0, 1], ids=["initial-E0", "legacy"])
+@pytest.mark.parametrize("explicit_evaluation", [False, True])
+def test_hard_source_uses_evaluation_offset_not_physical_output_offset(
+    tmp_path, physical_steps, explicit_evaluation
+):
     output = tmp_path / "hard.h5"
     dt = 2e-11
     with h5py.File(output, "w") as file:
         file.attrs["dt"] = dt
         excitation = file.create_group("srcs/src1/excitation")
         excitation.attrs["SampleInterval"] = dt
-        excitation.attrs["TimeSampleOffset"] = dt
+        excitation.attrs["TimeSampleOffset"] = physical_steps * dt
+        if explicit_evaluation:
+            excitation.attrs["WaveformEvaluationTimeOffset"] = 0.0
         excitation.attrs["DrivingQuantity"] = "imposed_gap_voltage"
         excitation.attrs["UpdateLattice"] = "electric"
         excitation.create_dataset("samples", data=np.r_[1.0, np.zeros(15)])
@@ -185,7 +191,7 @@ def test_hard_source_uses_evaluation_offset_not_physical_output_offset(tmp_path)
     source = load_source_sampling(output)
     waveform = sample_builtin_waveform(source, "impulse", 1, 1, "impulse")
 
-    assert source.signal.time_offset == dt
+    assert source.signal.time_offset == physical_steps * dt
     assert source.evaluation_time_offset == 0
     assert_array_equal(np.flatnonzero(waveform.samples), [0])
 
@@ -350,6 +356,37 @@ def test_batch_synthesis_writes_receiver_compatible_hdf5(tmp_path):
         assert file.attrs["Format"] == "gprMax impulse-response waveform synthesis"
         assert file["/rxs/rx1/Ez"].attrs["SynthesisedFromImpulse"]
         assert_allclose(file["/impulse_reference/source_samples"], source.signal.samples)
+
+
+def test_named_subset_preserves_identity_and_is_readable_by_plot_and_merge(tmp_path):
+    from toolboxes.Utilities.outputfiles_merge import get_output_data, merge_files
+    from toolboxes.Plotting.plot_Bscan import gather_receiver_outputs
+
+    original = tmp_path / "subset-input.h5"
+    _write_impulse_h5(original)
+    with h5py.File(original, "r+") as output:
+        output.attrs.update(
+            nrx=2, ReceiverOrder="construction", ReceiverOrderSchemaVersion=1, ReceiverLayout="original-layout"
+        )
+        output.move("rxs/rx1", "rxs/rx2")
+        output["rxs/rx2"].attrs.update(BuildIndex=1, NameKind="user", Position=(0, 0, 0))
+        rx = output.create_group("rxs/rx1")
+        rx.attrs.update(Name="other", BuildIndex=0, NameKind="user")
+        rx["Ez"] = np.ones(64)
+    source = load_source_sampling(original)
+    waveform = sample_builtin_waveform(source, "ricker", 1.0, 300e6, "target")
+    result = synthesise_output(original, waveform, receiver_selections=[("name:response", "Ez")])
+    output = write_synthesised_output(tmp_path / "subset.h5", result)
+    assert load_receiver(output, "name:response", "Ez").path == "/rxs/rx2/Ez"
+    values = result.receivers[0].samples
+    assert_allclose(get_output_data(output, 2, "Ez")[0], values)
+    assert_allclose(gather_receiver_outputs(output, "Ez")[0][:, 0], values)
+    merged = merge_files([output, output], tmp_path / "subset-merged.h5")
+    with h5py.File(merged) as stored:
+        assert stored.attrs["nrx"] == 1
+        assert stored["rxs/rx2"].attrs["BuildIndex"] == 1
+        assert stored.attrs["ReceiverLayout"] == "original-layout"
+        assert_allclose(stored["rxs/rx2/Ez"][:, 0], values)
 
 
 @pytest.fixture

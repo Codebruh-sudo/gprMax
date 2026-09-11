@@ -172,8 +172,9 @@ def _hard_scene(polarisation, variant, *, start=START, stop=STOP):
 
 def _check_release(traces, dt, polarisation, variant, start=START, stop=STOP):
     edge = traces[f"rx/edge/E{polarisation}"]
-    # Receivers record the fields before this iteration's updates.
-    updated_at = (np.arange(edge.size) - 1) * dt
+    # Hard sources prescribe the stored electric time itself; additive
+    # voltage-source updates still precede the stored E sample by one step.
+    updated_at = (np.arange(edge.size) - (variant == "soft")) * dt
     if variant != "full":
         before = (updated_at >= 0) & (updated_at < start)
         after = updated_at > stop

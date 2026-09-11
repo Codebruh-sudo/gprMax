@@ -12,6 +12,7 @@ function [figures, traces] = plot_Ascan(filename, varargin)
 %       Grid             Main grid "/" or a subgrid path such as
 %                        "/subgrids/fine" (default "/").
 %       Receiver         Numeric receiver indices (default all).
+%       ReceiverName     Unique receiver name(s), independent of numbering.
 %       Path             One or more arbitrary HDF5 groups, such as
 %                        "/ports/feed"; cannot be combined with Receiver.
 %       Outputs          Components such as ["Ex", "Hz"] (default all).
@@ -42,6 +43,8 @@ addParameter(parser, 'Receiver', [], ...
     && all(x >= 1) && all(mod(x, 1) == 0));
 addParameter(parser, 'Path', strings(0, 1), ...
     @(x) ischar(x) || isstring(x) || iscellstr(x));
+addParameter(parser, 'ReceiverName', strings(0, 1), ...
+    @(x) ischar(x) || isstring(x) || iscellstr(x));
 addParameter(parser, 'Outputs', strings(0, 1), ...
     @(x) ischar(x) || isstring(x) || iscellstr(x));
 addParameter(parser, 'FFT', false, @(x) islogical(x) && isscalar(x));
@@ -60,6 +63,16 @@ gridPath = normalise_group_path(parser.Results.Grid);
 receiverIndices = parser.Results.Receiver;
 requestedPaths = string(parser.Results.Path);
 requestedPaths = requestedPaths(:);
+receiverNames = string(parser.Results.ReceiverName);
+if ~isempty(receiverNames)
+    if ~isempty(receiverIndices) || ~isempty(requestedPaths)
+        error('gprMax:MATLAB:ConflictingSelection', ...
+            'ReceiverName cannot be combined with Receiver or Path.');
+    end
+    for index = 1:numel(receiverNames)
+        requestedPaths(index, 1) = gprmax_receiver_path(filename, receiverNames(index), gridPath);
+    end
+end
 if any(ismissing(requestedPaths) | strlength(strtrim(requestedPaths)) == 0)
     error('gprMax:MATLAB:InvalidHDF5Path', ...
         'Path cannot contain missing or empty values.');

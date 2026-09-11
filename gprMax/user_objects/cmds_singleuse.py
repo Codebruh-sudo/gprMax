@@ -890,7 +890,9 @@ class OutputDir(ModelUserObject):
     """Set the directory where output file(s) will be stored.
 
     Attributes:
-        output_dir (str): File path to directory.
+        output_dir (str): File path to directory. Relative Python API paths
+            are resolved against the working directory at build time. Hash
+            commands resolve them against the top-level input file instead.
     """
 
     @property

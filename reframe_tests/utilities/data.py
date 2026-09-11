@@ -23,6 +23,7 @@ import numpy as np
 import numpy.typing as npt
 
 from gprMax.utilities.logging import logging_config
+from toolboxes.Utilities.receiver_identity import receiver_catalogue, select_receiver
 
 logger = logging.getLogger(__name__)
 logging_config(name=__name__)
@@ -31,12 +32,13 @@ logging_config(name=__name__)
 FIELD_COMPONENTS_BASE_PATH = "/rxs/rx1/"
 
 
-def get_data_from_h5_file(h5_filepath: str) -> Tuple[npt.NDArray, npt.NDArray]:
+def get_data_from_h5_file(h5_filepath: str, receiver="rx1") -> Tuple[npt.NDArray, npt.NDArray]:
     with h5py.File(h5_filepath, "r") as h5_file:
+        receiver_path = select_receiver(receiver_catalogue(h5_file), receiver).path + "/"
         # Get available field output component names and datatype
-        field_components = list(h5_file[FIELD_COMPONENTS_BASE_PATH].keys())
-        dtype = h5_file[FIELD_COMPONENTS_BASE_PATH + field_components[0]].dtype
-        shape = h5_file[FIELD_COMPONENTS_BASE_PATH + str(field_components[0])].shape
+        field_components = list(h5_file[receiver_path].keys())
+        dtype = h5_file[receiver_path + field_components[0]].dtype
+        shape = h5_file[receiver_path + str(field_components[0])].shape
 
         # Arrays for storing field data
         if len(shape) == 1:
@@ -46,7 +48,7 @@ def get_data_from_h5_file(h5_filepath: str) -> Tuple[npt.NDArray, npt.NDArray]:
                 (h5_file.attrs["Iterations"], len(field_components), shape[1]), dtype=dtype
             )
         for index, field_component in enumerate(field_components):
-            data[:, index] = h5_file[FIELD_COMPONENTS_BASE_PATH + str(field_component)]
+            data[:, index] = h5_file[receiver_path + str(field_component)]
             if np.any(np.isnan(data[:, index])):
                 logger.exception("Data contains NaNs")
                 raise ValueError

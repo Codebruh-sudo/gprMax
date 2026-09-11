@@ -15,6 +15,8 @@ function [figureHandle, scan] = plot_Bscan(filename, output, varargin)
 %
 %   Name-value options:
 %       Path             Dataset parent (default "/rxs/rx1").
+%       ReceiverName     Unique receiver name; cannot be combined with Path.
+%       Grid             Namespace for ReceiverName (default "/").
 %       UseDistance      Use cumulative receiver/port path distance when
 %                        trace metadata exist (default true).
 %       Visible          Display the figure (default true).
@@ -42,6 +44,8 @@ addRequired(parser, 'filename', @(x) ischar(x) || (isstring(x) && isscalar(x)));
 addRequired(parser, 'output', @(x) ischar(x) || (isstring(x) && isscalar(x)));
 addParameter(parser, 'Path', "/rxs/rx1", ...
     @(x) ischar(x) || (isstring(x) && isscalar(x)));
+addParameter(parser, 'ReceiverName', "", @(x) ischar(x) || (isstring(x) && isscalar(x)));
+addParameter(parser, 'Grid', "/", @(x) ischar(x) || (isstring(x) && isscalar(x)));
 addParameter(parser, 'UseDistance', true, @(x) islogical(x) && isscalar(x));
 addParameter(parser, 'Visible', true, @(x) islogical(x) && isscalar(x));
 addParameter(parser, 'Save', false, @(x) islogical(x) && isscalar(x));
@@ -57,6 +61,13 @@ if ~isfile(filename)
         'The HDF5 file does not exist: %s', filename);
 end
 groupPath = normalise_group_path(parser.Results.Path);
+if strlength(string(parser.Results.ReceiverName)) > 0
+    if ~ismember('Path', parser.UsingDefaults)
+        error('gprMax:MATLAB:ConflictingSelection', ...
+            'ReceiverName and Path cannot be supplied together.');
+    end
+    groupPath = gprmax_receiver_path(filename, parser.Results.ReceiverName, parser.Results.Grid);
+end
 output = strtrim(string(parser.Results.output));
 if strlength(output) == 0
     error('gprMax:MATLAB:InvalidOutput', 'Output cannot be empty.');

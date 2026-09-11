@@ -39,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="file containing the source history (needed for a merged B-scan)",
     )
     process.add_argument("--source", help="HDF5 source group, e.g. /srcs/src1")
-    process.add_argument("--receiver", help="HDF5 receiver group, e.g. /rxs/rx1")
+    process.add_argument("--receiver", help="receiver path (e.g. /rxs/rx1), name:label, or study:id")
     process.add_argument("--component", help="receiver component, e.g. Ez")
     process.add_argument("--f-start", type=float, required=True, help="first frequency [Hz]")
     process.add_argument("--f-stop", type=float, required=True, help="last frequency [Hz]")

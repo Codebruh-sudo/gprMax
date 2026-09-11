@@ -134,12 +134,13 @@ def test_every_shared_template_gates_only_hard_assignment(backend, real):
     body = update_voltage_source["func"].substitute(REAL=real, CUDA_IDX="")
     assert args.count("srcinfo1") == 1
     assert "int activity_offset = 4 * NVOLTSRC + 2 * source;" in body
-    assert "int active = iteration >= first_active && iteration <= last_active;" in body
+    assert "int hard_sample = iteration + 1;" in body
+    assert "int active = hard_sample >= first_active && hard_sample <= last_active;" in body
     assert body.count("else if (active)") == 3
     assert body.count("if (resistance != 0)") == 3
     assert "return;" not in body  # An inactive source must not skip later sources.
     for component, spacing in zip(("Ex", "Ey", "Ez"), ("dx", "dy", "dz")):
         assert (
-            f"{component}[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(source,iteration)] / {spacing};"
+            f"{component}[IDX3D_FIELDS(x,y,z)] = -1 * srcwaveforms[IDX2D_SRCWAVES(source,hard_sample)] / {spacing};"
             in body
         )

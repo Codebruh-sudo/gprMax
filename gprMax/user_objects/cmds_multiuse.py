@@ -3705,8 +3705,15 @@ class Rx(GridUserObject):
         self.point = uip.resolve_inf_point(self.point)
         point_within_grid, discretised_point = uip.check_src_rx_point(self.point, self.params_str())
 
+        build_index = grid.register_receiver(
+            self.id,
+            RxUser.defaultoutputs if self.outputs is None else self.outputs,
+            getattr(self, "_study_id", None),
+        )
         if point_within_grid:
             receiver = self._create_receiver(grid, discretised_point)
+            receiver.build_index = build_index
+            receiver.name_kind = "generated" if self.id is None else "user"
             grid.add_receiver(receiver)
 
             x, y, z = uip.round_to_grid_static_point(self.point)
@@ -3798,17 +3805,13 @@ class RxArray(GridUserObject):
                 f"{self.params_str()} the step size should not be less than the spatial discretisation."
             )
 
-        xs, ys, zs = uip.round_to_grid_static_point(self.lower_point)
-        xf, yf, zf = uip.round_to_grid_static_point(self.upper_point)
-        # Use discretised_dl (already corrected to a minimum of 1 cell on
-        # any axis given dl=0, a common "single row along this axis"
-        # pattern) rather than re-deriving from the raw self.dl, which
-        # still contains the uncorrected 0 - previously caused
-        # np.arange()'s internal division to divide by zero below.
-        # grid.dl is whichever grid this was built against (main grid or a
-        # subgrid, each with their own .dl - see SubGridBase.
-        # set_discretisation()), matching what round_to_grid_static_point()
-        # itself uses internally (self.grid.dl, where uip.grid is grid).
+        # Iterate in the user's coordinate frame, on this grid's lattice.
+        # The checked points above may already be translated to local MPI
+        # or subgrid indices; Rx.build() must apply that translation only once.
+        lower_indices = uip.discretise_static_point(self.lower_point)
+        upper_indices = uip.discretise_static_point(self.upper_point)
+        xs, ys, zs = lower_indices * grid.dl
+        xf, yf, zf = upper_indices * grid.dl
         dx, dy, dz = discretised_dl * grid.dl
 
         logger.info(
@@ -3818,10 +3821,17 @@ class RxArray(GridUserObject):
             f" {dx:g}m, {dy:g}m, {dz:g}m"
         )
 
-        for x in np.arange(xs, xf + grid.dx, dx):
-            for y in np.arange(ys, yf + grid.dy, dy):
-                for z in np.arange(zs, zf + grid.dz, dz):
-                    receiver = Rx((x, y, z))
+        # Integer ranges avoid floating-point stop overshoot, including on
+        # singleton axes. An upper bound not reached by a whole step is not
+        # exceeded; zero steps have already been replaced by one grid cell.
+        x_indices, y_indices, z_indices = (
+            range(int(start), int(stop) + 1, int(step))
+            for start, stop, step in zip(lower_indices, upper_indices, discretised_dl)
+        )
+        for x in x_indices:
+            for y in y_indices:
+                for z in z_indices:
+                    receiver = Rx((x * grid.dx, y * grid.dy, z * grid.dz))
                     receiver.build(grid)
 
 

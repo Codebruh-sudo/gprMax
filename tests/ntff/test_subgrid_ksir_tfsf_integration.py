@@ -20,6 +20,7 @@
 import h5py
 import numpy as np
 import pytest
+import pytest
 
 import gprMax
 
@@ -41,7 +42,8 @@ def _base_scene():
     return scene, subgrid
 
 
-def test_antenna_metrics_use_subgrid_port_and_time_step(tmp_path):
+@pytest.mark.parametrize("resistance", [0, 50], ids=["hard", "finite-R"])
+def test_antenna_metrics_use_subgrid_port_and_time_step(tmp_path, resistance):
     scene, subgrid = _base_scene()
     source_position = (0.045, 0.045, 0.045)
     subgrid.add(gprMax.Waveform(wave_type="ricker", amp=1, freq=5e9, id="pulse"))
@@ -49,7 +51,7 @@ def test_antenna_metrics_use_subgrid_port_and_time_step(tmp_path):
         gprMax.VoltageSource(
             p1=source_position,
             polarisation="z",
-            resistance=50,
+            resistance=resistance,
             waveform_id="pulse",
             id="feed",
             spectrum_limit="nyquist",

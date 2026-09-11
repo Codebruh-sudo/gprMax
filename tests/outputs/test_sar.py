@@ -535,7 +535,8 @@ def test_sar_current_moment_normalises_the_hertzian_source_length():
     assert result.sar[0, 0] == pytest.approx(0.4)
 
 
-def test_sar_real_port_power_normalisation_scales_with_target_power(tmp_path):
+@pytest.mark.parametrize("resistance", [0, 50], ids=["hard", "finite-R"])
+def test_sar_real_port_power_normalisation_scales_with_target_power(tmp_path, resistance):
     scene, one_watt = _scene()
     one_watt.normalisation = "incident_power"
     one_watt.port_id = "feed"
@@ -545,6 +546,7 @@ def test_sar_real_port_power_normalisation_scales_with_target_power(tmp_path):
         item for item in scene.grid_objects if isinstance(item, gprMax.VoltageSource)
     )
     voltage_source.id = "feed"
+    voltage_source.resistance = resistance
     four_watt = SAR(
         frequencies=one_watt.frequencies,
         tags="target",

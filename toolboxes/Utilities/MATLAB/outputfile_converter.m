@@ -27,7 +27,13 @@ HDR.fext  = 'h5';
 
 % Read data from HDF5 file ================================================
 infile = [HDR.pname infile];
-rxinfo = h5info(infile, '/rxs/rx1');
+receivers = h5info(infile, '/rxs');
+if numel(receivers.Groups) ~= 1
+    error('gprMax:MATLAB:ReceiverIdentity', ...
+        'This legacy converter requires one receiver. Use gprmax_h5_to_mat with an explicit Path for multiple receivers.');
+end
+receiverpath = receivers.Groups(1).Name;
+rxinfo = h5info(infile, receiverpath);
 available = {rxinfo.Datasets.Name};
 components = intersect({'Ex', 'Ey', 'Ez'}, available, 'stable');
 if isempty(components)
@@ -37,7 +43,7 @@ end
 % Use the available electric-field component with the largest absolute peak.
 peak = -Inf;
 for componentindex = 1:numel(components)
-    candidate = h5read(infile, ['/rxs/rx1/' components{componentindex}]);
+    candidate = h5read(infile, [receiverpath '/' components{componentindex}]);
     candidatepeak = max(abs(candidate(:)));
     if candidatepeak > peak
         data = candidate';

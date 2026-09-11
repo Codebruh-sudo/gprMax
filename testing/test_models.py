@@ -27,6 +27,7 @@ from colorama import Fore, Style
 import gprMax
 from gprMax.utilities.logging import logging_config
 from testing.analytical_solutions import hertzian_dipole_fs
+from toolboxes.Utilities.receiver_identity import match_receiver, receiver_catalogue, select_receiver
 
 logger = logging.getLogger(__name__)
 
@@ -139,14 +140,17 @@ def main():
             testresults[model]["Test version"] = filetest.attrs["gprMax"]
 
             # Get available field output component names
-            outputsref = list(fileref[path].keys())
+            reference_path = (
+                match_receiver(select_receiver(receiver_catalogue(filetest), 1), receiver_catalogue(fileref)).path + "/"
+            )
+            outputsref = list(fileref[reference_path].keys())
             outputstest = list(filetest[path].keys())
             if outputsref != outputstest:
                 logger.exception("Field output components do not match reference solution")
                 raise ValueError
 
             # Check that type of float used to store fields matches
-            float_or_doubleref = fileref[path + outputsref[0]].dtype
+            float_or_doubleref = fileref[reference_path + outputsref[0]].dtype
             float_or_doubletest = filetest[path + outputstest[0]].dtype
             if float_or_doubleref != float_or_doubletest:
                 logger.warning(
@@ -181,7 +185,7 @@ def main():
                 (filetest.attrs["Iterations"], len(outputstest)), dtype=float_or_doubletest
             )
             for ID, name in enumerate(outputsref):
-                dataref[:, ID] = fileref[path + str(name)][:]
+                dataref[:, ID] = fileref[reference_path + str(name)][:]
                 datatest[:, ID] = filetest[path + str(name)][:]
                 if np.any(np.isnan(datatest[:, ID])):
                     logger.exception("Test data contains NaNs")

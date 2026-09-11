@@ -16,7 +16,7 @@
 # along with gprMax. If not, see <https://www.gnu.org/licenses/>.
 
 import logging
-import sys
+from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
@@ -25,6 +25,7 @@ import gprMax.config as config
 from .hash_cmds_geometry import process_geometrycmds
 from .hash_cmds_multiuse import process_multicmds
 from .hash_cmds_singleuse import process_singlecmds
+from .hash_includes import expand_include_lines
 
 logger = logging.getLogger(__name__)
 
@@ -69,28 +70,18 @@ def process_python_include_code(inputfile, usernamespace):
             # String to hold Python code to be executed
             pythoncode = ""
             x += 1
-            while not inputlines[x].startswith("#end_python:"):
+            while x < len(inputlines) and not inputlines[x].startswith("#end_python:"):
                 # Add all code in current code block to string
                 pythoncode += inputlines[x] + "\n"
                 x += 1
-                if x == len(inputlines):
-                    logger.exception(
-                        "Cannot find the end of the Python code "
-                        + "block, i.e. missing #end_python: command."
-                    )
-                    raise SyntaxError
+            if x == len(inputlines):
+                raise SyntaxError("Cannot find the end of the Python code block: missing #end_python: command.")
             # Compile code for faster execution
             pythoncompiledcode = compile(pythoncode, "<string>", "exec")
-            # Redirect stdout to a text stream
-            sys.stdout = result = StringIO()
-            # Execute code block & make available only usernamespace
-            exec(pythoncompiledcode, usernamespace)
-            # String containing buffer of executed code
-            codeout = result.getvalue().split("\n")
-            result.close()
-
-            # Reset stdio
-            sys.stdout = sys.__stdout__
+            # Restore the caller's exact stream even if execution raises.
+            with StringIO() as result, redirect_stdout(result):
+                exec(pythoncompiledcode, usernamespace)
+                codeout = result.getvalue().split("\n")
 
             # Separate commands from any other generated output
             hashcmds = []
@@ -123,8 +114,10 @@ def process_python_include_code(inputfile, usernamespace):
 
 
 def process_include_files(hashcmds):
-    """Looks for and processes any include file commands and insert
-        the contents of the included file at that location.
+    """Expand includes recursively, relative to each containing input file.
+
+    Repeated includes are allowed; only cycles on the active inclusion path
+    are rejected. Python blocks in included files remain unsupported.
 
     Args:
         hashcmds: list of input commands.
@@ -134,40 +127,13 @@ def process_include_files(hashcmds):
                                 include file commands.
     """
 
-    processedincludecmds = []
-    x = 0
-    while x < len(hashcmds):
-        if hashcmds[x].startswith("#include_file:"):
-            includefile = hashcmds[x].split()
-
-            if len(includefile) != 2:
-                logger.exception("#include_file requires exactly one parameter")
-                raise ValueError
-
-            includefile = includefile[1]
-
-            # See if file exists at specified path and if not try input file directory
-            includefile = Path(includefile)
-            if not includefile.exists():
-                includefile = Path(config.sim_config.input_file_path.parent, includefile)
-
-            with open(includefile, "r") as f:
-                # Strip out any newline characters and comments that must begin with double hashes
-                includelines = [
-                    includeline.rstrip() + "\n"
-                    for includeline in f
-                    if (not includeline.startswith("##") and includeline.rstrip("\n"))
-                ]
-
-            # Add lines from include file
-            processedincludecmds.extend(includelines)
-
-        else:
-            processedincludecmds.append(hashcmds[x])
-
-        x += 1
-
-    return processedincludecmds
+    input_path = getattr(config.sim_config, "input_file_path", None)
+    input_path = Path(input_path).resolve() if input_path is not None else None
+    return expand_include_lines(
+        hashcmds,
+        input_path.parent if input_path is not None else Path.cwd(),
+        (input_path,) if input_path is not None else (),
+    )
 
 
 def write_processed_file(processedlines):
@@ -415,12 +381,13 @@ def check_cmd_names(processedlines, checkessential=True):
     return singlecmds, multiplecmds, geometry
 
 
-def get_user_objects(processedlines, checkessential=True):
+def get_user_objects(processedlines, checkessential=True, *, input_dir=None):
     """Make a list of all user objects.
 
     Args:
         processedlines: list of input commands after Python processing.
         checkessential: boolean to check for essential commands or not.
+        input_dir: optional top-level input directory for relative output paths.
 
     Returns:
         user_objs: list of all user objects.
@@ -430,7 +397,7 @@ def get_user_objects(processedlines, checkessential=True):
     parsed_commands = check_cmd_names(processedlines, checkessential=checkessential)
 
     # Process parameters for commands that can only occur once in the model
-    single_user_objs = process_singlecmds(parsed_commands[0])
+    single_user_objs = process_singlecmds(parsed_commands[0], input_dir=input_dir)
 
     # Process parameters for commands that can occur multiple times in
     # the model
@@ -474,7 +441,20 @@ def parse_hash_commands(scene):
         if config.sim_config.args.write_processed:
             write_processed_file(processedlines)
 
-        user_objs = get_user_objects(processedlines, checkessential=True)
+        expected_controls = getattr(config.sim_config.args, "_hash_preflight_controls", None)
+        actual_controls = tuple(
+            line.strip() for line in processedlines if line.startswith(("#study:", "#array_codebook:"))
+        )
+        if expected_controls is not None and actual_controls != expected_controls:
+            raise ValueError(
+                "#study and #array_codebook must be declared literally before preflight; "
+                "they cannot be generated by #python or changed during preprocessing."
+            )
+
+        user_objs = get_user_objects(
+            processedlines, checkessential=True,
+            input_dir=config.sim_config.input_file_path.resolve().parent,
+        )
         for user_obj in user_objs:
             scene.add(user_obj)
 

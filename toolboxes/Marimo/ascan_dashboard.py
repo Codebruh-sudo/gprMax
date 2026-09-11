@@ -30,8 +30,8 @@ def _():
         fft_spectrum,
         gain_label,
         spectrum_view_limit,
-        subtract_traces,
     )
+    from toolboxes.Marimo.reference import subtract_receiver_reference
 
     # Research-quality colour palette (Matplotlib tab10, colorblind-friendly)
     PALETTE = [
@@ -84,7 +84,7 @@ def _():
         mo,
         np,
         spectrum_view_limit,
-        subtract_traces,
+        subtract_receiver_reference,
     )
 
 
@@ -667,7 +667,7 @@ def _(
     show_grid,
     spectrum_view_limit,
     subtract_ref,
-    subtract_traces,
+    subtract_receiver_reference,
     time_slider,
 ):
     _traces = get_traces()
@@ -701,24 +701,11 @@ def _(
             return arr
         _ref_fdata = _files[_ref_name]
         try:
-            _ref_arr = get_trace(_ref_fdata, trace["component"], trace["receiver"])
-            _time = get_time_axis(
-                fdata,
-                unit="s",
+            _out = subtract_receiver_reference(
+                arr, fdata, _ref_fdata,
                 receiver=trace["receiver"],
                 component=trace["component"],
             )
-            _ref_time = get_time_axis(
-                _ref_fdata,
-                unit="s",
-                receiver=trace["receiver"],
-                component=trace["component"],
-            )
-            if _time.shape != _ref_time.shape or not np.allclose(
-                _time, _ref_time, rtol=1e-9, atol=1e-15
-            ):
-                raise ValueError("target and background sample times differ")
-            _out = subtract_traces(arr, _ref_arr)
         except (KeyError, ValueError) as _err:
             _sub_warnings.append(f"{trace['label']}: {_err}")
             return arr

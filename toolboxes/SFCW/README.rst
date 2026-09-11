@@ -7,6 +7,10 @@ Stepped-Frequency Continuous-Wave GPR
 Information
 ===========
 
+Receiver selections accept a file-local path, ``name:label``, or ``study:id``.
+Group numbers changed from alphabetical Name order to construction order;
+review saved numeric paths when upgrading. See :ref:`receiver-numbering`.
+
 This toolbox synthesises stepped-frequency continuous-wave (SFCW) responses
 from one broadband gprMax simulation. It implements the impulse-response
 method presented by Giannopoulos, Warren, and Giannakis [GIA2023SFCW]_. The

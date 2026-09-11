@@ -16,6 +16,7 @@
 # along with gprMax. If not, see <https://www.gnu.org/licenses/>.
 
 import logging
+from pathlib import Path
 
 from .user_objects.cmds_singleuse import (
     DispersiveAveraging,
@@ -36,12 +37,14 @@ from .user_objects.cmds_singleuse import (
 logger = logging.getLogger(__name__)
 
 
-def process_singlecmds(singlecmds):
+def process_singlecmds(singlecmds, *, input_dir=None):
     """Checks the validity of command parameters and creates instances of
         classes of parameters.
 
     Args:
         singlecmds: dict of commands that can only occur once in the model.
+        input_dir: optional directory of the top-level input file, used to
+            resolve relative hash-command output directories.
 
     Returns:
         scene_objects: list that holds objects in scene.
@@ -57,7 +60,12 @@ def process_singlecmds(singlecmds):
 
     cmd = "#output_dir"
     if singlecmds[cmd] is not None:
-        output_dir = OutputDir(dir=singlecmds[cmd])
+        # Hash paths are relative to the top-level input, not the launch CWD.
+        # Resolve here so Python OutputDir keeps its existing CWD semantics.
+        directory = Path(singlecmds[cmd])
+        if input_dir is not None and not directory.is_absolute():
+            directory = Path(input_dir) / directory
+        output_dir = OutputDir(dir=str(directory))
         scene_objects.append(output_dir)
 
     # Number of threads for CPU-based (OpenMP) parallelised parts of code
