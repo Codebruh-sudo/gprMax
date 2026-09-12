@@ -142,7 +142,7 @@ class TestCoordinatorPath:
         assert pml.CFS[0].sigma.max > 0
 
     def test_each_cfs_term_is_derived_locally(self, make_mpi_pml, make_cfs):
-        cfs = [make_cfs(kappa={"min": 0.5}), make_cfs(kappa={"min": 0.5})]
+        cfs = [make_cfs(kappa={"min": 0.5}), make_cfs(alpha={"max": 20.0}, kappa={"min": 0.5})]
         pml = make_mpi_pml(cfs=cfs)
         pml.calculate_update_coeffs(1.0, 1.0)
         assert all(term.sigma.max > 0 for term in pml.CFS)

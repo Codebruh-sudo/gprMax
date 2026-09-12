@@ -69,7 +69,7 @@ class BoundaryMagneticTerm:
     """
 
     axis: int
-    index: tuple[int, int]
+    index: tuple[int, ...]
     line_weight: float
 
 
@@ -78,7 +78,7 @@ class BoundaryAmpereRow:
     """One impedance-aware electric row in a modal cross-section."""
 
     electric_axis: int
-    electric_index: tuple[int, int]
+    electric_index: tuple[int, ...]
     retained_dual_area: float
     relative_permittivity: complex
     magnetic_terms: tuple[BoundaryMagneticTerm, ...]
@@ -112,6 +112,50 @@ class FDFDSurfaceBoundary:
             tuple(magnetic_retained),
             tuple(rows),
         )
+
+
+def project_surface_boundary_1d(boundary, invariant_local, live_index):
+    """Project modal (u,v,w) rows onto the right-handed (t,a,w) 1D basis."""
+    if boundary is None:
+        return None
+    transverse = 1 - invariant_local
+    axes = (transverse, invariant_local, 2)
+    to_1d = {axis: index for index, axis in enumerate(axes)}
+    handedness = 1 if transverse == 0 else -1
+
+    def masks(values):
+        return tuple(
+            np.take(
+                values[axis],
+                min(live_index, values[axis].shape[invariant_local] - 1),
+                axis=invariant_local,
+            ).copy()
+            for axis in axes
+        )
+
+    rows = []
+    for row in boundary.rows:
+        if row.electric_index[invariant_local] != live_index:
+            continue
+        rows.append(
+            BoundaryAmpereRow(
+                to_1d[row.electric_axis],
+                (row.electric_index[transverse],),
+                row.retained_dual_area,
+                row.relative_permittivity,
+                tuple(
+                    BoundaryMagneticTerm(
+                        to_1d[term.axis], (term.index[transverse],), handedness * term.line_weight
+                    )
+                    for term in row.magnetic_terms
+                ),
+            )
+        )
+    return FDFDSurfaceBoundary.create(
+        electric_retained=masks(boundary.electric_retained),
+        magnetic_retained=masks(boundary.magnetic_retained),
+        rows=rows,
+    )
 
 
 def _validated_phase(frequency_hz: float, dt: float) -> tuple[float, float, float, float]:
@@ -159,6 +203,17 @@ def evaluate_surface_ade(
     order = G.size
     if F.shape != (order, order) or L.size != order:
         raise ValueError("surface-ADE F, G, and L dimensions are inconsistent")
+    # The exact PMC is the zero-order, zero-admittance limit. Handle it
+    # before impedance-scaled tolerances (which are undefined at infinity).
+    if order == 0 and np.isposinf(Z0):
+        return AlgorithmicSurfaceResponse(
+            theta=theta,
+            physical_angular_frequency=physical_angular_frequency,
+            discrete_angular_frequency=discrete_angular_frequency,
+            midpoint_cosine=midpoint_cosine,
+            impedance=complex(np.inf),
+            admittance=0j,
+        )
     if not (
         np.all(np.isfinite(F))
         and np.all(np.isfinite(G))
@@ -226,7 +281,9 @@ def boundary_edge_relative_permittivity(
         else normalization_angular_frequency
     )
     if not np.isfinite(normalization_angular_frequency) or normalization_angular_frequency <= 0:
-        raise ValueError("surface boundary normalization angular frequency must be finite and positive")
+        raise ValueError(
+            "surface boundary normalization angular frequency must be finite and positive"
+        )
     lengths = np.asarray(port_lengths, dtype=np.float64).reshape(-1)
     if port_admittances is None:
         admittances = np.full(lengths.shape, response.admittance, dtype=np.complex128)

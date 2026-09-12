@@ -38,8 +38,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 
-import gprMax
 import numpy as np
+
+import gprMax
 
 _SOLVE_SECONDS = []
 
@@ -81,10 +82,14 @@ def build_scene(
     """Build one otherwise identical baseline or impedance-box scene."""
 
     dl = 0.001
+    from gprMax.impedance_surfaces import MAX_SIBC_TIMESTEP_FACTOR
+
     extent = cells * dl
     scene = gprMax.Scene()
     scene.add(gprMax.Domain(p1=(extent, extent, extent)))
     scene.add(gprMax.Discretisation(p1=(dl, dl, dl)))
+    # Keep the ordinary-grid baseline at the SIBC cases' physical timestep.
+    scene.add(gprMax.TimeStepStabilityFactor(f=MAX_SIBC_TIMESTEP_FACTOR))
     scene.add(gprMax.TimeWindow(iterations=iterations))
     scene.add(gprMax.PMLThickness(thickness=5))
     scene.add(gprMax.OMPThreads(threads))
@@ -126,18 +131,23 @@ def add_exterior(scene, kind: str, extent: float) -> None:
         scene.add(gprMax.Material(er=3, se=0.02, mr=1, sm=0, id=material_id))
         common = dict(poles=2, material_ids=[material_id])
         if name == "debye":
-            scene.add(gprMax.AddDebyeDispersion(er_delta=[2., 1.], tau=[3e-11, 8e-11], **common))
+            scene.add(gprMax.AddDebyeDispersion(er_delta=[2.0, 1.0], tau=[3e-11, 8e-11], **common))
         elif name == "lorentz":
-            scene.add(gprMax.AddLorentzDispersion(
-                er_delta=[2., 1.], omega=[8e9, 12e9], delta=[2e9, 3e9], **common,
-            ))
+            scene.add(
+                gprMax.AddLorentzDispersion(
+                    er_delta=[2.0, 1.0],
+                    omega=[8e9, 12e9],
+                    delta=[2e9, 3e9],
+                    **common,
+                )
+            )
         elif name == "drude":
             scene.add(gprMax.AddDrudeDispersion(omega=[5e9, 9e9], alpha=[4e9, 6e9], **common))
         else:
             raise ValueError(f"unknown exterior material {kind!r}")
         # Three slabs cut through the wall so boundary edges include mixtures.
-        lower = (index*extent/len(kinds), 0, 0)
-        upper = ((index+1)*extent/len(kinds), extent, extent)
+        lower = (index * extent / len(kinds), 0, 0)
+        upper = ((index + 1) * extent / len(kinds), extent, extent)
         scene.add(gprMax.Box(p1=lower, p2=upper, material_id=material_id))
 
 
@@ -194,7 +204,10 @@ def _surface_metadata(grid, system) -> dict:
         "polarization_poles": len(getattr(system, "pole_coeffs", ())),
         "polarization_state_bytes": _array_bytes(system, "state_p"),
         "polarization_coefficient_bytes": _array_bytes(
-            system, "pole_offsets", "pole_coeffs", "edge_dispersion",
+            system,
+            "pole_offsets",
+            "pole_coeffs",
+            "edge_dispersion",
         ),
         "model_local_coefficient_bytes": _array_bytes(system, "model_f", "model_q", "model_Z0"),
         "precomputed_edge_port_bytes": _array_bytes(
@@ -402,7 +415,9 @@ def _parser():
     parser.add_argument("--fit-tolerance", type=float, default=2e-3)
     parser.add_argument("--explicit-orders", nargs="+", type=int, default=(4, 8, 16, 32))
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--exterior", choices=("none", "debye", "lorentz", "drude", "mixed"), default="none")
+    parser.add_argument(
+        "--exterior", choices=("none", "debye", "lorentz", "drude", "mixed"), default="none"
+    )
     return parser
 
 

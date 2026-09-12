@@ -31,6 +31,7 @@ from gprMax.fdfd_eigenmode_solver.numerical_dispersion import (
     positive_finite,
     spatially_resolved,
 )
+from gprMax.fdfd_eigenmode_solver.surface_impedance_operator import FDFDSurfaceBoundary
 
 
 class FDFD_1D_mode_solver:
@@ -102,6 +103,7 @@ class FDFD_1D_mode_solver:
         *,
         fdtd_dt=None,
         propagation_spacing=None,
+        surface_boundary=None,
     ):
         self.epsilon0 = config.sim_config.em_consts["e0"]
         self.mu0 = config.sim_config.em_consts["m0"]
@@ -110,7 +112,9 @@ class FDFD_1D_mode_solver:
         self.frequency = positive_finite(frequency, "frequency")
         self.fdtd_dt = None if fdtd_dt is None else positive_finite(fdtd_dt, "fdtd_dt")
         self.propagation_spacing = (
-            None if propagation_spacing is None else positive_finite(propagation_spacing, "propagation_spacing")
+            None
+            if propagation_spacing is None
+            else positive_finite(propagation_spacing, "propagation_spacing")
         )
         self.omega = 2 * np.pi * self.frequency
         self.k0 = self.omega / self.c
@@ -159,6 +163,8 @@ class FDFD_1D_mode_solver:
             setattr(self, name, mask)
             getattr(self, material_name)[mask] = 1.0 + 0j
 
+        self.surface_boundary = surface_boundary
+        self._prepare_surface_boundary()
         self.guess = guess if guess is not None else self._default_guess()
         self.eigenvalues = None
         self.eigenvectors = None
@@ -192,6 +198,76 @@ class FDFD_1D_mode_solver:
         data = np.tile((1.0 / self.normalized_dt, -1.0 / self.normalized_dt), self.N)
         self.D_NODE_TO_CELL = coo_matrix((data, (rows, cols)), shape=(self.N, self.N + 1)).tocsr()
         self.D_CELL_TO_NODE = -self.D_NODE_TO_CELL.conj().T
+        # Only Ampere rows are clipped. Faraday retains its full Yee curl;
+        # these two derivatives cease to be negative adjoints at a wall.
+        self.D_AMPERE = self.D_CELL_TO_NODE.copy()
+        if self.surface_boundary_rows:
+            editable = self.D_AMPERE.tolil()
+            sign = -1 if self.polarization == "TM" else 1
+            for row in self.surface_boundary_rows:
+                weights = {}
+                for term in row.magnetic_terms:
+                    column = term.index[0]
+                    value = sign * term.line_weight / (row.retained_dual_area * self.operator_k0)
+                    weights[column] = weights.get(column, 0.0) + value
+                entries = sorted((column, value) for column, value in weights.items() if value)
+                editable.rows[row.electric_index[0]] = [column for column, _ in entries]
+                editable.data[row.electric_index[0]] = [value for _, value in entries]
+            self.D_AMPERE = editable.tocsr()
+
+    def _prepare_surface_boundary(self):
+        self.surface_boundary_rows = ()
+        boundary = self.surface_boundary
+        if boundary is None:
+            return
+        if not isinstance(boundary, FDFDSurfaceBoundary):
+            raise TypeError("surface_boundary must be an FDFDSurfaceBoundary")
+        for kind, masks in (
+            ("pec", boundary.electric_retained),
+            ("pmc", boundary.magnetic_retained),
+        ):
+            if len(masks) != 3:
+                raise ValueError("1D surface boundary requires three component masks")
+            for name, values in zip("taw", masks):
+                mask = getattr(self, f"{kind}_{name}_mask")
+                retained = np.asarray(values, dtype=bool)
+                if retained.shape != mask.shape:
+                    raise ValueError(f"1D surface {kind}_{name} mask has an invalid shape")
+                mask |= ~retained
+        electric_axis, magnetic_axis = (1, 2) if self.polarization == "TM" else (2, 1)
+        field = "a" if self.polarization == "TM" else "w"
+        seen = set()
+        for row in boundary.rows:
+            if (
+                row.electric_axis != electric_axis
+                or len(row.electric_index) != 1
+                or not 0 <= row.electric_index[0] <= self.N
+            ):
+                raise ValueError("invalid active electric component in 1D surface row")
+            node = row.electric_index[0]
+            if node in seen or getattr(self, f"pec_{field}_mask")[node]:
+                raise ValueError("duplicate or constrained 1D surface electric row")
+            seen.add(node)
+            if (
+                not np.isfinite(row.retained_dual_area)
+                or row.retained_dual_area <= 0
+                or not np.isfinite(row.relative_permittivity)
+                or not row.magnetic_terms
+            ):
+                raise ValueError("invalid mass or circulation in 1D surface row")
+            for term in row.magnetic_terms:
+                if (
+                    term.axis != magnetic_axis
+                    or len(term.index) != 1
+                    or not 0 <= term.index[0] < self.N
+                    or not np.isfinite(term.line_weight)
+                    or getattr(self, f"pmc_{'w' if self.polarization == 'TM' else 'a'}_mask")[
+                        term.index[0]
+                    ]
+                ):
+                    raise ValueError("invalid or excluded magnetic sample in 1D surface row")
+            getattr(self, f"eps_r_{field}")[node] = row.relative_permittivity
+        self.surface_boundary_rows = tuple(boundary.rows)
 
     @staticmethod
     def _diag(values):
@@ -256,18 +332,19 @@ class FDFD_1D_mode_solver:
         if self.polarization == "TM":
             longitudinal_inverse = self._inverse_diag_on_free(self.mu_r_w, self.pmc_w_mask)
             operator = -self._diag(self.mu_r_t) @ (
-                self.D_CELL_TO_NODE @ longitudinal_inverse @ self.D_NODE_TO_CELL
+                self.D_AMPERE @ longitudinal_inverse @ self.D_NODE_TO_CELL
                 + self._diag(self.eps_r_a)
             )
             free_scalar = ~self.pec_a_mask
         else:
             longitudinal_inverse = self._inverse_diag_on_free(self.eps_r_w, self.pec_w_mask)
             operator = -self._diag(self.eps_r_t) @ (
-                self.D_NODE_TO_CELL @ longitudinal_inverse @ self.D_CELL_TO_NODE
-                + self._diag(self.mu_r_a)
+                self.D_NODE_TO_CELL @ longitudinal_inverse @ self.D_AMPERE + self._diag(self.mu_r_a)
             )
             free_scalar = ~self.pmc_a_mask
 
+        self.operator = operator
+        self.free_scalar_mask = free_scalar.copy()
         self.eigenvalues, self.eigenvectors = self._solve_reduced(operator, free_scalar)
         self.operator_neff = self._passive_positive_neff(-self.eigenvalues)
         self._calculate_fields(longitudinal_inverse)
@@ -306,9 +383,7 @@ class FDFD_1D_mode_solver:
                 self.Ha[:, mode] = self.eigenvectors[:, mode]
                 self.Et[:, mode] = self.eta0 * neff * self.Ha[:, mode] / self.eps_r_t
                 self.Ew[:, mode] = np.asarray(
-                    -1j
-                    * self.eta0
-                    * (longitudinal_inverse @ (self.D_CELL_TO_NODE @ self.Ha[:, mode]))
+                    -1j * self.eta0 * (longitudinal_inverse @ (self.D_AMPERE @ self.Ha[:, mode]))
                 ).ravel()
 
     def _zero_constrained_fields(self):

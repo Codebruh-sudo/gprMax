@@ -165,6 +165,63 @@ full runs. Apply the surface-impedance ID directly as the geometry material:
 See :ref:`input-hash-cmds` and :ref:`input-api` for the complete command and
 constructor signatures.
 
+.. _impedance-automatic-timestep:
+
+Automatic timestep margin
+-------------------------
+
+Declaring a :class:`gprMax.SurfaceImpedance` material automatically limits the
+time-step stability factor to **0.99**. This applies to resistive surfaces,
+metal presets, and conductivity fits, in both CPU precisions. It uses the
+existing :class:`gprMax.TimeStepStabilityFactor` command, equivalent to
+``#time_step_stability_factor``, before time windows, sources, and update
+coefficients are constructed:
+
+.. math::
+
+   \Delta t_{\mathrm{used}} = \min(f_{\mathrm{user}}, 0.99)
+       \Delta t_{\mathrm{CFL,rounded}}.
+
+With no explicit timestep command, :math:`f_{\mathrm{user}}=1`. An explicit
+factor above 0.99 is capped at 0.99. A smaller user factor is preserved:
+``TimeStepStabilityFactor(f=0.8)`` still gives 0.8, not 0.8 multiplied by 0.99.
+The original Scene and its command objects are not modified, and geometry
+reuse does not apply the reduction a second time. Models with no SIBC
+declaration retain the ordinary timestep behavior.
+
+When the automatic cap reduces the requested factor, the build log reports,
+for example:
+
+.. code-block:: text
+
+    Surface impedance (SIBC) declared: automatically applying #time_step_stability_factor: 0.99 (requested factor 1) to maintain a margin below CFL. Smaller user-specified factors are preserved.
+
+The normal ``Time step (modified)`` message then reports the effective
+timestep in seconds. To request a stricter factor, use the existing command:
+
+.. code-block:: python
+
+    scene.add(gprMax.TimeStepStabilityFactor(f=0.9))
+
+or, in an input file:
+
+.. code-block:: text
+
+    #time_step_stability_factor: 0.9
+
+The declaration triggers the cap even if later geometry does not use that
+material. This early decision ensures that all time-dependent objects use
+the same timestep. A time window specified in seconds keeps its requested
+duration and recalculates the number of iterations; a window specified as an
+iteration count keeps that count and has a shorter physical duration.
+Output metadata and surface ADE/modal coefficients use the effective
+timestep. Comparative PEC or ordinary-grid reference runs should explicitly
+use the same factor when comparing samples at identical physical times.
+
+The margin protects against the precision-sensitive CFL endpoint found in
+the clipped-circulation audit below. It does not replace the separate checks
+for dispersive bulk materials or establish unconditional stability.
+
 Geometry semantics
 ==================
 
@@ -199,7 +256,8 @@ Impedance geometry cannot yet be round-tripped through
 The volume must occupy at least one cell along every non-empty axis and there
 must be at least one retained cell between the complete impedance region and
 each non-symmetry domain boundary. The region may extend to a declared PEC or
-PMC symmetry plane. Its surface must not intersect a PML.
+PMC symmetry plane, or continue uniformly through a longitudinal PML to its
+outer boundary, subject to the requirements in :ref:`sibc-pml`.
 
 Rasterized topology
 -------------------
@@ -342,29 +400,158 @@ PML, and solver restrictions below still apply.
 Supported solver configurations
 -------------------------------
 
-The current implementation supports three-dimensional main-grid CPU models.
+The implementation supports three-dimensional and two-dimensional main-grid
+CPU models. All TE and TM invariant-axis orientations are supported.
 The following combinations are deliberately rejected:
 
 * CUDA, OpenCL, and Metal field solvers;
 * MPI domain decomposition and subgrids;
 * thin wires in the same grid;
-* an impedance boundary which intersects a PML;
-* an electric source, rational-network terminal, or transmission-line edge
+* an impedance boundary which changes along a PML absorption direction;
+* a lumped electric source, rational-network terminal, or transmission-line edge
   which overlaps a boundary electric edge;
-* a directional PEC/PMC material mixture immediately outside the boundary;
-* a ``VirtualWaveguide`` termination.
+* a directional PEC/PMC material mixture immediately outside the boundary.
 
 An axial discrete plane wave is unsupported because it samples the completed
 geometry to construct its layered auxiliary line. A homogeneous vector/angle
 discrete plane wave is supported only when the complete impedance boundary is
 strictly inside its total-field/scattered-field box.
 
-A direct three-dimensional :class:`gprMax.EigenmodePort` may cross an
+A direct :class:`gprMax.EigenmodePort` in 3D or 2D may cross an
 impedance guide. The guide boundary must be invariant along the propagation
 direction through both cells adjacent to the modal plane, and the modal
 window must contain the complete retained aperture and every required
 boundary H degree of freedom. A guide end cap normal to the propagation axis
 therefore cannot cross the solve plane.
+
+.. _sibc-pml:
+
+Impedance walls in PML and virtual waveguides
+-------------------------------------------
+
+Passive constant and dispersive Foster surface impedances may extend through
+CPU PML slabs. This includes fitted metal presets and the exact PMC limit.
+The wall and its retained host must be uniformly extruded along every
+intersecting PML's absorption direction, including the neighbouring stencil
+cells. Every exposed wall face must be tangent to that direction. End caps,
+steps, or changes of surface model within the absorber are rejected.
+The retained material at each intersecting edge must be homogeneous,
+isotropic, lossless, and nondispersive. Surface dispersion is supported;
+these restrictions apply to the surrounding bulk medium.
+
+Both HORIPML and MRIPML support one or two CFS terms. For an internal
+``PMLSlab``, extend its transverse bounds into the opaque volume so the wall
+E and H samples are covered. In particular, placing an upper transverse
+bound exactly on a wall omits samples from the existing half-open PML loops
+and is rejected. Boundary PMLs may terminate an impedance volume at the
+domain end without a retained-cell gap there.
+
+A CPU ``VirtualWaveguide`` can use the same constant or dispersive SIBC.
+The modal window must enclose each wall strictly inside its transverse
+perimeter, with opaque-voxel padding beyond the wall. The guide must be
+invariant at the aperture; the auxiliary guide extrudes this cross-section
+and its surface models through its PML. It owns independent surface-current
+histories and joins the full clipped Yee circulation across the aperture.
+The existing source clearance, fit-band, and modal-window requirements still
+apply. MPI, accelerator, and subgrid restrictions remain in force.
+
+In 2D, the invariant dimension is storage for one physical field layer:
+index zero for TM and index one for TE. Extrude the wall through that entire
+dimension using ``float('inf')`` in the domain and geometry coordinates.
+Only the physical transverse axis needs opaque padding in the modal window.
+The auxiliary guide preserves the active components and their staggering;
+both propagation directions are supported. The 1D modal solve uses the same
+clipped Ampere rows and discrete ADE response as the time-domain boundary.
+Modal power is normalized per metre, independently of invariant-axis spacing.
+
+Modal excitation contributes its missing longitudinal circulation directly
+to the implicit SIBC solve, including the corresponding ADE correction.
+This applies equally to ordinary and virtual-guide excitation and is required
+even for exact PMC, whose tangential electric field need not vanish.
+
+For executable TE/TM examples and physical/virtual comparisons, run::
+
+    python examples/features/impedance_surface/virtual_waveguide_2d.py --mode TM --wall pmc
+    python examples/features/impedance_surface/virtual_waveguide_2d.py --mode TE --wall foster
+    python -m testing.validation.impedance_surface.validate_2d --section matrix
+    python -m testing.validation.impedance_surface.validate_2d --section late
+
+The results include all axis/direction combinations, single and double
+precision, constant and fitted impedance, and 20,000-step PML runs.
+
+The coupling adds the PML correction to the magnetic circulation. For
+retained dual area :math:`A_e`, let :math:`Q_e` be the signed correction
+to the ordinary curl from the native PML histories. The surface equation is
+
+.. math::
+
+   d_e E_e^{n+1}
+   = a_e E_e^n + r_{H,e}^{n+1/2}
+     - \sum_p (g_p/Z_{0p})h_p^n + A_e Q_e^{n+1/2},
+
+where :math:`d_e` is the local implicit denominator, :math:`a_e` its
+old-field numerator, and :math:`h_p` the sum of the Foster histories at port
+:math:`p`. Uniform extrusion makes the longitudinal clipped-H fraction
+cancel against the retained area, so the native stretched derivative is
+applicable. For the continuous stretched-coordinate interpretation and its
+limitations, see Steven G. Johnson's `Notes on Perfectly Matched Layers
+<https://arxiv.org/abs/2108.05348>`_. The discrete coupling above follows
+from the implemented clipped circulation. It preserves the physical
+:math:`E^n` while collecting the PML forcing. After the ordinary local solve,
+it applies
+
+.. math::
+
+   \Delta E_e = A_e Q_e/d_e,\qquad
+   \Delta y_{pm}=q_{pm}\Delta E_e/(2Z_{0p}).
+
+This is algebraically the same coupled solve, including the midpoint-time
+surface-current history. Adding the PML increment to :math:`E^n` before
+solving would give the wrong damping and history for finite impedance.
+The automatic time-step factor of at most 0.99 also applies to these models.
+
+Reproducible comparisons with longer physical guides, pulse absorption,
+and virtual/continuous guide comparisons are in
+``testing/validation/impedance_surface/validate_sibc_pml.py`` and
+``testing/validation/impedance_surface/virtual_waveguide.py``. Exact PMC
+image comparisons are in
+``testing/validation/sibc_based_pmc/pml_mirror.py``. These test the supported
+extruded configurations; they do not establish stability for arbitrary
+PML profiles or unsupported bulk media.
+The profile audit retained in
+``testing/validation/impedance_surface/results/sibc_pml/profile_audit.json``
+found late growth with two duplicated unshifted HORIPML terms in both an
+ordinary PEC guide and an SIBC guide. Reducing the time step to 0.99 alone
+does not guarantee stability for arbitrary custom PML parameters.
+The follow-up investigation identified the negative real part of the
+unshifted product stretch as the cause. A second frequency-shift profile
+tracking ``1.1 * sigma1`` removed this failure in the PEC and
+finite/dispersive SIBC tests; see :ref:`pml-higher-order-stability` and
+``testing/validation/impedance_surface/results/pml_profile_investigation/README.md``.
+
+Exact voxel-face PMC
+--------------------
+
+Use ``SurfaceImpedance(id='wall', resistance=float('inf'))`` or
+``#surface_impedance: wall resistance inf`` to impose the exact
+:math:`Z_s\to+\infty` limit. Its surface admittance and surface current are
+zero. The retained dual area and clipped H circulation remain active:
+
+.. math::
+
+   E_e^{n+1}=E_e^n+\frac{\Delta t}{\epsilon A_e}
+     \left(r_{H,e}^{n+1/2}+A_e Q_e^{n+1/2}\right)
+
+for a lossless nondispersive retained host. This locates the PMC at the
+main-voxel face; it does not zero the nearest retained half-cell H samples.
+The built-in volume material ``pmc`` retains its existing discretisation.
+Using it, or a material with infinite magnetic conductivity, emits a warning:
+its H constraints can shift a flat wall's effective reflection plane by half
+a cell. Use infinite SIBC resistance for PMC at the voxel face. The warning
+is emitted once per affected grid; unused declarations, internal TE storage
+constraints, and ``SymmetryBoundary(type='pmc', ...)`` do not trigger it.
+The derivation, reflection-plane tests, cavity modes, and long-run results
+are in ``testing/validation/sibc_based_pmc/README.md``.
 
 Conventions and continuous boundary model
 =========================================
@@ -698,6 +885,52 @@ convergence and long-time decay tests.
 Sparse locally implicit FDTD algorithm
 ======================================
 
+Clipped-circulation stability
+----------------------------
+
+For a homogeneous nondispersive exterior, retained voxel quadrants give
+matched electric and magnetic energy weights: each retained voxel contributes
+one quarter of its volume to an incident E edge and one half to an incident H
+face. With these weights, the compiled clipped Ampere circulation is the
+weighted transpose of the retained Faraday curl. The resulting geometric
+stability bound is the ordinary Cartesian CFL bound; quarter-cell electric
+areas alone do not imply an additional timestep reduction.
+
+A strict margin below that bound matters. A retained one-voxel cavity can
+attain the bound exactly. Before the automatic SIBC margin was introduced,
+a source-free CPU audit of a passive 1 MOhm cavity at the rounded Cartesian
+CFL timestep showed approximately 198-fold field-norm
+amplification in double precision and severe late-time growth in single
+precision over 200,000 steps. A timestep factor of 0.99 kept both runs bounded.
+The tested copper-preset cavity also remained bounded at that timestep.
+The :ref:`impedance-automatic-timestep` now applies the 0.99 margin without
+requiring an explicit user command.
+
+A historical audit using the ordinary rounded timestep and complete CPU solver
+confirmed that, on the 1 mm test mesh, ``dt`` is rounded down by two binary64
+ULPs and is below the mathematical CFL limit. Nevertheless, the stored
+float32 coefficients of the 1 MOhm cavity give an effective Courant factor
+of approximately 1.000000018 and predict the observed growth. A factor of
+0.9999999 removed exponential growth in that case but still allowed large
+transient amplification. See
+``testing/validation/impedance_surface/default_cfl_report.md`` for the
+coefficient derivation and checks of the actual timestep rounding.
+
+This is a demonstrated margin for the tested cases, not an unconditional
+stability guarantee for dispersive bulk media, PML, or every contact/source
+configuration. Surface passivity and amplification eigenvalues should be
+checked together with the geometric energy balance and actual long-time
+field growth.
+
+Reproduce the audit with
+``python -m testing.validation.impedance_surface.stability --steps 20000``.
+Use ``--historical`` to disable the automatic cap within this validation
+driver and reproduce the pre-protection results; this diagnostic switch is
+not a simulation input option. Protected results use separate filenames so
+the historical records remain available.
+The derivation, scope, recorded results, and precision-sensitive reproducer
+are in ``testing/validation/impedance_surface/stability_report.md``.
+
 Integral Ampere row
 -------------------
 
@@ -989,7 +1222,7 @@ Eigenmode solution and FDTD injection
 
 A direct modal solve reuses the component IDs, retained masks, clipped H
 weights, dual fractions, port models, FDTD ``dt``, and normal cell spacing
-from the already compiled three-dimensional grid. There is no separately
+from the already compiled grid. There is no separately
 redrawn FDFD wall.
 This shared geometry is as important as sharing the exact discrete ADE law
 (``f``, ``q``, and ``Z0`` in its local Foster form): a half-cell area or sign
@@ -1431,8 +1664,9 @@ Troubleshooting
 
 ``must have at least one retained cell`` or PML intersection
     Move or shorten the impedance volume. The excluded region can touch only
-    declared PEC or PMC symmetry faces of the domain, and its surface cannot
-    be inside PML cells.
+    declared PEC or PMC symmetry faces of the domain, or continue uniformly
+    through a longitudinal PML. Check the extrusion, host-material, and slab
+    coverage requirements in :ref:`sibc-pml` for a PML intersection.
 
 ``eigenmodes require a propagation-invariant boundary``
     Move the modal plane into a uniform section, extend the guide through both

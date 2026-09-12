@@ -53,10 +53,12 @@ frequency-domain modes, and launches the selected mode through a
 total-field/scattered-field plane. The source also acts as a modal port, and
 additional eigenmode receivers enable multimode S-parameters. The formulation
 supports 2D TM, 2D TE, and full 3D models, with fixed-profile or broadband
-modal excitation. In 3D, an experimental virtual waveguide can replace the
+modal excitation. An experimental virtual waveguide can replace the
 main-grid continuation behind an internal modal plane. Its bidirectionally
 coupled auxiliary Yee grid absorbs reflected guided modes and places the
-impressed source outside a closed antenna NTFF surface. See :ref:`eigenmode`
+impressed source outside a closed antenna NTFF surface. CPU virtual guides
+also support 2D TE/TM and passive surface-impedance walls, including exact
+voxel-face PMC through infinite surface resistance. See :ref:`eigenmode`
 for the recommended workflow, limitations, antenna coupling, and mathematical
 formulation.
 

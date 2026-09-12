@@ -148,6 +148,10 @@ Time Step Stability Factor
 --------------------------
 .. autoclass:: gprMax.user_objects.cmds_singleuse.TimeStepStabilityFactor
 
+Declaring ``SurfaceImpedance`` automatically caps the effective factor at
+0.99, preserves any smaller user factor, and reports an automatic reduction
+in the build log. See :ref:`impedance-automatic-timestep`.
+
 Dispersive materials also undergo the :ref:`dispersive_timestep_check` before
 time stepping. If it fails, the run stops without changing the chosen timestep
 or material parameters. Use ``TimeStepStabilityFactor(f=...)`` to explicitly
@@ -949,21 +953,30 @@ the modeled portion. Reflected geometry must satisfy the topology rules.
 supported for impedance geometry; recreate the ``SurfaceImpedance`` and
 native geometry in the destination scene.
 
-This first version is restricted to three-dimensional CPU models without MPI
-domain decomposition or subgrids. An impedance volume cannot coexist with a
-thin wire, and its boundary cannot intersect a PML. Domain faces without a
-declared symmetry plane require at least one retained cell of clearance.
+SIBC supports three-dimensional and all two-dimensional TE/TM CPU models,
+without MPI domain decomposition or subgrids. An impedance volume cannot coexist with a
+thin wire. Domain faces without a declared symmetry plane require at least
+one retained cell of clearance, except for uniform continuation through a
+longitudinal PML or the extruded invariant dimension of a 2D model.
 An axial discrete plane wave is unsupported; a homogeneous vector/angle plane
 wave may be used only when the complete impedance boundary lies strictly
-inside its TFSF box. The retained dielectric immediately outside the boundary
-must be non-dispersive.
+inside its TFSF box. Supported dispersive retained dielectrics and symmetry
+contacts are described in :doc:`impedance_surfaces`.
 
-Direct three-dimensional ``EigenmodePort`` planes may cross a
+Direct 3D and 2D ``EigenmodePort`` planes may cross a
 propagation-invariant impedance volume. The FDFD solve uses the same
 time-discrete ADE transfer as FDTD, retains the independent boundary E/H
 degrees of freedom, and inserts the clipped integral Ampere rows. The modal
 window must contain the complete guide aperture and its impedance boundary.
-``VirtualWaveguide`` termination is not yet supported for impedance volumes.
+``VirtualWaveguide`` supports passive constant and dispersive SIBC walls
+uniformly extruded through the aperture and auxiliary PML. Walls must lie
+strictly inside the modal window, with opaque-voxel padding along each
+physical transverse axis. Direct PML
+intersections likewise require invariance along every absorption direction
+and a homogeneous, isotropic, lossless, nondispersive retained host at each
+intersecting edge. See :ref:`sibc-pml` for geometry and slab coverage.
+``SurfaceImpedance(id='wall', resistance=float('inf'))`` selects the exact
+voxel-face PMC limit and supports the same PML/virtual-guide configurations.
 Every eigenmode anchor and its trapezoidal bilinear-warped evaluation
 frequency must lie inside each intersected dispersive surface model's declared
 fit band; gprMax rejects extrapolation. The surface ADE reduction is exact for
@@ -2762,6 +2775,51 @@ The CFS values (which are internally specified) used for the default standard fi
     * The parameters will be applied to all slabs of the PML that are switched on.
     * Using ``None`` for the maximum value of :math:`\sigma` forces gprMax to calculate it internally based on the relative permittivity and permeability of the underlying materials in the model.
     * ``forward`` direction implies a minimum parameter value at the inner boundary of the PML and maximum parameter value at the edge of the computational domain, ``reverse`` is the opposite.
+
+.. _pml-higher-order-stability:
+
+Selecting a stable second-order HORIPML profile
+----------------------------------------------
+
+HORIPML multiplies its two stretching factors. Duplicating the unshifted
+first-order defaults is therefore not a safe way to create a second-order
+absorber. For :math:`\kappa_1=\kappa_2=1`,
+:math:`\alpha_1=\alpha_2=0`, and identical :math:`\sigma`, the product has
+
+.. math::
+
+    \operatorname{Re}S(\omega)=1-\frac{\sigma^2}{(\omega\epsilon_0)^2}.
+
+This is negative at low frequencies and can amplify evanescent fields.
+The resulting growing mode persists as the time step is reduced; a CFL
+safety factor does not repair this profile.
+
+During PML coefficient construction, gprMax rejects second-order HORIPML
+profiles with negative real total stretch at any resolved E or H sample,
+beyond floating-point tolerance. It checks the analytical quadratic in
+``(omega * epsilon0)**2`` over all positive frequencies, including terminal
+samples and the full profile before MPI partitioning. The error identifies
+the slab/profile and sample, reports its parameters, and suggests a repair.
+Boundary, internal, and virtual-guide absorbers share this check. Explicit
+``sigmamax=0`` remains zero; only ``None`` requests automatic conductivity.
+Passing this check excludes the demonstrated failure mechanism, rather than
+certifying stability for every geometry and material.
+
+For a classical/CFS pairing with :math:`\alpha_1=0`, a pointwise condition
+which removes this mechanism is :math:`\alpha_2\geq\sigma_1/\kappa_1`
+with :math:`\kappa_1\kappa_2\geq1`. Alpha and sigma use the same units in
+these input commands. Match the grading at every electric and magnetic
+sample, including polynomial order and direction. For the duplicated
+unit-kappa quartic profile, setting the second alpha profile to
+``1.1 * sigma1`` with matching quartic grading kept the tested PEC and
+finite/dispersive SIBC guides bounded for 20,000 steps.
+
+This condition addresses the negative-real-stretch mechanism, not every
+possible material, mesh, or PML stability issue. The reproducible diagnosis,
+input recipe, time-step controls, and reflection results are in
+``testing/validation/impedance_surface/results/pml_profile_investigation/README.md``.
+MRIPML adds its pole terms and has different parameter normalization; do
+not apply the HORIPML product argument to that formulation.
 
 Reusable profiles and internal PML slabs
 ----------------------------------------

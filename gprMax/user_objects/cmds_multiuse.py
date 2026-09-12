@@ -281,7 +281,8 @@ class ExcitationFile(GridUserObject):
             # unless the user explicitly requests a different fill policy.
             # Half-step current sources can sample beyond the final E sample.
             w.userfunc = interpolate.interp1d(
-                waveformtime, singlewaveformvalues,
+                waveformtime,
+                singlewaveformvalues,
                 kind="linear" if self.kind is None else self.kind,
                 bounds_error=False,
                 fill_value=0.0 if self.fill_value is None else self.fill_value,
@@ -360,8 +361,7 @@ class Waveform(GridUserObject):
                 raise ValueError(f"{self.params_str()} amplitude scaling must be finite.")
             if not np.isfinite(freq) or freq <= 0:
                 message = (
-                    self.params_str()
-                    + " requires a finite excitation frequency greater than zero."
+                    self.params_str() + " requires a finite excitation frequency greater than zero."
                 )
                 logger.error(message)
                 raise ValueError(message)
@@ -481,10 +481,13 @@ class Waveform(GridUserObject):
                     )
 
                 w.userfunc = interpolate.interp1d(
-                    waveformtime, uservalues,
+                    waveformtime,
+                    uservalues,
                     kind="linear" if self.kwargs.get("kind") is None else self.kwargs["kind"],
                     bounds_error=False,
-                    fill_value=0.0 if self.kwargs.get("fill_value") is None else self.kwargs["fill_value"],
+                    fill_value=0.0
+                    if self.kwargs.get("fill_value") is None
+                    else self.kwargs["fill_value"],
                 )
 
                 logger.info(
@@ -580,7 +583,11 @@ class SurfaceImpedance(GridUserObject):
     independently certified to reach ``fit_tolerance``. An integer asks for
     exactly that many Foster poles. The constant-resistance form is an
     idealized broadband boundary rather than a complete physical material
-    model and emits a warning when built.
+    model and emits a warning when built. ``resistance=float('inf')`` selects
+    the exact voxel-face PMC limit with zero tangential surface admittance.
+    Passive impedance walls can continue uniformly along a PML absorption
+    direction, including the auxiliary PML of a virtual waveguide; the
+    retained host there must be isotropic, lossless, and nondispersive.
     """
 
     @property
@@ -650,8 +657,10 @@ class SurfaceImpedance(GridUserObject):
                     "SurfaceImpedance resistance is frequency independent and has no fit to plot"
                 )
             direct = float(resistance)
-            if not np.isfinite(direct) or direct <= 0:
-                raise ValueError("SurfaceImpedance resistance must be finite and positive")
+            if np.isnan(direct) or direct <= 0:
+                raise ValueError(
+                    "SurfaceImpedance resistance must be positive (positive infinity selects PMC)"
+                )
             A = B = C = ()
             fit_fmin_hz = 0.0
             fit_fmax_hz = np.inf
@@ -762,7 +771,7 @@ class SurfaceImpedance(GridUserObject):
 
         geometry_only = bool(config.sim_config is not None and config.sim_config.geometry_only)
         coordinator = not hasattr(grid, "is_coordinator") or grid.is_coordinator()
-        if self.resistance is not None and coordinator:
+        if self.resistance is not None and not model.is_pmc and coordinator:
             logger.warning(
                 self.grid_name(grid)
                 + f"Surface impedance {self.ID!r} is frequency independent and purely real. "
@@ -795,7 +804,11 @@ class SurfaceImpedance(GridUserObject):
                 + f"Surface impedance {self.ID!r} fit plot written to {output_path}."
             )
         grid.surface_impedance_models[self.ID] = model
-        description = f"D={model.D:g} Ohm, order {model.order}"
+        description = (
+            "exact PMC (zero surface admittance)"
+            if model.is_pmc
+            else f"D={model.D:g} Ohm, order {model.order}"
+        )
         if self.fit_order is not None:
             target = (
                 f"{model.preset} preset"
@@ -3897,7 +3910,9 @@ class Material(GridUserObject):
             raise ValueError
         # Positive infinity is the documented representation of a PMC.
         if np.isnan(sm) or sm < 0:
-            logger.exception(f"{self.params_str()} requires a non-negative value for magnetic loss.")
+            logger.exception(
+                f"{self.params_str()} requires a non-negative value for magnetic loss."
+            )
             raise ValueError
 
         if (

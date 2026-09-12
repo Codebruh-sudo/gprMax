@@ -86,9 +86,7 @@ class Discretisation(ModelUserObject):
         self.discretisation = p1
 
     def build(self, model: Model):
-        if not np.all(np.isfinite(self.discretisation)) or any(
-            d <= 0 for d in self.discretisation
-        ):
+        if not np.all(np.isfinite(self.discretisation)) or any(d <= 0 for d in self.discretisation):
             raise ValueError(
                 f"{self} discretisation requires a finite spatial step greater than zero "
                 "in all dimensions"
@@ -400,7 +398,11 @@ class Domain(ModelUserObject):
         # `#domain_mode` was never declared
         # at all, not for a model that explicitly chose "3D" and happens to
         # have a 1-cell axis by coincidence.
-        if requested_mode is None and inf_axis is None and config.get_model_config().mode.startswith("2D"):
+        if (
+            requested_mode is None
+            and inf_axis is None
+            and config.get_model_config().mode.startswith("2D")
+        ):
             logger.info(
                 f"{self} detected a 2D model from a 1-cell-thick axis (legacy, implicit "
                 "style) - consider declaring '#domain_mode: TM' explicitly with 'inf' on "
@@ -423,6 +425,9 @@ class Domain(ModelUserObject):
 class TimeStepStabilityFactor(ModelUserObject):
     """Factor by which to reduce the time step from the CFL limit.
 
+    A Scene declaring SurfaceImpedance caps the effective factor at 0.99
+    before time-dependent objects are built, preserving smaller user values.
+
     Attributes:
         stability_factor (float): Factor to multiply time step by.
     """
@@ -444,7 +449,8 @@ class TimeStepStabilityFactor(ModelUserObject):
         super().__init__(f=f)
         self.stability_factor = f
 
-    def build(self, model: Model):
+    def validate(self):
+        """Validate the requested factor before applying any automatic cap."""
         if (
             not np.isfinite(self.stability_factor)
             or self.stability_factor <= 0
@@ -454,6 +460,8 @@ class TimeStepStabilityFactor(ModelUserObject):
                 f"{self} requires a finite time step stability factor between zero and one"
             )
 
+    def build(self, model: Model):
+        self.validate()
         model.dt_mod = self.stability_factor
         model.dt *= model.dt_mod
 

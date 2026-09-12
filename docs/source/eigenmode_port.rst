@@ -361,6 +361,16 @@ Add one ``VirtualWaveguide`` referring to that port number. Keep the
 should only absorb. You do not draw the auxiliary guide or add its PML to
 the physical geometry yourself.
 
+On the 3D and 2D TE/TM CPU solvers, the guide may have passive surface-impedance walls,
+including fitted dispersive metal models or the exact
+``SurfaceImpedance(..., resistance=float('inf'))`` PMC limit. The walls must
+be invariant along the propagation direction and lie strictly inside the
+modal window, with opaque-voxel padding beyond each wall. Their retained
+host must be isotropic, lossless, and nondispersive. The auxiliary guide
+copies the clipped boundary rows and gives every surface-current history
+its own state. Its PML stretches the longitudinal circulation using the
+same implicit SIBC update; see :ref:`sibc-pml` for the equations and scope.
+
 For example, this is the feed configuration from `Example 3: a pyramidal
 horn antenna`_. It assumes that ``scene`` already contains the 3D domain,
 mesh, materials, and horn geometry from that example; this snippet alone is
@@ -453,9 +463,11 @@ port provides a passive matched termination.
 Placement and accuracy checks
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-This feature is experimental. It currently requires a 3D internal port, a
-locally uniform, non-dispersive cross-section, and at least two cells across
-each transverse direction. Models using impedance volumes are not supported.
+This feature is experimental. It requires an internal port, a locally
+uniform, non-dispersive cross-section, and at least two cells across each
+physical transverse direction. Reduced 2D TE/TM guides use the CPU solver.
+SIBC walls, including surface dispersion and exact PMC, are supported with
+the retained-host and extrusion restrictions described in :ref:`sibc-pml`.
 Main-grid CPU, CUDA, OpenCL, Metal, and domain-decomposed MPI CPU paths are
 supported; HSG subgrid virtual ports use the CPU fine-grid update cycle.
 
@@ -2333,6 +2345,24 @@ signed real-only time shift and does not itself require I/Q. Eigenmode
 solvers, source staggering, and monitor propagation use the active simulation's
 ``em_consts["c"]`` for the speed of light.
 
+Reduced-mode surface impedance
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The 1D solver accepts an optional ``surface_boundary`` in its local
+``(t, a, w)`` basis. gprMax projects this from the compiled SIBC geometry,
+retaining only the live invariant layer. The TM electric scalar and TE
+longitudinal electric rows use the clipped Ampere derivative and the exact
+discrete surface-ADE admittance. Faraday retains its ordinary Yee derivative;
+the two derivatives need not be negative adjoints at a clipped wall.
+``resistance=float('inf')`` gives exactly zero surface admittance.
+
+CPU ``VirtualWaveguide`` supports all 2D TE/TM orientations. Its modal window
+spans the full invariant storage dimension; SIBC walls need opaque padding
+only in the physical transverse direction. The guide and its retained host
+must remain uniform along propagation through the aperture and PML. Both
+ordinary and virtual sources apply the surface-row modal forcing and ADE
+correction. See :ref:`sibc-pml` for examples and validation.
+
 Virtual-guide aperture coupling
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -2364,8 +2394,9 @@ grids. In schematic form,
 The signs reverse consistently for the opposite port direction. The updated
 tangential E samples are shared with the main-grid aperture, while the
 duplicate main-grid continuation behind the aperture is disconnected. The
-six axis/direction variants are implemented as compiled Cython kernels; no
-per-cell Python work occurs during time stepping.
+3D axis/direction variants use compiled Cython kernels. Reduced 2D coupling
+uses vectorized operations on the live field layer, preserving its native
+staggering without introducing invariant-axis side walls.
 
 Modal Receivers, Direct DFT, and S-parameters
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

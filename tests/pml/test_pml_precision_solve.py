@@ -46,8 +46,8 @@ def _scene(formulation, order):
             gprMax.PMLCFS(
                 alphascalingprofile="constant",
                 alphascalingdirection="forward",
-                alphamin=0.001 * (pole + 1),
-                alphamax=0.001 * (pole + 1),
+                alphamin=0.2 if pole else 0.001,
+                alphamax=0.2 if pole else 0.001,
                 kappascalingprofile="linear",
                 kappascalingdirection="forward",
                 kappamin=1,

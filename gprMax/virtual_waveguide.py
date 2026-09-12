@@ -32,6 +32,7 @@ from gprMax.cython.virtual_waveguide import (
 )
 from gprMax.grid.fdtd_grid import FDTDGrid
 from gprMax.materials import process_materials
+from gprMax.mode2d import mode2d_geometry
 from gprMax.subgrids.grid import SubGridBaseGrid
 from gprMax.updates.cpu_updates import CPUUpdates
 
@@ -49,6 +50,7 @@ class VirtualWaveguide:
         self.direction_sign = 1 if port.direction == "+" else -1
         self.transverse_axes = tuple(int(value) for value in port.transverse_axes)
         self.mpi = hasattr(main_grid, "global_size")
+        self.reduced = mode2d_geometry(config.get_model_config().mode)
         if self.mpi:
             self.plane_index = int(port.global_plane_index)
             self.u0, self.v0 = (int(value) for value in port.global_transverse_start)
@@ -66,9 +68,13 @@ class VirtualWaveguide:
         self._mpi_solid_ids = None
         self._mpi_h_local = None
         self._mpi_h_global = None
+        self._impedance_edges = ()
 
         self._validate()
         self.aux_grid = self._build_auxiliary_grid()
+        if self._impedance_edges:
+            self._prepare_impedance_edge_indices()
+            self._freeze_impedance_main_rows()
         self.aux_source = self._build_auxiliary_source()
         self.aux_sources = [] if self.aux_source is None else [self.aux_source]
         if self.aux_source is not None:
@@ -86,11 +92,13 @@ class VirtualWaveguide:
             self.port.port_monitor.magnetic_side = 1
 
     def _validate(self):
-        mode = config.get_model_config().mode
-        if mode != "3D":
-            raise ValueError("Virtual waveguides currently require a 3D model.")
-        if self.port.invariant_axis is not None:
-            raise ValueError("Virtual waveguides do not support a 2D eigenmode port.")
+        if self.reduced:
+            if self.mpi or config.sim_config.general["solver"] != "cpu":
+                raise ValueError(
+                    "2D virtual waveguides currently require the non-distributed CPU solver."
+                )
+            if self.port.invariant_axis != self.reduced.invariant_axis:
+                raise ValueError("Virtual-waveguide port must use the model's invariant axis.")
         if self.spec.pml_cells < 2:
             raise ValueError("A virtual-waveguide PML must contain at least two cells.")
         if self.spec.source_clearance_cells < 1:
@@ -107,7 +115,12 @@ class VirtualWaveguide:
         normal_cells = int(domain_size[self.normal_axis])
         if not 1 <= self.plane_index < normal_cells:
             raise ValueError("A virtual-waveguide aperture must be an internal Yee plane.")
-        if self.nu < 2 or self.nv < 2:
+        transverse_sizes = dict(zip(self.transverse_axes, (self.nu, self.nv)))
+        if any(
+            size < 2
+            for axis, size in transverse_sizes.items()
+            if not self.reduced or axis != self.reduced.invariant_axis
+        ):
             raise ValueError(
                 "A virtual-waveguide cross-section must be at least two cells "
                 "along each transverse axis."
@@ -150,6 +163,236 @@ class VirtualWaveguide:
                 "Virtual-waveguide aperture coupling does not yet support "
                 "dispersive guide materials; found " + ", ".join(dispersive) + "."
             )
+        self._validate_impedance_cross_section()
+
+    def _validate_impedance_cross_section(self):
+        """Limit sparse guide coupling to propagation-invariant surface impedance."""
+
+        grid = self.main_grid
+        system = getattr(grid, "impedance_surfaces", None)
+        if system is None:
+            return
+        if self.mpi or config.sim_config.general["solver"] != "cpu":
+            raise ValueError(
+                "Surface-impedance virtual waveguides currently require the CPU solver."
+            )
+        selected = []
+        for index, edge in enumerate(system.edge_info):
+            coordinate = edge[1:4]
+            if coordinate[self.normal_axis] != self.plane_index:
+                continue
+            u, v = coordinate[list(self.transverse_axes)]
+            if not (self.u0 <= u <= self.u1 and self.v0 <= v <= self.v1):
+                continue
+            if any(
+                not low < coordinate[axis] < high
+                for axis, low, high in zip(
+                    self.transverse_axes, (self.u0, self.v0), (self.u1, self.v1)
+                )
+                if not self.reduced or axis != self.reduced.invariant_axis
+            ):
+                raise ValueError(
+                    "Impedance surfaces must lie strictly inside the virtual-waveguide "
+                    "modal window, with an opaque voxel beyond each wall."
+                )
+            ports = slice(int(edge[6]), int(edge[6] + edge[7]))
+            if np.any(system.port_normal[ports, 0] == self.normal_axis):
+                raise ValueError(
+                    "Surface-impedance virtual-waveguide walls must be propagation-invariant."
+                )
+            if (
+                system.pole_coeffs.size
+                and system.pole_offsets[index + 1] != system.pole_offsets[index]
+            ):
+                raise ValueError(
+                    "Surface-impedance virtual waveguides require nondispersive boundary hosts."
+                )
+            if not np.isclose(
+                system.edge_params[index, 0], system.edge_params[index, 1], rtol=0, atol=0
+            ):
+                raise ValueError(
+                    "Surface-impedance virtual waveguides require lossless boundary hosts."
+                )
+            selected.append(index)
+
+        if not selected:
+            return
+        for material_id in np.unique(self._solid_cross_section()):
+            material = grid.materials[int(material_id)]
+            if material.numID in grid.impedance_marker_models or material.is_pec:
+                continue
+            if (
+                getattr(material, "poles", 0)
+                or material.se != 0
+                or material.sm != 0
+                or not np.isfinite(material.er)
+                or not np.isfinite(material.mr)
+                or material.er <= 0
+                or material.mr <= 0
+            ):
+                raise ValueError(
+                    "Surface-impedance virtual waveguides require lossless nondispersive retained materials."
+                )
+        self._impedance_edges = tuple(selected)
+
+    def _build_impedance_auxiliary_system(self, aux):
+        """Extrude full dual-cell rows and independent ADE histories.
+
+        Compiling a truncated auxiliary solid would halve the aperture mass.
+        Translate the already compiled invariant main rows instead, retaining
+        the same Yee operator on both sides of the split.
+        """
+
+        from gprMax.impedance_pml import prepare_impedance_pml
+        from gprMax.impedance_surfaces import ImpedanceSurfaceSystem
+
+        source = self.main_grid.impedance_surfaces
+        normal = self.normal_axis
+        offset = np.zeros(3, dtype=np.int32)
+        offset[list(self.transverse_axes)] = (-self.u0, -self.v0)
+        edge_info, original_rows, h_info, h_weight = [], [], [], []
+        port_info, port_g, port_normal, port_area = [], [], [], []
+        port_inv_Z0, port_g_over_Z0 = [], []
+        state_count = 0
+        aperture = 0 if self.direction_sign < 0 else self.spec.length_cells
+        for original_index in self._impedance_edges:
+            original = source.edge_info[original_index]
+            if original[0] == normal:
+                positions = range(self.spec.length_cells)
+            else:
+                positions = (
+                    range(self.spec.length_cells)
+                    if aperture == 0
+                    else range(1, self.spec.length_cells + 1)
+                )
+            for position in positions:
+                offset[normal] = position - self.plane_index
+                row = original.copy()
+                row[1:4] += offset
+                row[4], row[6] = len(h_info), len(port_info)
+                h_slice = slice(int(original[4]), int(original[4] + original[5]))
+                translated = source.h_info[h_slice].copy()
+                translated[:, 1:4] += offset
+                # Tangential H at the allocated upper padding plane is not
+                # advanced by the dense Yee kernels. It stores the main-side
+                # cross-aperture samples, including the low-side -1 images.
+                outside = translated[:, normal + 1] < 0
+                translated[outside, normal + 1] = self.spec.length_cells
+                if np.any(translated[:, 1:4] < 0) or np.any(translated[:, 1:4] > aux.size):
+                    raise ValueError(
+                        "Surface-impedance modal window omits a required magnetic sample."
+                    )
+                h_info.extend(translated)
+                h_weight.extend(source.h_weight[h_slice])
+                port_slice = slice(int(original[6]), int(original[6] + original[7]))
+                for model_index, _ in source.port_info[port_slice]:
+                    port_info.append((int(model_index), state_count))
+                    state_count += int(source.model_info[model_index, 0])
+                port_g.extend(source.port_g[port_slice])
+                port_inv_Z0.extend(source.port_inv_Z0[port_slice])
+                port_g_over_Z0.extend(source.port_g_over_Z0[port_slice])
+                port_normal.extend(source.port_normal[port_slice])
+                port_area.extend(source.port_area[port_slice])
+                edge_info.append(row)
+                original_rows.append(original_index)
+
+        dtype = source.edge_runtime.dtype
+
+        def packed(values, dtype=dtype):
+            return np.ascontiguousarray(values, dtype=dtype)
+
+        system = ImpedanceSurfaceSystem(
+            edge_info=packed(edge_info, np.int32).reshape(-1, 8),
+            edge_params=packed(source.edge_params[original_rows]),
+            edge_runtime=packed(source.edge_runtime[original_rows]),
+            edge_fraction=packed(source.edge_fraction[original_rows]),
+            h_info=packed(h_info, np.int32).reshape(-1, 4),
+            h_weight=packed(h_weight),
+            port_info=packed(port_info, np.int32).reshape(-1, 2),
+            port_g=packed(port_g),
+            port_g_over_Z0=packed(port_g_over_Z0),
+            port_inv_Z0=packed(port_inv_Z0),
+            port_normal=packed(port_normal, np.int8).reshape(-1, 2),
+            port_area=packed(port_area),
+            model_info=source.model_info.copy(),
+            model_f=source.model_f.copy(),
+            model_q=source.model_q.copy(),
+            model_Z0=source.model_Z0.copy(),
+            state_y=np.zeros(max(1, state_count), dtype=dtype),
+            model_ids=source.model_ids,
+        )
+        aux.impedance_surfaces = system
+        prepare_impedance_pml(aux, system)
+
+    def _prepare_impedance_edge_indices(self):
+        """Index auxiliary source and aperture rows for coupling and diagnostics."""
+
+        grid = self.aux_grid
+        system = grid.impedance_surfaces
+        source_plane = self.spec.pml_cells + self.spec.source_clearance_cells
+        if self.direction_sign < 0:
+            source_plane = self.spec.length_cells - source_plane
+        rows = system.edge_info
+        self._impedance_source_edge_indices = np.flatnonzero(
+            (rows[:, 0] != self.normal_axis) & (rows[:, 1 + self.normal_axis] == source_plane)
+        ).astype(np.int32)
+        aperture = 0 if self.direction_sign < 0 else self.spec.length_cells
+        inside = 0 if self.direction_sign < 0 else aperture - 1
+        self._impedance_deposit_indices = np.flatnonzero(
+            rows[:, 1 + self.normal_axis]
+            == np.where(rows[:, 0] == self.normal_axis, inside, aperture)
+        )
+
+    def _freeze_impedance_main_rows(self):
+        """The auxiliary solver owns detached E, including the aperture sheet."""
+
+        system = self.main_grid.impedance_surfaces
+        frozen = list(getattr(system, "virtual_frozen_edges", ()))
+        for edge in system.edge_info:
+            component, i, j, k = (int(value) for value in edge[:4])
+            coordinate = np.asarray((i, j, k))
+            u, v = coordinate[list(self.transverse_axes)]
+            if not (self.u0 <= u <= self.u1 and self.v0 <= v <= self.v1):
+                continue
+            position = coordinate[self.normal_axis]
+            detached = (
+                position >= self.plane_index
+                if self.direction_sign < 0
+                else position < self.plane_index
+                or (position == self.plane_index and component != self.normal_axis)
+            )
+            if detached:
+                frozen.append((component, i, j, k))
+        system.virtual_frozen_edges = np.ascontiguousarray(frozen, dtype=np.int32).reshape(-1, 4)
+
+    def _copy_impedance_aperture_magnetic(self):
+        """Fill the unused upper tangential-H padding plane from main H."""
+
+        main, aux = self.main_grid, self.aux_grid
+        main_h, aux_h = (main.Hx, main.Hy, main.Hz), (aux.Hx, aux.Hy, aux.Hz)
+        for component in self.transverse_axes:
+            main_slice, aux_slice = [slice(None)] * 3, [slice(None)] * 3
+            main_slice[self.normal_axis] = (
+                self.plane_index - 1 if self.direction_sign < 0 else self.plane_index
+            )
+            main_slice[self.transverse_axes[0]] = slice(self.u0, self.u1 + 1)
+            main_slice[self.transverse_axes[1]] = slice(self.v0, self.v1 + 1)
+            aux_slice[self.normal_axis] = self.spec.length_cells
+            aux_h[component][tuple(aux_slice)] = main_h[component][tuple(main_slice)]
+
+    def _deposit_impedance_aperture_electric(self):
+        """Publish newly advanced sparse aperture and adjacent normal E."""
+
+        main_e = (self.main_grid.Ex, self.main_grid.Ey, self.main_grid.Ez)
+        aux_e = (self.aux_grid.Ex, self.aux_grid.Ey, self.aux_grid.Ez)
+        aperture = 0 if self.direction_sign < 0 else self.spec.length_cells
+        for edge in self.aux_grid.impedance_surfaces.edge_info[self._impedance_deposit_indices]:
+            component = int(edge[0])
+            coordinate = edge[1:4]
+            target = coordinate.copy()
+            target[list(self.transverse_axes)] += (self.u0, self.v0)
+            target[self.normal_axis] += self.plane_index - aperture
+            main_e[component][tuple(target)] = aux_e[component][tuple(coordinate)]
 
     def _rear_clear_points(self, *, magnetic):
         """Return the compact accelerator dispatch size for the detached rear.
@@ -193,6 +436,24 @@ class VirtualWaveguide:
             return self._mpi_adjacent_ids
         grid = self.main_grid
         p = self.plane_index
+        if self.reduced:
+            slices = [slice(None)] * 3
+            for axis, lower, upper in zip(
+                self.transverse_axes, (self.u0, self.v0), (self.u1, self.v1)
+            ):
+                slices[axis] = (
+                    self.reduced.live_index
+                    if axis == self.reduced.invariant_axis
+                    else slice(lower + 1, upper)
+                )
+            components = [
+                "xyz".index(name[1].lower()) + (3 if name[0] == "H" else 0)
+                for name in (*self.reduced.active_electric, *self.reduced.active_magnetic)
+            ]
+            slices[self.normal_axis] = p - 1
+            first = grid.ID[(components, *slices)]
+            slices[self.normal_axis] = p
+            return first, grid.ID[(components, *slices)]
         # Perimeter IDs may deliberately contain zero-thickness PEC connector
         # walls. Compare the interior to detect a longitudinal discontinuity
         # without rejecting the physical wall at the aperture.
@@ -373,7 +634,16 @@ class VirtualWaveguide:
         aux.dt = main.dt
         aux.iterations = main.iterations
         aux.timewindow = main.timewindow
-        aux.materials = copy.deepcopy(self._mpi_materials) if self.mpi else main.materials
+        aux.materials = (
+            copy.deepcopy(self._mpi_materials)
+            if self.mpi
+            else copy.deepcopy(main.materials)
+            if self._impedance_edges
+            else main.materials
+        )
+        if self._impedance_edges:
+            aux.surface_impedance_models = dict(main.surface_impedance_models)
+            aux.impedance_marker_models = dict(main.impedance_marker_models)
         # The detached guide uses the same material catalogue and arithmetic
         # requirements as its owning grid, but maintains independent state.
         aux.maxpoles = main.maxpoles
@@ -403,10 +673,20 @@ class VirtualWaveguide:
             aux.solid[:] = solid[:, :, np.newaxis]
             aux.ID[:] = component_ids[:, :, :, np.newaxis]
 
-        aux._build_pmls()
+        try:
+            aux._build_pmls()
+        except ValueError as exc:
+            raise ValueError(
+                f"Virtual waveguide port {self.spec.port}, PML profile "
+                f"{self.spec.profile_id!r}: {exc}"
+            ) from exc
+        if self.reduced:
+            aux._2d_mode_grid_update()
         aux._terminate_pmls_with_pec()
+        if self._impedance_edges:
+            self._build_impedance_auxiliary_system(aux)
         aux.initialise_field_arrays()
-        if self.mpi:
+        if self.mpi or self._impedance_edges:
             aux.initialise_std_update_coeff_arrays()
             if aux.maxpoles > 0:
                 aux.initialise_dispersive_arrays()
@@ -755,6 +1035,11 @@ class VirtualWaveguide:
         if self.mpi:
             self._clear_mpi_rear_magnetic()
             return
+        if self.reduced:
+            from gprMax.virtual_waveguide_2d import couple_magnetic
+
+            couple_magnetic(self)
+            return
         couple_virtual_waveguide_magnetic(
             config.get_model_config().ompthreads,
             self.normal_axis,
@@ -812,6 +1097,18 @@ class VirtualWaveguide:
             self._deposit_mpi_aperture_electric()
             self._clear_mpi_rear_electric()
             return
+        if self.reduced:
+            from gprMax.virtual_waveguide_2d import couple_electric
+
+            couple_electric(self)
+        else:
+            self._couple_electric_3d()
+        if self._impedance_edges:
+            self._copy_impedance_aperture_magnetic()
+            self.aux_updates.update_impedance_surfaces()
+            self._deposit_impedance_aperture_electric()
+
+    def _couple_electric_3d(self):
         couple_virtual_waveguide_electric(
             config.get_model_config().ompthreads,
             self.normal_axis,

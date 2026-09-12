@@ -30,11 +30,16 @@ from gprMax.subgrids.user_objects import validate_subgrid_id
 from gprMax.user_objects.cmds_geometry.add_grass import AddGrass
 from gprMax.user_objects.cmds_geometry.add_surface_roughness import AddSurfaceRoughness
 from gprMax.user_objects.cmds_geometry.add_surface_water import AddSurfaceWater
-from gprMax.user_objects.cmds_geometry.fractal_box import FractalBox
 from gprMax.user_objects.cmds_geometry.cmds_geometry import (
     validate_distributed_geometry_rasterisation,
 )
-from gprMax.user_objects.cmds_singleuse import Discretisation, Domain, TimeWindow
+from gprMax.user_objects.cmds_geometry.fractal_box import FractalBox
+from gprMax.user_objects.cmds_singleuse import (
+    Discretisation,
+    Domain,
+    TimeStepStabilityFactor,
+    TimeWindow,
+)
 from gprMax.user_objects.user_objects import (
     GeometryUserObject,
     GridUserObject,
@@ -163,7 +168,44 @@ class Scene:
                 )
                 raise ValueError
 
-        self.build_model_objects(self.single_use_objects, model)
+        self.build_model_objects(self._model_objects_with_sibc_timestep(), model)
+
+    def _model_objects_with_sibc_timestep(self):
+        """Apply the SIBC CFL margin through the existing single-use command.
+
+        Detect declarations before TimeWindow, sources, subgrids, and ADE/PML
+        coefficients are built. Geometry has not been rasterised at this
+        stage, so even an unused SIBC declaration activates the cap. Work on
+        a local list: a Scene and its user commands may be reused across runs.
+        """
+        from gprMax.impedance_surfaces import MAX_SIBC_TIMESTEP_FACTOR
+        from gprMax.user_objects.cmds_multiuse import SurfaceImpedance
+
+        grid_objects = [self.grid_objects, *(obj.children_grid for obj in self.subgrid_objects)]
+        if not any(
+            isinstance(obj, SurfaceImpedance) for objects in grid_objects for obj in objects
+        ):
+            return self.single_use_objects
+
+        requested = next(
+            (obj for obj in self.single_use_objects if isinstance(obj, TimeStepStabilityFactor)),
+            None,
+        )
+        if requested is not None:
+            requested.validate()  # Never turn an invalid factor into a valid capped one.
+        factor = requested.stability_factor if requested is not None else 1.0
+        if factor <= MAX_SIBC_TIMESTEP_FACTOR:
+            return self.single_use_objects
+
+        objects = [obj for obj in self.single_use_objects if obj is not requested]
+        effective = TimeStepStabilityFactor(f=MAX_SIBC_TIMESTEP_FACTOR)
+        objects.append(effective)
+        logger.info(
+            f"Surface impedance (SIBC) declared: automatically applying {effective} "
+            f"(requested factor {factor:g}) to maintain a margin below CFL. "
+            "Smaller user-specified factors are preserved."
+        )
+        return objects
 
     def process_multi_use_objects(self, model: Model):
         self.build_grid_objects(self.grid_objects, model.G)
@@ -273,9 +315,7 @@ class Scene:
 
         declared_by_grid = []
         for grid, objects in grid_objects:
-            declared = tuple(
-                tag for obj in objects for tag in obj.declared_geometry_tags()
-            )
+            declared = tuple(tag for obj in objects for tag in obj.declared_geometry_tags())
             registry.register_many(declared)
             declared_by_grid.append((grid, declared))
 

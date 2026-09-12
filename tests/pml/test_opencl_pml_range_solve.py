@@ -65,8 +65,8 @@ def _scene(kind, formulation, order):
             gprMax.PMLCFS(
                 alphascalingprofile="constant",
                 alphascalingdirection="forward",
-                alphamin=0.001 * (pole + 1),
-                alphamax=0.001 * (pole + 1),
+                alphamin=0.2 if pole else 0.001,
+                alphamax=0.2 if pole else 0.001,
                 kappascalingprofile="linear",
                 kappascalingdirection="forward",
                 kappamin=1,
@@ -91,12 +91,18 @@ def _scene(kind, formulation, order):
                 )
             )
     elif kind == "replacement":
-        scene.add(gprMax.PMLSlab(p1=(0, 0, 0), p2=(0.002, 0.019, 0.023), maximum_face="x0", id="replacement"))
+        scene.add(
+            gprMax.PMLSlab(
+                p1=(0, 0, 0), p2=(0.002, 0.019, 0.023), maximum_face="x0", id="replacement"
+            )
+        )
     scene.add(gprMax.Rx(p1=(0.008, 0.008, float("inf") if is_2d else 0.010)))
     return scene
 
 
-def _run_seeded(tmp_path, monkeypatch, runtime, device, precision, formulation, order, kind, *, legacy):
+def _run_seeded(
+    tmp_path, monkeypatch, runtime, device, precision, formulation, order, kind, *, legacy
+):
     """Run the actual solver; only seeds and the legacy range omission differ."""
     result = {"initial_phi": {}, "state": {}, "slabs": {}, "dispatches": 0}
     original_init = OpenCLUpdates.__init__
@@ -129,7 +135,9 @@ def _run_seeded(tmp_path, monkeypatch, runtime, device, precision, formulation, 
                 result["initial_phi"][f"phi/{pml.ID}/{name}"] = values
 
             for phase, prefix in (("electric", "E"), ("magnetic", "H")):
-                spatial_size = max(prod(getattr(pml, f"{prefix}Phi{number}").shape[1:]) for number in (1, 2))
+                spatial_size = max(
+                    prod(getattr(pml, f"{prefix}Phi{number}").shape[1:]) for number in (1, 2)
+                )
                 expected = slice(0, spatial_size)
                 assert getattr(pml, f"_{phase}_update_range") == expected
                 assert spatial_size < grid.ID_dev.size
@@ -181,7 +189,11 @@ def _assert_pair(bounded, legacy, kind, order):
     elif kind == "replacement":
         expected_directions = {"xminus"}
     assert {info[0] for info in bounded["slabs"].values()} == expected_directions
-    assert bounded["dispatches"] == legacy["dispatches"] == 2 * len(bounded["slabs"]) * bounded["iterations"]
+    assert (
+        bounded["dispatches"]
+        == legacy["dispatches"]
+        == 2 * len(bounded["slabs"]) * bounded["iterations"]
+    )
     assert bounded["state"].keys() == legacy["state"].keys()
     for name, values in bounded["state"].items():
         assert np.isfinite(values).all(), name
@@ -189,7 +201,11 @@ def _assert_pair(bounded, legacy, kind, order):
         np.testing.assert_array_equal(values, reference, err_msg=f"{kind}: {name}")
         assert values.dtype == reference.dtype
         assert values.tobytes() == reference.tobytes(), f"{kind}: {name} differs at the byte level"
-    assert any(np.any(values != 0) for name, values in bounded["state"].items() if name.startswith("receiver/"))
+    assert any(
+        np.any(values != 0)
+        for name, values in bounded["state"].items()
+        if name.startswith("receiver/")
+    )
     for name, before in bounded["initial_phi"].items():
         after = bounded["state"][name]
         assert before.shape[0] == order
@@ -199,7 +215,9 @@ def _assert_pair(bounded, legacy, kind, order):
         direction, terminal, thickness = bounded["slabs"][slab_id]
         if terminal and component.startswith("E"):
             axis = "xyz".index(direction[0]) + 1
-            assert np.any(np.take(after, thickness, axis=axis) != np.take(before, thickness, axis=axis)), name
+            assert np.any(
+                np.take(after, thickness, axis=axis) != np.take(before, thickness, axis=axis)
+            ), name
 
 
 @pytest.mark.parametrize("precision", ("single", "double"))
@@ -209,7 +227,16 @@ def test_opencl_pml_range_3d_matches_legacy(
     tmp_path, monkeypatch, opencl_runtime, opencl_device, precision, formulation, order
 ):
     for kind in ("native", "internal", "replacement"):
-        options = (tmp_path, monkeypatch, opencl_runtime, opencl_device, precision, formulation, order, kind)
+        options = (
+            tmp_path,
+            monkeypatch,
+            opencl_runtime,
+            opencl_device,
+            precision,
+            formulation,
+            order,
+            kind,
+        )
         bounded = _run_seeded(*options, legacy=False)
         legacy = _run_seeded(*options, legacy=True)
         _assert_pair(bounded, legacy, kind, order)
@@ -222,7 +249,16 @@ def test_opencl_pml_range_3d_matches_legacy(
 def test_opencl_pml_range_2d_matches_legacy(
     tmp_path, monkeypatch, opencl_runtime, opencl_device, precision, formulation, order, mode
 ):
-    options = (tmp_path, monkeypatch, opencl_runtime, opencl_device, precision, formulation, order, mode)
+    options = (
+        tmp_path,
+        monkeypatch,
+        opencl_runtime,
+        opencl_device,
+        precision,
+        formulation,
+        order,
+        mode,
+    )
     bounded = _run_seeded(*options, legacy=False)
     legacy = _run_seeded(*options, legacy=True)
     _assert_pair(bounded, legacy, mode, order)

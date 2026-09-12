@@ -17,18 +17,17 @@
 
 """PML launches use both staggered history volumes, not the full grid ID array."""
 
+import re
+import sys
 from importlib import import_module
 from itertools import product
 from math import prod
-import re
-import sys
 from types import ModuleType, SimpleNamespace
 
 import numpy as np
 import pytest
 
-from gprMax.pml import CFS, OpenCLPML, PML
-
+from gprMax.pml import CFS, PML, OpenCLPML
 
 pytestmark = pytest.mark.unit
 HISTORIES = ("EPhi1", "EPhi2", "HPhi1", "HPhi2")
@@ -74,6 +73,8 @@ def make_opencl_pml(make_pml_grid, fake_opencl_upload):
             formulation=formulation,
             cfs=[CFS() for _ in range(order)],
         )
+        if order == 2 and formulation == "HORIPML":
+            grid.pmls["cfs"][1].alpha.max = 20.0
         lower = [0, 0, 0]
         upper = [value + 1 for value in domain]
         if kind == "internal":
@@ -133,7 +134,10 @@ def test_opencl_pml_uses_each_fields_larger_spatial_history(
 
     assert len(fake_opencl_upload) == 12
     assert all(queue is slab.queue for queue, _, _ in fake_opencl_upload)
-    assert all(host is getattr(slab, name) for (_, host, _), name in zip(fake_opencl_upload, COEFFICIENTS + HISTORIES))
+    assert all(
+        host is getattr(slab, name)
+        for (_, host, _), name in zip(fake_opencl_upload, COEFFICIENTS + HISTORIES)
+    )
     assert len(calls) == 4
     assert calls[1] == ("E", "wait")
     assert calls[3] == ("H", "wait")
@@ -163,8 +167,11 @@ def test_opencl_pml_uses_each_fields_larger_spatial_history(
         assert tuple(args[:6]) == tuple(electric_bounds if family == "E" else bounds)
         assert tuple(args[6:12]) == histories[0].shape[1:] + histories[1].shape[1:]
         assert args[12] == slab.thickness + int(family == "E" and kind == "internal")
-        expected_buffers = [getattr(slab.G, f"{name}_dev") for name in ("ID", "Ex", "Ey", "Ez", "Hx", "Hy", "Hz")] + [
-            getattr(slab, f"{family}{name}_dev") for name in ("Phi1", "Phi2", "RA", "RB", "RE", "RF")
+        expected_buffers = [
+            getattr(slab.G, f"{name}_dev") for name in ("ID", "Ex", "Ey", "Ez", "Hx", "Hy", "Hz")
+        ] + [
+            getattr(slab, f"{family}{name}_dev")
+            for name in ("Phi1", "Phi2", "RA", "RB", "RE", "RF")
         ]
         assert all(actual is expected for actual, expected in zip(args[13:26], expected_buffers))
         assert isinstance(args[26], np.float64)
@@ -234,7 +241,9 @@ def test_opencl_pml_range_product_is_python_integer_without_allocation(make_open
 @pytest.mark.parametrize("formulation", PML.formulations)
 @pytest.mark.parametrize("order", [1, 2])
 @pytest.mark.parametrize("direction", PML.directions)
-def test_all_opencl_pml_templates_guard_each_spatial_history(make_opencl_pml, family, formulation, order, direction):
+def test_all_opencl_pml_templates_guard_each_spatial_history(
+    make_opencl_pml, family, formulation, order, direction
+):
     """All 48 templates map one work item to both Phi pitches and all CFS terms."""
 
     module = import_module(f"gprMax.cuda_opencl.knl_pml_updates_{family}_{formulation}")
@@ -254,7 +263,9 @@ def test_all_opencl_pml_templates_guard_each_spatial_history(make_opencl_pml, fa
         assert f"if(p{index}==0&&i{index}<nx&&j{index}<ny&&k{index}<nz)" in compact
         for axis, coordinate in zip("xyz", "ijk"):
             if axis == direction[0] and direction.endswith("minus"):
-                offset = f"{coordinate}{index}" if family == "electric" else f"({coordinate}{index}+1)"
+                offset = (
+                    f"{coordinate}{index}" if family == "electric" else f"({coordinate}{index}+1)"
+                )
                 expression = f"{axis}f-{offset}"
             else:
                 expression = f"{coordinate}{index}+{axis}s"

@@ -220,6 +220,11 @@ Allows you to alter the value of the time step :math:`\Delta t` used by gprMax. 
 
 where ``f1`` can take values :math:`0 < \textrm{f1} \leq 1`. Then the actual time step used will be :math:`\textrm{f1} \times \Delta t`, where :math:`\Delta t` is calculated using the equality from the CFL condition.
 
+Models declaring a surface-impedance material automatically cap this factor
+at 0.99 and report the adjustment in the build log. Smaller user factors are
+preserved. See :ref:`impedance-automatic-timestep` for the timing and scope of
+this automatic margin.
+
 .. _dispersive_timestep_check:
 
 Dispersive-material timestep check
@@ -428,15 +433,16 @@ and troubleshooting guidance.
 
 .. note::
 
-    This first implementation is limited to the 3-D CPU solver and closed,
-    cell-occupying geometry. Pass the ``#surface_impedance`` ID directly as
+    SIBC supports the 3-D and 2-D TE/TM CPU solvers with cell-occupying
+    geometry. In 2-D, extrude geometry through the full invariant dimension.
+    Pass the ``#surface_impedance`` ID directly as
     the sole material identifier of ``#box``, ``#sphere``, ``#ellipsoid``,
     ``#cylinder``, ``#cone``, or a finite-thickness ``#triangle`` or
     ``#cylindrical_sector``. Sheets, lines, zero-thickness patches, and
     directional material assignments are rejected. The implementation does
-    not yet support MPI, subgrids, accelerator backends, any symmetry
-    boundary, thin wires, a PML intersection, or a dispersive dielectric
-    immediately outside the impedance boundary. Axial discrete plane waves
+    not yet support MPI, subgrids, accelerator backends, or thin wires.
+    PEC/PMC symmetry contacts and supported dispersive retained dielectrics
+    are described in :doc:`impedance_surfaces`. Axial discrete plane waves
     are unsupported. A homogeneous vector/angle plane wave is allowed only
     when the complete impedance boundary lies strictly inside its TFSF box.
     The common-metal presets describe thick, homogeneous bulk metal in the
@@ -452,7 +458,19 @@ and troubleshooting guidance.
     frequency inside the surface model's declared fit band; extrapolation is
     rejected. The surrounding P/Q bulk operator retains physical-frequency
     normalization; only the surface ADE reduction is exactly time-discrete.
-    ``#virtual_waveguide`` remains unsupported for impedance volumes.
+    ``#virtual_waveguide`` supports passive SIBC walls, including fitted
+    metal models, uniformly extruded along the propagation direction. Walls
+    must lie strictly inside the modal window with opaque-voxel padding.
+    SIBC can continue through a longitudinal PML when its wall and retained
+    host are invariant along the absorption direction. The host at each
+    intersecting edge must be homogeneous, isotropic, lossless, and
+    nondispersive; the surface model may be dispersive. See :ref:`sibc-pml`
+    for the slab-coverage and aperture requirements.
+
+    ``#surface_impedance: wall resistance inf`` selects an exact PMC on the
+    voxel face. It retains the clipped H circulation and electric dual area
+    with zero surface admittance. This also supports longitudinal PML and
+    virtual waveguides under the same restrictions.
 
 #material_from_database:
 ------------------------
@@ -2201,7 +2219,11 @@ but no S-parameters can be normalized without an active port.
 
 The port plane must be internal, locally uniform along the guide axis, and at
 least two cells wide in each transverse direction. The minimum guide length
-is ``i3 + i4 + 3`` cells. Main-grid virtual waveguides support 3D,
+is ``i3 + i4 + 3`` cells. In 2D, the two-cell width requirement applies only
+to the physical transverse axis; the full invariant storage dimension is
+included automatically. Main-grid virtual waveguides support all 2D TE/TM
+orientations on the CPU, including passive constant/dispersive SIBC and
+``resistance inf`` PMC walls. The 3D implementation supports
 non-dispersive guide cross-sections with the CPU, CUDA, OpenCL, and Metal
 solvers. Through the Python API, a virtual waveguide may instead be attached
 to an HSG-subgrid port; it then inherits that subgrid's fine material slice,
@@ -3720,6 +3742,18 @@ The parameters will be applied to all slabs of the PML that are switched on.
 When a profile ID is supplied, they are applied only to slabs that select that
 profile. A profile can contain one or two CFS terms. A named formulation with
 no named ``#pml_cfs`` uses the default first-order CFS parameters.
+
+Do not duplicate the unshifted first-order defaults to construct a
+second-order HORIPML. The product can have a negative real stretch and
+amplify evanescent fields even far below the CFL time-step limit. See
+:ref:`pml-higher-order-stability` for the classical/CFS shift condition and
+a tested repair with matching spatial grading.
+
+Do not duplicate the unshifted first-order defaults to construct a
+second-order HORIPML. The product can have a negative real stretch and
+amplify evanescent fields even far below the CFL time-step limit. See
+:ref:`pml-higher-order-stability` for the classical/CFS shift condition and
+a tested repair with matching spatial grading.
 
 .. tip::
 

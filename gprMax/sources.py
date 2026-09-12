@@ -884,10 +884,13 @@ class EigenmodeSource(Source):
                 normalization_angular_frequency=port_responses[0].discrete_angular_frequency,
             )
             relative_permittivity += system.polarization_admittance(
-                edge_index, port_responses[0].theta,
+                edge_index,
+                port_responses[0].theta,
             ) / (
-                1j * port_responses[0].discrete_angular_frequency
-                * config.sim_config.em_consts["e0"] * retained_dual_area
+                1j
+                * port_responses[0].discrete_angular_frequency
+                * config.sim_config.em_consts["e0"]
+                * retained_dual_area
             )
             magnetic_terms = self._surface_boundary_magnetic_terms(
                 G,
@@ -959,11 +962,14 @@ class EigenmodeSource(Source):
         if electric_axis < 2:
             expected_weight = retained_dual_area / float(G.dl[self.normal_axis])
             values = np.asarray(tuple(longitudinal_weights.values()), dtype=np.float64)
-            tolerance = 1e-10 * max(expected_weight, 1e-300)
+            relative_tolerance = max(1e-10, 16 * np.finfo(system.h_weight.dtype).eps)
+            tolerance = relative_tolerance * max(expected_weight, 1e-300)
             if (
                 len(longitudinal_weights) != 2
                 or abs(float(np.sum(values))) > tolerance
-                or not np.allclose(np.abs(values), expected_weight, rtol=1e-10, atol=tolerance)
+                or not np.allclose(
+                    np.abs(values), expected_weight, rtol=relative_tolerance, atol=tolerance
+                )
             ):
                 raise ValueError(
                     "surface-impedance eigenmodes require a propagation-invariant "
@@ -1548,6 +1554,10 @@ class EigenmodeSource(Source):
 
     def _solve_eigenmode_2d(self, G):
         """Solve a true 1D mode for a 2D TM/TE FDTD model."""
+        from gprMax.fdfd_eigenmode_solver.surface_impedance_operator import (
+            project_surface_boundary_1d,
+        )
+
         solver_inputs = self._one_dimensional_solver_inputs(G)
         solver = FDFD_1D_mode_solver(
             frequency=self.frequency,
@@ -1556,6 +1566,11 @@ class EigenmodeSource(Source):
             polarization=self.domain_polarization,
             fdtd_dt=G.dt,
             propagation_spacing=G.dl[self.normal_axis],
+            surface_boundary=project_surface_boundary_1d(
+                self.fdfd_surface_boundary,
+                self.transverse_axes.index(self.invariant_axis),
+                1 if self.domain_polarization == "TE" else 0,
+            ),
             **solver_inputs,
         )
         solver.solve()
@@ -2927,9 +2942,7 @@ class VoltageSource(Source):
 
         if not src_match:
             waveform = next(x for x in G.waveforms if x.ID == self.waveformID)
-            values = np.zeros(
-                (G.iterations + 1), dtype=config.sim_config.dtypes["float_or_double"]
-            )
+            values = np.zeros((G.iterations + 1), dtype=config.sim_config.dtypes["float_or_double"])
             setattr(self, name, values)
             offset = 0.0 if self.resistance == 0 else 0.5 * G.dt
 
@@ -2956,9 +2969,7 @@ class VoltageSource(Source):
         if not self.start <= sample * G.dt <= self.stop:
             return False
         field, dl = {"x": (Ex, G.dx), "y": (Ey, G.dy), "z": (Ez, G.dz)}[self.polarisation]
-        field[self.xcoord, self.ycoord, self.zcoord] = (
-            -self.waveformvalues_wholedt[sample] / dl
-        )
+        field[self.xcoord, self.ycoord, self.zcoord] = -self.waveformvalues_wholedt[sample] / dl
         return True
 
     def update_electric(self, iteration, updatecoeffsE, ID, Ex, Ey, Ez, G):

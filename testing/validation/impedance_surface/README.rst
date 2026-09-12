@@ -8,13 +8,72 @@ data, a PNG comparison, and a machine-readable ``summary.json``. Solver HDF5
 files are retained only below an ignored ``_cache`` directory for optional
 ``--reuse`` analysis.
 
+The general SIBC/PML and virtual-waveguide extension is summarized in
+`pml_virtual_report.md <pml_virtual_report.md>`_, including the coupled
+update, supported scope, physical comparisons, and a native second-order
+PML profile which failed the stability audit.
+
 The validations are:
 
+* ``validate_2d.py``: every TE/TM invariant axis and propagation direction,
+  independent 3D extrusion, active/passive virtual guides, native infinite
+  resistance, and long PML runs. See ``results/2d_sibc/README.md``;
 * ``validate_conductor_sphere.py``: conducting-sphere backscatter and complex
   angular scattering against impedance-boundary and bulk-conductor Mie theory;
 * ``validate_reflection_phase.py``: planar reflection magnitude and phase in
   air and a Debye exterior, directly exercising dispersive SIBC contact;
-* ``validate_copper_wall_waveguide.py``: copper-preset TE10 propagation.
+* ``validate_copper_wall_waveguide.py``: copper-preset TE10 propagation;
+* ``validate_sibc_pml.py``: finite-resistance and fitted Foster walls
+  extruded through longitudinal PML, compared with longer causal reference
+  guides, followed by long source-free runs. Results are under
+  ``results/sibc_pml``;
+* ``virtual_waveguide.py``: physical/virtual guide comparisons for constant
+  resistance, fitted copper, and exact PMC, plus active modal injection.
+  See ``results/virtual_waveguide.md`` and its JSON results;
+* ``investigate_pml_profile.py``: continuous and native discrete diagnosis
+  of the duplicated unshifted HORIPML instability, smaller-time-step
+  controls, and a tested frequency-shift repair. See
+  ``results/pml_profile_investigation/README.md``;
+* ``stability.py``: production-kernel curl adjointness, complete E/H/ADE
+  spectra, and long-time source-free growth, including a CFL-endpoint
+  high-resistance cavity reproducer. See ``stability_report.md``;
+* ``default_cfl.py``: default timestep policy and CPU-precision runs
+  through the full solver, with 80-digit CFL comparisons and an independent
+  stored-coefficient explanation of the cavity growth. See
+  ``default_cfl_report.md``.
+
+The related `SIBC-based PMC validation <../sibc_based_pmc/README.md>`_
+derives the exact zero-admittance limit and checks reflection at the
+main-voxel face, 3D mirror equivalence, cavity modes, and long-time behavior.
+It also measures the half-cell displacement of the existing ``pmc`` volume.
+Its ``pml_mirror.py`` driver compares the public exact-PMC implementation
+against an independent mirrored domain through longitudinal PML, including
+all retained fields and PML histories.
+The reduced-mode PMC results are in ``../sibc_based_pmc/2d_validation.md``.
+
+The PML/virtual-guide extension accepts general passive surface dispersion.
+Walls and their retained hosts must be invariant along the PML absorption
+direction. Each intersecting edge requires a homogeneous, isotropic,
+lossless, nondispersive retained host. These checks distinguish surface
+dispersion from unsupported bulk dispersion inside the PML intersection.
+Virtual modal windows must enclose the walls with opaque-voxel padding.
+
+SIBC declarations automatically cap the existing time-step stability factor
+at 0.99 and preserve smaller user factors. The reflection driver sets the
+same factor on its no-wall reference so both traces use an identical time
+grid. Solver-cache keys include the factor to avoid reusing pre-cap results.
+
+Run the current stability policy from the repository root::
+
+    python -m testing.validation.impedance_surface.default_cfl --steps 200000
+    python -m testing.validation.impedance_surface.stability --steps 20000
+
+These write ``results/default_cfl_protected.json`` and
+``results/stability_protected.json`` plus matching PNG files. Add
+``--historical`` to disable the cap locally within these diagnostics and
+reproduce the saved pre-protection ``default_cfl.json`` and ``stability.json``
+results. The intentionally above-CFL control also bypasses the cap locally;
+this is not a supported simulation setting.
 
 Conducting-sphere scattering
 ----------------------------
