@@ -57,6 +57,7 @@ eigensource_test_run/
 testing/other_codes/cst/under_test/
 
 # Test coverage files
+.pytest_cache/
 .coverage
 cov.xml
 

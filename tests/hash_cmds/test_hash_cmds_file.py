@@ -188,7 +188,9 @@ class TestProcessIncludeFiles:
         )
         (nested / "inner.in").write_text("#box: inner\n")
         monkeypatch.chdir(caller)
-        monkeypatch.setattr(config, "sim_config", SimpleNamespace(input_file_path=model / "main.in"))
+        monkeypatch.setattr(
+            config, "sim_config", SimpleNamespace(input_file_path=model / "main.in")
+        )
         expected = ["#box: before\n", "#box: inner\n", "#box: after\n"]
         assert process_include_files(["#include_file: outer.in\n"] * 2) == expected * 2
 
@@ -197,7 +199,9 @@ class TestProcessIncludeFiles:
 
         (tmp_path / "extra.in").write_text("#title: unrelated\n")
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(config, "sim_config", SimpleNamespace(input_file_path=tmp_path / "model/main.in"))
+        monkeypatch.setattr(
+            config, "sim_config", SimpleNamespace(input_file_path=tmp_path / "model/main.in")
+        )
         with pytest.raises(FileNotFoundError) as error:
             process_include_files(["#include_file: extra.in\n"])
         assert Path(error.value.filename) == tmp_path / "model" / "extra.in"
@@ -211,7 +215,12 @@ class TestProcessIncludeFiles:
         root.write_text("#include_file: child.in\n")
         if symlink:
             alias = tmp_path / "alias.in"
-            alias.symlink_to(root)
+            try:
+                alias.symlink_to(root)
+            except OSError as error:
+                if getattr(error, "winerror", None) != 1314:
+                    raise
+                pytest.skip("Windows requires Developer Mode or symlink creation privilege")
         child.write_text(f"#include_file: {'alias.in' if symlink else 'main.in'}\n")
         monkeypatch.setattr(config, "sim_config", SimpleNamespace(input_file_path=root))
         with pytest.raises(ValueError, match="cycle detected:.*main.in.*child.in.*main.in"):

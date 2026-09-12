@@ -250,10 +250,29 @@ The following steps provide guidance on how to install the extra components to a
    macOS releases do not support NVIDIA CUDA, so the dependency is guarded by
    a platform marker.
 
+On Windows, PyCUDA compiles kernels when a model starts. Finding ``nvcc`` is
+not sufficient: its MSVC host compiler also needs the C++ headers and libraries.
+Install Visual Studio Build Tools with **Desktop development with C++**, using
+a version supported by your CUDA Toolkit. From PowerShell in the repository
+root, activate your Python environment first, then initialize the compiler:
+
+.. code-block:: powershell
+
+    conda activate gprMax
+    . ./packaging/activate_cuda.ps1
+    python -m gprMax examples/gpr/basic/cylinder_Ascan_2D.in -gpu
+
+The leading dot loads the environment into the current PowerShell session.
+Repeat it in a new session. The script locates Visual Studio using ``vswhere``
+and imports its x64 compiler environment; it does not install software or
+change the system PATH. If using an installed package without this repository,
+start an **x64 Native Tools Command Prompt for Visual Studio**, activate the
+Python environment there, and run the model from that prompt.
+
 Example
 -------
 
-Open a Terminal (Linux/macOS) or Command Prompt (Windows), navigate into the top-level gprMax directory, and if it is not already active, activate the gprMax conda environment ``conda activate gprMax``
+Open a Terminal (Linux/macOS) or a compiler-enabled prompt (Windows), navigate into the top-level gprMax directory, and if it is not already active, activate the gprMax conda environment ``conda activate gprMax``
 
 Run one of the test models:
 

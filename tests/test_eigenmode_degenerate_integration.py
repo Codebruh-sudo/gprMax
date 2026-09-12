@@ -11,7 +11,7 @@ from gprMax.grid.fdtd_grid import FDTDGrid
 from testing.validation.degenerate_eigenmode_ports import circular_scene
 
 
-def run(path, *, randomize=False, precision="double", **kwargs):
+def run(path, *, randomize=False, precision="double", device_options=None, **kwargs):
     original = FDFD_2D_mode_solver.solve
     rng = np.random.default_rng(62)
     grids = []
@@ -36,8 +36,10 @@ def run(path, *, randomize=False, precision="double", **kwargs):
             scenes=[circular_scene(**kwargs)],
             outputfile=path,
             cpu_precision=precision,
+            gpu_precision=precision,
             hide_progress_bars=True,
             log_level=40,
+            **(device_options or {}),
         )
     with h5py.File(path.with_suffix(".h5")) as output:
         traces = np.array(
@@ -108,6 +110,45 @@ def test_broadband_random_basis(tmp_path, normal_axis, direction, precision, rec
         grid.eigenmodereceivers[0].mode_polarizations
         == grid.virtual_waveguides[0].port.mode_polarizations
     )
+
+
+@pytest.mark.integration
+@pytest.mark.gpu
+@pytest.mark.parametrize("backend", ("cuda", "opencl"))
+@pytest.mark.parametrize("normal_axis,direction", [(a, d) for a in range(3) for d in ("+", "-")])
+@pytest.mark.parametrize("precision", ("double", "single"))
+@pytest.mark.parametrize("mode,broadband", [(1, False), (2, False), (1, True)])
+def test_device_physical_labels_and_virtual_continuation(
+    tmp_path, request, backend, normal_axis, direction, precision, mode, broadband, record_property
+):
+    """Aligned channels must reach device injection, including a mixed pulse."""
+    fixture = "gpu_device" if backend == "cuda" else "opencl_device"
+    device_options = {"gpu" if backend == "cuda" else "opencl": [request.getfixturevalue(fixture)]}
+    options = dict(
+        normal_axis=normal_axis,
+        direction=direction,
+        precision=precision,
+        mode=mode,
+        broadband=broadband,
+        combination=90 if broadband else None,
+        steps=1200 if broadband else 400,
+        monitor=broadband,
+    )
+    reference, _ = run(tmp_path / "cpu", virtual=False, **options)
+    weights = np.array([1, 1, 1, 376.730313668, 376.730313668, 376.730313668])[None, :, None]
+    scale = np.max(abs(reference * weights))
+    assert scale > 0
+    for virtual in (False, True):
+        actual, _ = run(
+            tmp_path / ("virtual" if virtual else "physical"),
+            virtual=virtual,
+            randomize=True,
+            device_options=device_options,
+            **options,
+        )
+        error = np.max(abs((actual - reference) * weights)) / scale
+        record_property("virtual_error" if virtual else "physical_error", float(error))
+        assert error < (2e-8 if precision == "double" else 2e-4), error
 
 
 @pytest.mark.integration
