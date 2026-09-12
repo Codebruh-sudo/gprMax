@@ -16,7 +16,6 @@
 # along with gprMax. If not, see <https://www.gnu.org/licenses/>.
 
 import csv
-import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -565,10 +564,32 @@ def test_2d_eigenmode_builds_for_every_invariant_axis(tmp_path, mode, invariant_
         ),
     ],
 )
-def test_2d_regression_example_builds(tmp_path, relative_path, snapshot_count):
+def test_2d_regression_example_builds(tmp_path, monkeypatch, relative_path, snapshot_count):
     source = REPOSITORY_ROOT / "testing" / "regression" / "eigenmode_sources" / relative_path
     copied_input = tmp_path / source.name
-    shutil.copyfile(source, copied_input)
+    # Exercise all example geometries and anchors without repeatedly rendering
+    # their large multi-anchor figures. The plot-control tests below retain
+    # real PNG rendering and verify the default/explicit plotting behaviour.
+    lines = []
+    for line in source.read_text().splitlines():
+        if line.startswith(("#eigenmode_port:", "#eigenmode_excitation:")):
+            tokens = line.split()
+            if tokens[-1] in ("y", "n"):
+                tokens[-1] = "n"
+            else:
+                tokens.append("n")
+            line = " ".join(tokens)
+        lines.append(line)
+    copied_input.write_text("\n".join(lines) + "\n")
+
+    grids = []
+    original_build = FDTDGrid.build
+
+    def capture_grid(grid):
+        original_build(grid)
+        grids.append(grid)
+
+    monkeypatch.setattr(FDTDGrid, "build", capture_grid)
 
     assert copied_input.read_text().count("#snapshot:") == snapshot_count
     gprMax.run(
@@ -578,8 +599,19 @@ def test_2d_regression_example_builds(tmp_path, relative_path, snapshot_count):
         outputfile=tmp_path / source.stem,
         hide_progress_bars=True,
     )
-    assert list(tmp_path.glob(f"{source.stem}_Port*_Mode*.png"))
-    assert (tmp_path / f"{source.stem}_EigenmodeExcitation.png").is_file()
+    assert len(grids) == 1
+    grid = grids[0]
+    assert len(grid.snapshots) == snapshot_count
+    assert len(grid.eigenmodeports) == 2
+    for port in grid.eigenmodeports:
+        assert np.all(np.any(port.anchor_mode_valid, axis=0))
+        for bank in (port.anchor_e, port.anchor_h):
+            assert len(bank) == len(port.anchor_frequencies)
+            for anchor in bank:
+                for mode in anchor:
+                    assert all(np.isfinite(component).all() for component in mode)
+                    assert any(np.any(component) for component in mode)
+    assert not list(tmp_path.glob("*.png"))
 
 
 def _copy_straight_example(tmp_path, *, modes="1,2"):
