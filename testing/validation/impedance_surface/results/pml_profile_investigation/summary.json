@@ -1,0 +1,285 @@
+{
+  "analytic": {
+    "sigma_s_per_m": 2.0,
+    "sigma_max_s_per_m": 10.617674919160505,
+    "continuum_dominant_root_per_s": [
+      2303905790.4832644,
+      116051199400.45775
+    ],
+    "continuum_amplitude_doubling_time_s": 3.00857432375545e-10,
+    "negative_real_stretch_below_hz": 35950207144.68319,
+    "native_transfer_error": 6.473657049138937e-16,
+    "exact_shift_cancellation_error": 2.7315776063528043e-16,
+    "fourier_cases": [
+      {
+        "profile": "duplicated_unshifted",
+        "dt_s": 1.9065748695310057e-12,
+        "dt_ratio": 1.0,
+        "spectral_radius": 1.0044883278956351,
+        "amplitude_growth_per_s": 2348864165.6367793,
+        "eigenvalue": [
+          0.9799181384813699,
+          0.2208104226565759
+        ]
+      },
+      {
+        "profile": "shifted_second_1p1",
+        "dt_s": 1.9065748695310057e-12,
+        "dt_ratio": 1.0,
+        "spectral_radius": 1.0000000000000004,
+        "amplitude_growth_per_s": 0.00023292513551240873,
+        "eigenvalue": [
+          1.0000000000000004,
+          5.454318329388212e-17
+        ]
+      },
+      {
+        "profile": "first_order",
+        "dt_s": 1.9065748695310057e-12,
+        "dt_ratio": 1.0,
+        "spectral_radius": 1.0000000000000004,
+        "amplitude_growth_per_s": 0.00023292513551240873,
+        "eigenvalue": [
+          1.0000000000000004,
+          7.573161997546029e-17
+        ]
+      },
+      {
+        "profile": "duplicated_unshifted",
+        "dt_s": 9.532874347655029e-13,
+        "dt_ratio": 0.5,
+        "spectral_radius": 1.002209364428973,
+        "amplitude_growth_per_s": 2315070241.988348,
+        "eigenvalue": [
+          0.9960774201499984,
+          0.11069500086476086
+        ]
+      },
+      {
+        "profile": "shifted_second_1p1",
+        "dt_s": 9.532874347655029e-13,
+        "dt_ratio": 0.5,
+        "spectral_radius": 0.9999999999999994,
+        "amplitude_growth_per_s": -0.0005823128387810222,
+        "eigenvalue": [
+          0.9999999999999994,
+          -3.6921893726908336e-17
+        ]
+      },
+      {
+        "profile": "first_order",
+        "dt_s": 9.532874347655029e-13,
+        "dt_ratio": 0.5,
+        "spectral_radius": 1.0,
+        "amplitude_growth_per_s": 0.0,
+        "eigenvalue": [
+          1.0,
+          -5.397914168793776e-16
+        ]
+      },
+      {
+        "profile": "duplicated_unshifted",
+        "dt_s": 4.766437173827514e-13,
+        "dt_ratio": 0.25,
+        "spectral_radius": 1.0011000749847019,
+        "amplitude_growth_per_s": 2306692201.136494,
+        "eigenvalue": [
+          0.999568581119368,
+          0.05535351635975072
+        ]
+      },
+      {
+        "profile": "shifted_second_1p1",
+        "dt_s": 4.766437173827514e-13,
+        "dt_ratio": 0.25,
+        "spectral_radius": 1.0000000000000002,
+        "amplitude_growth_per_s": 0.0004658502710248175,
+        "eigenvalue": [
+          1.0000000000000002,
+          -1.6727391469012926e-16
+        ]
+      },
+      {
+        "profile": "first_order",
+        "dt_s": 4.766437173827514e-13,
+        "dt_ratio": 0.25,
+        "spectral_radius": 0.9999999999999994,
+        "amplitude_growth_per_s": -0.0011646256775620443,
+        "eigenvalue": [
+          0.9999999999999994,
+          -9.995885375892617e-17
+        ]
+      },
+      {
+        "profile": "duplicated_unshifted",
+        "dt_s": 2.383218586913757e-13,
+        "dt_ratio": 0.125,
+        "spectral_radius": 1.0005493879141099,
+        "amplitude_growth_per_s": 2304602099.179015,
+        "eigenvalue": [
+          1.0001667123350626,
+          -0.02766993299905484
+        ]
+      },
+      {
+        "profile": "shifted_second_1p1",
+        "dt_s": 2.383218586913757e-13,
+        "dt_ratio": 0.125,
+        "spectral_radius": 0.9999999999999997,
+        "amplitude_growth_per_s": -0.001397550813074453,
+        "eigenvalue": [
+          0.9999999999999997,
+          -2.8219350438604584e-16
+        ]
+      },
+      {
+        "profile": "first_order",
+        "dt_s": 2.383218586913757e-13,
+        "dt_ratio": 0.125,
+        "spectral_radius": 0.9999999999999998,
+        "amplitude_growth_per_s": -0.0009317005420496354,
+        "eigenvalue": [
+          0.9999999999999998,
+          1.146404279871635e-16
+        ]
+      }
+    ]
+  },
+  "runtime": [
+    {
+      "key": "pec_double_alpha2_0_dt_0.99_n72",
+      "kind": "pec",
+      "precision": "double",
+      "shift_scale": 0.0,
+      "timestep_factor": 0.99,
+      "dt_s": 1.906574869531005e-12,
+      "steps": 2951,
+      "requested_steps": 4500,
+      "duration_s": 5.626302439985996e-09,
+      "final_squared_norm": 17833431114.612038,
+      "peak_squared_norm": 17833431114.612038,
+      "finite": true,
+      "fitted_late_amplitude_growth_per_s": 3771555859.318917,
+      "bounded": false
+    },
+    {
+      "key": "pec_double_alpha2_0_dt_0.495_n72",
+      "kind": "pec",
+      "precision": "double",
+      "shift_scale": 0.0,
+      "timestep_factor": 0.495,
+      "dt_s": 9.532874347655025e-13,
+      "steps": 6301,
+      "requested_steps": 9000,
+      "duration_s": 6.006664126457431e-09,
+      "final_squared_norm": 11772824261.8077,
+      "peak_squared_norm": 11772824261.8077,
+      "finite": true,
+      "fitted_late_amplitude_growth_per_s": 3455564217.4017887,
+      "bounded": false
+    },
+    {
+      "key": "pec_double_alpha2_0_dt_0.2475_n72",
+      "kind": "pec",
+      "precision": "double",
+      "shift_scale": 0.0,
+      "timestep_factor": 0.2475,
+      "dt_s": 4.766437173827512e-13,
+      "steps": 12851,
+      "requested_steps": 18000,
+      "duration_s": 6.125348412085736e-09,
+      "final_squared_norm": 10965475513.800976,
+      "peak_squared_norm": 10965475513.800976,
+      "finite": true,
+      "fitted_late_amplitude_growth_per_s": 3381760134.805255,
+      "bounded": false
+    },
+    {
+      "key": "pec_double_alpha2_1.1_dt_0.99_n72",
+      "kind": "pec",
+      "precision": "double",
+      "shift_scale": 1.1,
+      "timestep_factor": 0.99,
+      "dt_s": 1.906574869531005e-12,
+      "steps": 20000,
+      "requested_steps": 20000,
+      "duration_s": 3.81314973906201e-08,
+      "final_squared_norm": 2.7310451176913424e-05,
+      "peak_squared_norm": 0.8389764093036266,
+      "finite": true,
+      "fitted_late_amplitude_growth_per_s": -619657.6136101065,
+      "bounded": true
+    },
+    {
+      "key": "resistance_double_alpha2_1.1_dt_0.99_n72",
+      "kind": "resistance",
+      "precision": "double",
+      "shift_scale": 1.1,
+      "timestep_factor": 0.99,
+      "dt_s": 1.906574869531005e-12,
+      "steps": 20000,
+      "requested_steps": 20000,
+      "duration_s": 3.81314973906201e-08,
+      "final_squared_norm": 2.562797948222817e-05,
+      "peak_squared_norm": 0.8390633520661956,
+      "finite": true,
+      "fitted_late_amplitude_growth_per_s": -13.807995329781992,
+      "bounded": true
+    },
+    {
+      "key": "foster_double_alpha2_1.1_dt_0.99_n72",
+      "kind": "foster",
+      "precision": "double",
+      "shift_scale": 1.1,
+      "timestep_factor": 0.99,
+      "dt_s": 1.906574869531005e-12,
+      "steps": 20000,
+      "requested_steps": 20000,
+      "duration_s": 3.81314973906201e-08,
+      "final_squared_norm": 2.562570816880926e-05,
+      "peak_squared_norm": 0.8394056165715446,
+      "finite": true,
+      "fitted_late_amplitude_growth_per_s": 2925.2303854687143,
+      "bounded": true
+    },
+    {
+      "key": "foster_single_alpha2_1.1_dt_0.99_n72",
+      "kind": "foster",
+      "precision": "single",
+      "shift_scale": 1.1,
+      "timestep_factor": 0.99,
+      "dt_s": 1.906574869531005e-12,
+      "steps": 20000,
+      "requested_steps": 20000,
+      "duration_s": 3.81314973906201e-08,
+      "final_squared_norm": 2.562569927456552e-05,
+      "peak_squared_norm": 0.839405622537392,
+      "finite": true,
+      "fitted_late_amplitude_growth_per_s": 2898.3047976547605,
+      "bounded": true
+    }
+  ],
+  "pulse": [
+    {
+      "kind": "resistance",
+      "peak_relative_difference": 6.785720269155739e-07,
+      "dt_s": 1.906574869531005e-12,
+      "record_s": 1.143944921718603e-09
+    },
+    {
+      "kind": "foster",
+      "peak_relative_difference": 7.323145053633966e-07,
+      "dt_s": 1.906574869531005e-12,
+      "record_s": 1.143944921718603e-09
+    }
+  ],
+  "checks": {
+    "native_transfer": true,
+    "pole_cancellation": true,
+    "continuum_growth": true,
+    "reduced_dt_does_not_fix": true,
+    "repaired_long_runs": true,
+    "repaired_reflection": true
+  },
+  "passed": true
+}

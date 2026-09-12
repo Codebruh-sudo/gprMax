@@ -185,6 +185,9 @@ class CPUUpdates(Updates[GridType]):
         """Updates eigenmode source electric fields."""
         for source in self.grid.eigenmodesources:
             source.update_eigenmode_electric(iteration, self.grid)
+            system = getattr(self.grid, "impedance_surfaces", None)
+            if system is not None:
+                system.capture_modal_source(self.grid, source, iteration)
         for guide in self.grid.virtual_waveguides:
             guide.update_electric(iteration)
 
@@ -273,8 +276,14 @@ class CPUUpdates(Updates[GridType]):
 
     def update_electric_pml(self):
         """Updates electric field components with the PML correction."""
-        for pml in self.grid.pmls["slabs"]:
-            pml.update_electric()
+        system = getattr(self.grid, "impedance_surfaces", None)
+        if system is not None and len(getattr(system, "pml_edge_indices", ())):
+            with system.capture_electric_pml(self.grid):
+                for pml in self.grid.pmls["slabs"]:
+                    pml.update_electric()
+        else:
+            for pml in self.grid.pmls["slabs"]:
+                pml.update_electric()
 
     def update_electric_sources(self, iteration):
         """Updates electric field components from sources -

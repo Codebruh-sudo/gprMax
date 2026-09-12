@@ -148,6 +148,10 @@ Time Step Stability Factor
 --------------------------
 .. autoclass:: gprMax.user_objects.cmds_singleuse.TimeStepStabilityFactor
 
+Declaring ``SurfaceImpedance`` automatically caps the effective factor at
+0.99, preserves any smaller user factor, and reports an automatic reduction
+in the build log. See :ref:`impedance-automatic-timestep`.
+
 Dispersive materials also undergo the :ref:`dispersive_timestep_check` before
 time stepping. If it fails, the run stops without changing the chosen timestep
 or material parameters. Use ``TimeStepStabilityFactor(f=...)`` to explicitly
@@ -561,7 +565,7 @@ file, allowing array states to be evaluated without rerunning FDTD.
 .. autofunction:: gprMax.studies.combine_embedded_modal_responses
 
 Plane-wave and RCS studies
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 A :class:`gprMax.PlaneWaveStudy` evaluates several incident plane waves while
 building the main Yee geometry only once. The Scene contains exactly one
@@ -663,43 +667,13 @@ Surface impedance
 -----------------
 .. autoclass:: gprMax.user_objects.cmds_multiuse.SurfaceImpedance
 
-Use the resulting ID directly as the ``material_id`` of an ordinary closed,
-cell-occupying geometry object. Surface-impedance IDs and bulk-material IDs
-share one geometry namespace and therefore must be unique. Directional
-``material_ids`` assignments are not supported for a scalar surface
-impedance. IDs beginning with ``__impedance_`` are reserved for private
-runtime materials.
+.. include:: _includes/surface_impedance_parameters.rstinc
 
-Select exactly one of ``resistance``, a named ``preset``, or a positive bulk
-``conductivity``. Preset and conductivity models require
-``fit_frequency_range=(fmin, fmax)``. ``fit_order='auto'`` tests actual
-runtime pole counts from 1 through 64 and selects the first whose
-deterministic local fit is independently certified to meet
-``fit_tolerance``; an integer requests exactly that many Foster poles, in
-which case a tolerance miss produces a warning rather than changing the
-requested order. The resulting surface exposes the actual count as
-``fit_pole_count``.
-
-The constant ``resistance`` form is a frequency-independent, purely real
-idealization and generates a build warning because it does not represent the
-causal, dispersive surface impedance of a physical conductor. Use a fitted
-metal preset or bulk conductivity for physically representative conductor
-loss.
-
-``plot_fit=False`` writes the fit
-plot only for geometry-only runs, while ``True`` also writes it for full
-runs. Presets are available for aluminium, copper, gold, molybdenum,
-palladium, silver, tungsten, and zinc, with element-symbol aliases. These are
-293 K thick-bulk good-conductor models, not optical or thin-film data. Fitted
-bands are capped at 300 GHz and must satisfy the good-conductor criterion
-:math:`\sigma/(\omega\epsilon_0)\geq100` at their upper edge.
-Output HDF5 files preserve each model's continuous ``A, B, C, D`` data,
-fit/provenance/hash metadata, and the exact local ``f, q, Z0`` recurrence
-coefficients used at the run's FDTD time step under
-``surface_impedance_models``.
-The complete geometry semantics, ADE derivation, sparse FDTD update, FDFD
-reduction, modal workflow, and validation procedure are described in
-:doc:`impedance_surfaces`.
+Assign the ID to a closed, cell-occupying geometry object. For model choices,
+fit-band selection, geometry, and supported configurations, see
+:doc:`impedance_surfaces`. The boundary equations are in
+:doc:`impedance_surfaces_theory`; stored metadata is in
+:ref:`impedance-output`.
 
 Material from database
 ----------------------
@@ -898,63 +872,24 @@ needed.
         material_id='metal', averaging='n',
     ))
 
-Supported inputs are boxes, spheres, ellipsoids, cylinders, cones,
-finite-thickness cylindrical sectors, and finite-thickness triangular prisms.
-A ``FractalBox`` accepts a surface-impedance ID as ``mixing_model_id`` only
-with ``n_materials=1`` and a roughness, grass, or water modifier. An
-unmodified one-material ``FractalBox`` continues to require ``Box`` instead.
-The assignment must be scalar: use ``material_id``, not directional
-``material_ids``. Surface-impedance geometry is excluded from dielectric
-smoothing.
+Use a scalar ``material_id`` and finite, cell-occupying geometry. Sheets,
+lines, directional assignments, and dielectric smoothing are unavailable
+for this one-sided opaque boundary. Drawing follows the usual ordered
+geometry overwrites; the final voxel topology is checked after all cutouts.
+Tags remain optional metadata.
 
-Plates, electric and magnetic edges, zero-thickness triangles and cylindrical
-sectors, and boxes with zero rasterized extent on any axis are rejected.
-These sheet and line shapes require a future two-sided transition condition,
-not the present one-sided opaque-volume boundary.
+For supported primitives, PEC/PMC contacts, symmetry, 2D extrusion,
+clearance, and import/export limitations, see :doc:`impedance_surfaces`.
+Uniform propagation through PML and virtual-guide apertures has additional
+host-material and coverage requirements in :ref:`sibc-pml`. Infinite
+surface resistance gives exact voxel-face PMC; built-in PMC volume geometry
+retains its legacy reflection-plane limitation.
 
-Object construction still follows normal scene order. Overlapping impedance
-primitives with the same ID form a union, a later bulk-material object can
-carve a cavity, and any later geometry replaces earlier cells under the usual
-last-object-wins rule. Geometry ``tag`` remains optional metadata and has no
-role in assigning the surface impedance.
-
-The final rasterized geometry is checked after these ordered overwrites.
-Ordinary face-connected staircases are valid, but impedance cells that touch
-only diagonally across a Yee edge or only at a grid vertex are rejected. In
-every local ``2 x 2 x 2`` vertex neighbourhood, both the impedance cells and
-the retained cells must be connected through voxel faces when non-empty. All
-surface-impedance IDs count as the same occupied class for this test. Connect
-the offending regions through a full voxel face, or separate them so they
-share neither an edge nor a vertex; refining, thickening, or repositioning the
-geometry can also repair the rasterized topology. See
-:ref:`impedance-surfaces` for the complete rule and error guidance.
-
-``GeometryObjectsWrite``/``GeometryObjectsRead`` round trips are not yet
-supported for impedance geometry; recreate the ``SurfaceImpedance`` and
-native geometry in the destination scene.
-
-This first version is restricted to three-dimensional CPU models without MPI
-domain decomposition or subgrids. An impedance volume cannot coexist with a
-thin wire or any symmetry boundary, and its boundary cannot intersect a PML.
-An axial discrete plane wave is unsupported; a homogeneous vector/angle plane
-wave may be used only when the complete impedance boundary lies strictly
-inside its TFSF box. The retained dielectric immediately outside the boundary
-must be non-dispersive.
-
-Direct three-dimensional ``EigenmodePort`` planes may cross a
-propagation-invariant impedance volume. The FDFD solve uses the same
-time-discrete ADE transfer as FDTD, retains the independent boundary E/H
-degrees of freedom, and inserts the clipped integral Ampere rows. The modal
-window must contain the complete guide aperture and its impedance boundary.
-``VirtualWaveguide`` termination is not yet supported for impedance volumes.
-Every eigenmode anchor and its trapezoidal bilinear-warped evaluation
-frequency must lie inside each intersected dispersive surface model's declared
-fit band; gprMax rejects extrapolation. The surface ADE reduction is exact for
-the FDTD time step; the surrounding legacy P/Q eigensolver retains its
-physical-frequency normalization, so this is not a fully time-discrete bulk
-Yee eigenproblem near temporal Nyquist.
-See :doc:`impedance_surfaces` for the discrete equations and implementation
-limits.
+The compiled boundary uses the same discrete surface response in FDTD and
+modal solves. The bulk modal operator uses Yee temporal and longitudinal
+difference symbols, while bulk dispersive poles still use their analytic
+physical-frequency response. See :doc:`impedance_surfaces_theory` for the
+boundary reduction and :doc:`eigenmode_port_theory` for modal operators.
 
 Box
 ---
@@ -1118,7 +1053,7 @@ Geometry View
 .. autoclass:: gprMax.user_objects.cmds_output.GeometryView
 
 Geometry Objects Read
-----------------------
+---------------------
 .. autoclass:: gprMax.user_objects.cmds_geometry.geometry_objects_read.GeometryObjectsRead
 
 The ``matfile`` argument is no longer supported. To reuse an old HDF5 geometry
@@ -1326,150 +1261,39 @@ amplitude does not remove an active hard-source clamp: its start/stop window
 still controls whether the electric edge is prescribed.
 
 Eigenmode band, ports, excitation, and virtual guides
-------------------------------------------------------
+-----------------------------------------------------
+
 .. autoclass:: gprMax.user_objects.cmds_multiuse.EigenmodeBand
 
-Corresponding hash command:
-
-.. code-block:: none
-
-    #eigenmode_band: id fmin fmax points [frequency ...]
+.. include:: _includes/eigenmode_band_parameters.rstinc
 
 .. autoclass:: gprMax.user_objects.cmds_multiuse.EigenmodePort
 
-Corresponding hash command:
-
-.. code-block:: none
-
-    #eigenmode_port: port x1 y1 z1 x2 y2 z2 direction modes auto|anchor [anchor ...] [y|n]
-
-.. autoclass:: gprMax.user_objects.cmds_multiuse.VirtualWaveguide
-
-Corresponding hash command:
-
-.. code-block:: none
-
-    #virtual_waveguide: port [length_cells] [pml_cells] [source_clearance_cells] [pml_profile]
+.. include:: _includes/eigenmode_port_parameters.rstinc
 
 .. autoclass:: gprMax.user_objects.cmds_multiuse.EigenmodeExcitation
 
-Corresponding hash command:
+.. include:: _includes/eigenmode_excitation_parameters.rstinc
 
-.. code-block:: none
+.. autoclass:: gprMax.user_objects.cmds_multiuse.VirtualWaveguide
 
-    #eigenmode_excitation: port mode [waveform] [amplitude] [phase_deg] [delay_s] [y|n]
+.. include:: _includes/virtual_waveguide_parameters.rstinc
 
-Square brackets denote optional arguments. See :doc:`eigenmode_port` for the
-argument reference, command examples, and runnable Python tutorials.
+.. autoclass:: gprMax.user_objects.cmds_output.EigenmodeFieldOutput
 
-An eigenmode model has one shared frequency band, one or more independently
-configured ports, and zero or more modal drives. One drive produces one
-S-parameter column. Multiple drives produce a prescribed driven response,
-not an S matrix. Excitation can be omitted when every port is a passive
-virtual guide; that form writes raw modal spectra but no S matrix. Ports do
-not repeat the DFT range or waveform:
+Use ``scene.add(gprMax.EigenmodeFieldOutput(filename="bank", ports=(1, 2)))``
+to export prepared tracked modal profiles to ``bank.modes.h5`` in the run
+output directory, including during geometry-only runs. Omit ``ports`` to
+export all prepared physical ports; ``filename`` defaults to ``port_modes``.
+Export requires a serial 3D main grid. The equivalent hash command and output
+restrictions are described under :ref:`hash-eigenmode-field-output`.
 
-.. code-block:: python
-
-    scene.add(gprMax.EigenmodeBand(
-        id='wg_band', fmin=45e9, fmax=65e9, points=81,
-        frequencies=(50.1e9, 55.1e9, 60.1e9),
-    ))
-    scene.add(gprMax.EigenmodePort(
-        port=1,
-        p1=(0.002, 0.001, 0.001),
-        p2=(0.002, 0.007, 0.005),
-        direction='+',
-        modes=(1,),
-        anchors='auto',
-    ))
-    scene.add(gprMax.EigenmodePort(
-        port=2,
-        p1=(0.011, 0.001, 0.001),
-        p2=(0.011, 0.007, 0.005),
-        direction='-',
-        modes=(1,),
-        anchors='auto',
-    ))
-    scene.add(gprMax.EigenmodeExcitation(
-        port=1, mode=1, waveform='auto', plot_waveform=True,
-    ))
-
-``points`` selects equally spaced output frequencies from ``fmin`` to
-``fmax``, including both endpoints. The optional ``frequencies`` argument
-adds specific values within that range. The combined list is sorted from
-low to high, with repeated values included only once, and is shared by
-every port. This lets an S-parameter sweep include exact frequencies
-needed by a sparser NTFF request. When an ``NTFFAntennaPorts`` association uses
-modal power, every NTFF transform frequency must be present in this list.
-NTFF can use fewer of these frequencies. ``frequencies`` changes direct-DFT/output
-bins; it is independent of the ``anchors`` policy used to solve and interpolate
-the modal fields.
-
-For simultaneous excitation, add further distinct port/mode channels using
-the same base waveform. ``power`` and ``amplitude`` are mutually exclusive;
-``power=P`` applies amplitude :math:`\sqrt{P}`:
-
-.. code-block:: python
-
-    scene.add(gprMax.EigenmodeExcitation(
-        port=1, mode=1, waveform='auto', power=1,
-        phase_deg=0, delay_s=0,
-    ))
-    scene.add(gprMax.EigenmodeExcitation(
-        port=2, mode=1, waveform='auto', power=0.5,
-        phase_deg=90, delay_s=0,
-    ))
-
-To terminate either reference plane inside the model, attach a virtual guide
-by port number. It inherits the port orientation and cross-section:
-
-.. code-block:: python
-
-    scene.add(gprMax.VirtualWaveguide(
-        port=1,
-        length_cells=30,
-        pml_cells=12,
-        source_clearance_cells=6,
-        pml_profile=None,
-    ))
-
-Direct ports and virtual guides support domain-decomposed MPI CPU models. The
-modal material slice is reconstructed from the distributed component values,
-so rank-local IDs for averaged materials are not assumed to be globally
-interchangeable. Direct TF/SF injection is ownership-clipped. For a virtual
-guide, every rank advances the same compact auxiliary grid and exchanges only
-the three H-field sheets required at its aperture.
-
-``modes`` is a strictly increasing tuple of one-based modes. A scalar value
-``N`` is shorthand for modes 1 through ``N``. All ports using ``'auto'``
-receive one common anchor list covering both the shared DFT band and the
-significant source spectrum. Multiple explicit frequencies must cover that
-required range; one explicit frequency intentionally uses a fixed modal basis
-over the complete band.
-
-The automatic excitation is a finite real band-pass pulse with independently
-adapted Gaussian-smoothed lower and upper edges. It is placed at the earliest
-causal time that retains its significant temporal support, maximizing the
-remaining propagation and ring-down interval. A custom ``Waveform`` ID can be
-supplied instead. gprMax checks its exact sampled spectrum, warns and discards
-significant DC/Nyquist bins, and rejects more than one percent power outside
-the declared band. Use a band-limited waveform, or select ``waveform='auto'``
-to synthesize one automatically for a finite frequency band.
-``plot_waveform`` independently controls each excitation waveform/DFT figure.
-``True`` writes it, ``False`` suppresses it, and the default ``None`` writes it
-only for geometry-only runs. Multi-drive filenames include the port and mode.
-Each port's ``plot_fields`` setting continues to control only that port's
-modal-field figures.
-
-Severe tracking mismatch between explicit multiple anchors is an error that
-recommends one explicit anchor. With automatic anchors, a failure confined to
-an outer spectral guard trims that tail only for the affected port and mode.
-A failure inside the requested band makes that port and mode warn and use its
-band-centre anchor; results for that mode far from it may be inaccurate. The
-candidate frequencies remain common to all automatic ports, while the
-retained masks and fallbacks are resolved independently. See
-:doc:`eigenmode_port` for the complete workflow and outputs.
+A band selects output frequencies; a port defines a reference plane and
+monitored modes; an excitation drives a channel; a virtual guide provides
+a separate matched continuation. The full workflows and compact hash
+equivalents are in :doc:`eigenmode_port`. See :doc:`input_hash_cmds` for
+complete hash grammar, :doc:`output` for stored arrays, and
+:doc:`eigenmode_port_theory` for numerical methods.
 
 A direct eigenmode model may also be placed wholly inside one HSG subgrid.
 Add its band, ports, waveform (when one is used), and excitation to that same
@@ -1763,15 +1587,15 @@ normally contain only the source or sources that it needs:
     ))
 
 Plane Wave Angles
--------------------
+-----------------
 .. autoclass:: gprMax.user_objects.cmds_multiuse.DiscretePlaneWaveAngles
 
 Plane Wave Vector
--------------------
+-----------------
 .. autoclass:: gprMax.user_objects.cmds_multiuse.DiscretePlaneWaveVector
 
 Plane Wave Axial
--------------------
+----------------
 .. autoclass:: gprMax.user_objects.cmds_multiuse.DiscretePlaneWaveAxial
 
 The angle, propagation-vector, and axial classes are alternative ways of
@@ -2069,7 +1893,7 @@ that source's native excitation units. Outputs and their dimensional meaning
 are described in :ref:`radiometry-output`.
 
 Rational-network S11 and input impedance
------------------------------------------
+----------------------------------------
 .. autoclass:: gprMax.user_objects.cmds_output.NetworkPort
 
 ``NetworkPort`` requests the output for an existing ``NetworkTerminal``. Its
@@ -2557,7 +2381,7 @@ region order ``(positive_axis, negative_axis)`` and then frequency; the HDF5
 writer presents those two rows as named groups.
 
 Modified one-step transient far fields
----------------------------------------
+--------------------------------------
 .. autoclass:: gprMax.user_objects.cmds_output.NTFFTimeFarField
 
 .. autoclass:: gprMax.user_objects.cmds_output.NTFFTimeFarFieldArray
@@ -2745,6 +2569,32 @@ The CFS values (which are internally specified) used for the default standard fi
     * The parameters will be applied to all slabs of the PML that are switched on.
     * Using ``None`` for the maximum value of :math:`\sigma` forces gprMax to calculate it internally based on the relative permittivity and permeability of the underlying materials in the model.
     * ``forward`` direction implies a minimum parameter value at the inner boundary of the PML and maximum parameter value at the edge of the computational domain, ``reverse`` is the opposite.
+
+.. _pml-higher-order-stability:
+
+Selecting a stable second-order HORIPML profile
+-----------------------------------------------
+
+Duplicating two unshifted first-order HORIPML factors can create an unstable
+absorber. Coefficient construction rejects the demonstrated negative-real
+product-stretch profiles and identifies the slab/profile, electric or
+magnetic sample, and parameters. Reducing the timestep does not cure that
+profile instability.
+
+Use one CFS factor, or repair the investigated unit-kappa configuration with
+an unshifted first factor by matching the second alpha grading to
+``1.1 * sigma1``. Match both polynomial order and direction at every electric
+and magnetic sample. Alpha and sigma use the same units in these commands.
+This recipe is specific to that configuration, not arbitrary custom profiles.
+The full analytical condition and the tested 20,000-step cases are in
+:ref:`impedance-pml-profile-theory`.
+
+The check covers boundary, internal, and virtual-guide PMLs, including
+terminal samples and the global profile before partitioning. Explicit
+``sigmamax=0`` remains zero; only ``None`` requests automatic conductivity.
+Passing the check excludes the demonstrated failure mechanism, not every
+material, geometry, or mesh instability. The product argument is specific
+to HORIPML and must not be applied to MRIPML.
 
 Reusable profiles and internal PML slabs
 ----------------------------------------

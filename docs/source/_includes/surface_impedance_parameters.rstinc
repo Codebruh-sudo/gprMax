@@ -1,0 +1,32 @@
+.. list-table:: SurfaceImpedance arguments
+   :class: api-parameters
+   :header-rows: 1
+   :widths: 24 20 56
+
+   * - Argument
+     - Default
+     - Meaning and constraints
+   * - ``id``
+     - Required
+     - Unique material identifier used by geometry. Shares the bulk-material namespace; do not use ``+`` or the reserved ``__impedance_`` prefix.
+   * - ``preset``
+     - None
+     - Named thick-metal model. Choose exactly one of ``preset``, ``conductivity``, or ``resistance``.
+   * - ``conductivity``
+     - None
+     - Positive finite bulk conductivity in S/m, fitted to a good-conductor surface response. This is not a resistance in ohms.
+   * - ``resistance``
+     - None
+     - Positive surface resistance in ohms, or positive infinity for exact voxel-face PMC. Zero, negative values, NaN, and negative infinity are invalid; use PEC for a zero-impedance wall.
+   * - ``fit_frequency_range``
+     - Required for a fit
+     - Positive finite increasing ``(fmin, fmax)`` in Hz. Required with preset or conductivity; unavailable with resistance. Cover the excitation and modal solve range, including the discrete-frequency check explained in the guide.
+   * - ``fit_order``
+     - ``"auto"``
+     - Select the smallest runtime pole count from 1 through 64 meeting the tolerance. An integer from 1 through 64 requests that exact count; a tolerance miss then warns rather than changing the count.
+   * - ``fit_tolerance``
+     - ``2e-3``
+     - Positive finite relative impedance-fit tolerance (0.2% by default). Automatic fitting must meet it; explicit-order fitting reports a miss.
+   * - ``plot_fit``
+     - ``False``
+     - Write a fit PNG in geometry-only runs. ``True`` also writes it during full runs. Neither setting opens a window. Only available for fitted models.

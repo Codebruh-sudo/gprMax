@@ -432,8 +432,9 @@ class PML:
             (len(self.CFS), self.thickness), dtype=config.sim_config.dtypes["float_or_double"]
         )
 
+        profiles = []
         for x, cfs in enumerate(self.CFS):
-            if not cfs.sigma.max:
+            if cfs.sigma.max is None:
                 cfs.calculate_sigmamax(self.d, er, mr)
             logger.debug(
                 f"PML {self.ID}: sigma.max set to {cfs.sigma.max} for {'first' if x == 0 else 'second'} order CFS parameter"
@@ -448,6 +449,13 @@ class PML:
             Esigma, Hsigma = cfs.calculate_values(
                 self.profile_thickness, cfs.sigma, profile_endpoint
             )
+            profiles.append(((Ealpha, Ekappa, Esigma), (Halpha, Hkappa, Hsigma)))
+
+        self._validate_stretch_profiles(profiles)
+
+        for x, (electric, magnetic) in enumerate(profiles):
+            Ealpha, Ekappa, Esigma = electric
+            Halpha, Hkappa, Hsigma = magnetic
 
             start = self.profile_offset
             e_stop = start + electric_thickness
@@ -503,6 +511,66 @@ class PML:
                     (2 * config.sim_config.em_consts["e0"]) - self.G.dt * Halpha
                 ) / tmp
                 self.HRF[x, :] = (2 * Hsigma * self.G.dt) / tmp
+
+    def _validate_stretch_profiles(self, profiles):
+        """Reject the negative-real-stretch mechanism of second-order HORIPML.
+
+        With u=sigma/kappa and x=(omega*epsilon0)**2, the sign of
+        Re(S1*S2) is the sign of x**2+B*x+C for x>0. Its positive-axis
+        minimum is negative exactly when B<0 and B**2>4*C. Scaling alpha
+        and u together avoids overflow and preserves this sign test. This
+        is a failure detector, not a sufficient general stability theorem.
+        Check the entire profile before taking an MPI shard's local slice.
+        """
+        if self.formulation != "HORIPML":
+            return
+        for field_index, field_name in enumerate(("E", "H")):
+            for term in profiles:
+                alpha, kappa, sigma = term[field_index]
+                if not all(np.all(np.isfinite(v)) for v in (alpha, kappa, sigma)) or np.any(
+                    kappa <= 0
+                ):
+                    raise ValueError(
+                        f"HORIPML {self.ID}, profile {self.profile_id!r}: {field_name} "
+                        "samples require finite parameters and strictly positive kappa."
+                    )
+            if len(profiles) != 2:
+                continue
+            sample_eps = max(np.finfo(v.dtype).eps for term in profiles for v in term[field_index])
+            a1, k1, s1 = (np.asarray(v, dtype=np.float64) for v in profiles[0][field_index])
+            a2, k2, s2 = (np.asarray(v, dtype=np.float64) for v in profiles[1][field_index])
+            with np.errstate(over="ignore"):
+                u1, u2 = s1 / k1, s2 / k2
+            if not np.all(np.isfinite(u1)) or not np.all(np.isfinite(u2)):
+                raise ValueError(
+                    f"HORIPML {self.ID}, profile {self.profile_id!r}: "
+                    "sigma/kappa exceeds the floating-point range; "
+                    "reduce sigma or increase kappa."
+                )
+            scale = np.maximum.reduce((a1, a2, u1, u2))
+            scale = np.where(scale > 0, scale, 1.0)
+            p, q, u, v = (value / scale for value in (a1, a2, u1, u2))
+            b = p * p + q * q + u * p + v * q - u * v
+            c = p * q * (p + u) * (q + v)
+            discriminant = b * b - 4 * c
+            tolerance = 128 * sample_eps * np.maximum(b * b, 4 * c)
+            bad = np.flatnonzero((b < 0) & (discriminant > tolerance))
+            if bad.size:
+                sample = int(bad[0])
+                terms = "; ".join(
+                    f"factor {i+1}: alpha={term[field_index][0][sample]:g}, "
+                    f"kappa={term[field_index][1][sample]:g}, "
+                    f"sigma={term[field_index][2][sample]:g}"
+                    for i, term in enumerate(profiles)
+                )
+                raise ValueError(
+                    f"Unstable second-order HORIPML {self.ID}, profile {self.profile_id!r}: "
+                    f"global {field_name} sample {sample} has negative real total stretch "
+                    f"at positive frequencies ({terms}). Reducing the timestep does not "
+                    "cure this profile instability. Use one CFS factor, or, for unit kappa "
+                    "and alpha1=0, set alpha2(z)=1.1*sigma1(z) with matching grading "
+                    "on both E and H samples. See the higher-order PML stability documentation."
+                )
 
     def _updates_terminal_e_plane(self):
         """Return whether this slab has an ordinary interior terminal E plane.

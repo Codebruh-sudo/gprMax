@@ -304,6 +304,86 @@ def _two_port_local_runtime(dtype=np.float64):
     return system, grid, models, x_old
 
 
+@pytest.mark.parametrize("dtype", (np.float32, np.float64))
+@pytest.mark.parametrize("backend", ("python", "cython"))
+def test_pml_circulation_forces_coupled_e_and_both_foster_ports(monkeypatch, dtype, backend):
+    """Compare the captured forcing with an independent coupled dense solve."""
+    import gprMax.impedance_surfaces as implementation
+
+    system, grid, models, x_old = _two_port_local_runtime(dtype)
+    if backend == "python":
+        monkeypatch.setattr(implementation, "_cython_update", None)
+    monkeypatch.setattr(
+        implementation.config, "get_model_config", lambda: SimpleNamespace(ompthreads=1)
+    )
+    system.pml_edge_indices = np.asarray([0], dtype=np.int32)
+    system.pml_edge_scale = np.asarray([0.3], dtype=dtype)
+    e_old = float(grid.Ex[1, 1, 1])
+    with system.capture_electric_pml(grid):
+        assert grid.Ex[1, 1, 1] == 0
+        grid.Ex[1, 1, 1] += 0.8
+        grid.Ex[1, 1, 1] += 0.4  # A second overlapping slab's correction.
+    assert grid.Ex[1, 1, 1] == e_old
+    forcing = float(system._pending_pml_rhs[0])
+    matrix = np.zeros((3, 3))
+    rhs = np.zeros(3)
+    matrix[0, 0] = 2
+    rhs[0] = e_old + 2 + forcing
+    for index, (model, state) in enumerate(zip(models, x_old), 1):
+        matrix[0, index] = -system.port_g[index - 1]
+        matrix[index, 0], matrix[index, index] = -0.5, model.Z0
+        rhs[index] = 0.5 * e_old - model.L @ state
+    expected = np.linalg.solve(matrix, rhs)
+    system.update(grid)
+    tolerance = 3e-6 if dtype is np.float32 else 3e-15
+    assert grid.Ex[1, 1, 1] == pytest.approx(expected[0], rel=tolerance)
+    expected_y = np.concatenate(
+        [
+            model.L * (model.F @ state + model.G * current)
+            for model, state, current in zip(models, x_old, expected[1:])
+        ]
+    )
+    np.testing.assert_allclose(system.state_y, expected_y, rtol=tolerance, atol=tolerance)
+    assert system._pending_pml_rhs is None
+
+
+def test_virtual_owned_rows_preserve_fields_and_foster_states(monkeypatch):
+    import gprMax.impedance_surfaces as implementation
+
+    system, grid, _, _ = _two_port_local_runtime()
+    monkeypatch.setattr(
+        implementation.config, "get_model_config", lambda: SimpleNamespace(ompthreads=1)
+    )
+    system.virtual_frozen_edges = system.edge_info[:, :4].copy()
+    expected_e, expected_y = grid.Ex.copy(), system.state_y.copy()
+    system.update(grid)
+    np.testing.assert_array_equal(grid.Ex, expected_e)
+    np.testing.assert_array_equal(system.state_y, expected_y)
+
+
+def test_solved_forcing_updates_complex_bulk_history_without_changing_old_e(monkeypatch):
+    from copy import deepcopy
+
+    import gprMax.impedance_surfaces as implementation
+
+    system, grid, _, _ = _two_port_local_runtime()
+    system.pole_offsets = np.asarray([0, 1], dtype=np.int32)
+    system.pole_coeffs = np.asarray([[0.8, 0.1, 0.03, -0.02, 0.2, 0.04]])
+    system.state_p = np.asarray([[0.1, -0.2]])
+    reference, reference_grid = deepcopy(system), deepcopy(grid)
+    monkeypatch.setattr(
+        implementation.config, "get_model_config", lambda: SimpleNamespace(ompthreads=1)
+    )
+    forcing = 0.37
+    reference_grid.Hz[1, 0, 1] += forcing / reference.h_weight[0]
+    reference.update(reference_grid)
+    system.update(grid)
+    system.apply_electric_correction(grid, [0], [forcing * system.edge_runtime[0, 1]])
+    np.testing.assert_allclose(grid.Ex, reference_grid.Ex, rtol=2e-15)
+    np.testing.assert_allclose(system.state_y, reference.state_y, rtol=2e-15)
+    np.testing.assert_allclose(system.state_p, reference.state_p, rtol=2e-15)
+
+
 def test_python_and_cython_local_foster_updates_match_dense_two_port_reference():
     from gprMax.cython.impedance_surface import update_impedance_surfaces
 

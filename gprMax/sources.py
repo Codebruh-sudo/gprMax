@@ -19,6 +19,7 @@ import logging
 import math
 from bisect import bisect_left, bisect_right
 from copy import copy, deepcopy
+from types import SimpleNamespace
 
 import numpy as np
 import numpy.typing as npt
@@ -337,6 +338,10 @@ class EigenmodeSource(Source):
         self.mode_index = None
         self.mode_count = None
         self.mode_indices = ()
+        self.degenerate = ()
+        self.mode_polarizations = {}
+        self.degenerate_diagnostics = []
+        self._degenerate_masks = {}
         self.frequency = None
         self.frequencies = None
         self.anchor_policy = "explicit"
@@ -440,6 +445,9 @@ class EigenmodeSource(Source):
 
     def grid_init(self, G):
         """Prepare source data that depends on the final built Yee grid."""
+        if self.degenerate:
+            self._tracking_grid = SimpleNamespace(dl=np.array(G.dl, copy=True))
+            self._tracking_impedance = config.sim_config.em_consts["z0"]
         if self.plane_index is None:
             self.plane_index = self._select_plane_index(G)
         frequencies = tuple(self.frequencies or (self.frequency,))
@@ -465,6 +473,10 @@ class EigenmodeSource(Source):
                 (self.mode_solver,),
                 tuple(self.mode_indices or range(1, self.mode_count + 1)),
             )
+            if self.degenerate:
+                position = self.mode_indices.index(self.mode_index)
+                self.modal_e = self.port_anchor_e[0][position]
+                self.modal_h = self.port_anchor_h[0][position]
             self._prepare_single_frequency_injection(G)
         self._register_port_monitor(G)
 
@@ -704,6 +716,9 @@ class EigenmodeSource(Source):
             )
 
         phase = -0.5 * np.angle(unconjugated_energy)
+        if any(self.mode_index in group for group in self.degenerate):
+            # The bank owns the channel phase, including coherent drives.
+            phase = 0.0
         phase_factor = np.exp(1j * phase)
         self.modal_e = [field * phase_factor for field in self.modal_e]
         self.modal_h = [field * phase_factor for field in self.modal_h]
@@ -883,6 +898,15 @@ class EigenmodeSource(Source):
                 port_admittances=admittances,
                 normalization_angular_frequency=port_responses[0].discrete_angular_frequency,
             )
+            relative_permittivity += system.polarization_admittance(
+                edge_index,
+                port_responses[0].theta,
+            ) / (
+                1j
+                * port_responses[0].discrete_angular_frequency
+                * config.sim_config.em_consts["e0"]
+                * retained_dual_area
+            )
             magnetic_terms = self._surface_boundary_magnetic_terms(
                 G,
                 system,
@@ -953,11 +977,14 @@ class EigenmodeSource(Source):
         if electric_axis < 2:
             expected_weight = retained_dual_area / float(G.dl[self.normal_axis])
             values = np.asarray(tuple(longitudinal_weights.values()), dtype=np.float64)
-            tolerance = 1e-10 * max(expected_weight, 1e-300)
+            relative_tolerance = max(1e-10, 16 * np.finfo(system.h_weight.dtype).eps)
+            tolerance = relative_tolerance * max(expected_weight, 1e-300)
             if (
                 len(longitudinal_weights) != 2
                 or abs(float(np.sum(values))) > tolerance
-                or not np.allclose(np.abs(values), expected_weight, rtol=1e-10, atol=tolerance)
+                or not np.allclose(
+                    np.abs(values), expected_weight, rtol=relative_tolerance, atol=tolerance
+                )
             ):
                 raise ValueError(
                     "surface-impedance eigenmodes require a propagation-invariant "
@@ -1132,6 +1159,26 @@ class EigenmodeSource(Source):
             anchor_h.append(frequency_h)
             anchor_neff.append(frequency_neff)
 
+        if self.degenerate:
+            from gprMax.eigenmode_tracking import align_groups
+            from gprMax.eigenmode_tracking import balanced_power as group_balanced_power
+
+            align_groups(
+                self,
+                self._tracking_grid,
+                frequencies,
+                solvers,
+                mode_indices,
+                anchor_e,
+                anchor_h,
+                propagating,
+            )
+            for position in self._degenerate_masks:
+                for k in range(len(frequencies)):
+                    balanced_power[k, position] = group_balanced_power(
+                        self, self._tracking_grid, anchor_e[k][position], anchor_h[k][position]
+                    )
+
         valid, reference_valid, policies, overlaps = self._resolve_mode_anchor_masks(
             frequencies,
             solvers,
@@ -1207,6 +1254,20 @@ class EigenmodeSource(Source):
 
         for mode_position, mode_index in enumerate(mode_indices):
             retained = list(range(anchor_count))
+            if mode_position in self._degenerate_masks:
+                active = self._degenerate_masks[mode_position]
+                valid[:, mode_position] = active
+                reference_valid[:, mode_position] = active
+                overlaps[:, mode_position] = self._degenerate_overlaps[mode_position]
+                policies.append(
+                    self._anchor_policy_name(
+                        automatic=automatic,
+                        guard_trimmed=self._degenerate_guard_trimmed[mode_position],
+                        nonpropagating_trimmed=not np.all(propagating[:, mode_position]),
+                        fallback=False,
+                    )
+                )
+                continue
             guard_trimmed = False
             fallback = False
             while len(retained) > 1:
@@ -1530,6 +1591,11 @@ class EigenmodeSource(Source):
             fdtd_dt=G.dt,
             propagation_spacing=G.dl[self.normal_axis],
         )
+        solver.retain_tracking_operator = bool(self.degenerate)
+        if self.degenerate and np.count_nonzero(solver.free_euv_mask) > solver.num_modes + 1:
+            # An extra candidate detects a missing partner at the requested
+            # bank's upper edge; it does not become a public channel.
+            solver.num_modes += 1
         solver.solve()
 
         self.mode_solver = solver
@@ -1542,6 +1608,10 @@ class EigenmodeSource(Source):
 
     def _solve_eigenmode_2d(self, G):
         """Solve a true 1D mode for a 2D TM/TE FDTD model."""
+        from gprMax.fdfd_eigenmode_solver.surface_impedance_operator import (
+            project_surface_boundary_1d,
+        )
+
         solver_inputs = self._one_dimensional_solver_inputs(G)
         solver = FDFD_1D_mode_solver(
             frequency=self.frequency,
@@ -1550,6 +1620,11 @@ class EigenmodeSource(Source):
             polarization=self.domain_polarization,
             fdtd_dt=G.dt,
             propagation_spacing=G.dl[self.normal_axis],
+            surface_boundary=project_surface_boundary_1d(
+                self.fdfd_surface_boundary,
+                self.transverse_axes.index(self.invariant_axis),
+                1 if self.domain_polarization == "TE" else 0,
+            ),
             **solver_inputs,
         )
         solver.solve()
@@ -2168,14 +2243,24 @@ class EigenmodeSource(Source):
         output_dir = input_path.parent
         frequencies = tuple(self.port_anchor_frequencies or self.frequencies or (self.frequency,))
         solvers = tuple(self.port_mode_solvers or self.mode_solvers or (self.mode_solver,))
+        if self.degenerate:
+            from gprMax.eigenmode_tracking import aligned_plot_solvers
+
+            solvers = aligned_plot_solvers(self, solvers)
         mode_indices = tuple(self.mode_indices or range(1, self.mode_count + 1))
         for mode_index in mode_indices:
+            plot_solvers, plot_frequencies = solvers, frequencies
+            if any(mode_index in group for group in self.degenerate):
+                position = mode_indices.index(mode_index)
+                active = np.flatnonzero(self.port_anchor_mode_reference_valid[:, position])
+                plot_solvers = tuple(solvers[index] for index in active)
+                plot_frequencies = tuple(frequencies[index] for index in active)
             field_path = (
                 output_dir / f"{input_path.stem}_Port{self.port_index}_Mode{mode_index}.png"
             )
             plot_eigenmode_port_fields(
-                solvers=solvers,
-                frequencies=frequencies,
+                solvers=plot_solvers,
+                frequencies=plot_frequencies,
                 mode_index=mode_index,
                 port_index=self.port_index,
                 output_path=field_path,
@@ -2827,6 +2912,9 @@ class EigenmodeReceiver(EigenmodeSource):
 
     def grid_init(self, G):
         frequencies = tuple(self.frequencies or (self.frequency,))
+        if self.degenerate:
+            self._tracking_grid = SimpleNamespace(dl=np.array(G.dl, copy=True))
+            self._tracking_impedance = config.sim_config.em_consts["z0"]
         mode_indices = tuple(self.mode_indices)
         if not mode_indices:
             raise ValueError("An eigenmode receiver requires at least one mode index.")
@@ -2921,9 +3009,7 @@ class VoltageSource(Source):
 
         if not src_match:
             waveform = next(x for x in G.waveforms if x.ID == self.waveformID)
-            values = np.zeros(
-                (G.iterations + 1), dtype=config.sim_config.dtypes["float_or_double"]
-            )
+            values = np.zeros((G.iterations + 1), dtype=config.sim_config.dtypes["float_or_double"])
             setattr(self, name, values)
             offset = 0.0 if self.resistance == 0 else 0.5 * G.dt
 
@@ -2950,9 +3036,7 @@ class VoltageSource(Source):
         if not self.start <= sample * G.dt <= self.stop:
             return False
         field, dl = {"x": (Ex, G.dx), "y": (Ey, G.dy), "z": (Ez, G.dz)}[self.polarisation]
-        field[self.xcoord, self.ycoord, self.zcoord] = (
-            -self.waveformvalues_wholedt[sample] / dl
-        )
+        field[self.xcoord, self.ycoord, self.zcoord] = -self.waveformvalues_wholedt[sample] / dl
         return True
 
     def update_electric(self, iteration, updatecoeffsE, ID, Ex, Ey, Ez, G):

@@ -17,8 +17,8 @@
 
 """Sparse surface-impedance models and voxel-boundary compilation.
 
-The first implementation deliberately supports only closed, grid-aligned
-impedance volumes on the main 3-D CPU grid.  Geometry remains represented by
+Grid-aligned impedance volumes support the main 3-D and reduced 2-D CPU
+grids. Geometry remains represented by
 the normal dense Yee arrays, but conductor-interior components are assigned a
 private void coefficient row and boundary tangential electric edges are owned
 by this sparse subsystem.
@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -36,10 +37,15 @@ import numpy.typing as npt
 
 from gprMax import config
 from gprMax.materials import Material
+from gprMax.mode2d import mode2d_geometry
 
 logger = logging.getLogger(__name__)
 
 PRIVATE_IMPEDANCE_ID_PREFIX = "__impedance_"
+# Keep the voxel-boundary update away from the precision-sensitive CFL
+# endpoint. Scene applies this through TimeStepStabilityFactor before any
+# time-dependent objects or coefficients are constructed.
+MAX_SIBC_TIMESTEP_FACTOR = 0.99
 
 try:
     from gprMax.cython.impedance_surface import update_impedance_surfaces as _cython_update
@@ -102,8 +108,14 @@ class SurfaceImpedanceModel:
         conductivity = self.conductivity_s_per_m
         fit_tolerance = self.fit_tolerance
         fit_pole_count = self.fit_pole_count
-        if not all(np.all(np.isfinite(value)) for value in (A, B, C)) or not np.isfinite(D):
-            raise ValueError("surface-impedance realization coefficients must be finite")
+        pmc = order == 0 and np.isposinf(D)
+        if not all(np.all(np.isfinite(value)) for value in (A, B, C)) or not (
+            np.isfinite(D) or pmc
+        ):
+            raise ValueError(
+                "surface-impedance realization coefficients must be finite, "
+                "except positive infinite zero-order resistance (PMC)"
+            )
         if fmin < 0 or not np.isfinite(fmin) or np.isnan(fmax) or fmax <= fmin:
             raise ValueError("surface-impedance fit band must satisfy 0 <= fmin < fmax")
         if order and np.any(np.real(np.linalg.eigvals(A)) >= 0):
@@ -160,6 +172,11 @@ class SurfaceImpedanceModel:
     @property
     def order(self) -> int:
         return int(self.A.shape[0])
+
+    @property
+    def is_pmc(self) -> bool:
+        """Exact zero-admittance, opaque PMC at the main-voxel boundary."""
+        return self.order == 0 and bool(np.isposinf(self.D))
 
     @property
     def model_hash(self) -> str:
@@ -223,6 +240,13 @@ class SurfaceImpedanceModel:
         dt = float(dt)
         if not np.isfinite(dt) or dt <= 0:
             raise ValueError("surface-impedance time step must be finite and positive")
+        if self.is_pmc:
+            return DiscreteSurfaceImpedance(
+                np.empty((0, 0), dtype=np.float64),
+                np.empty(0, dtype=np.float64),
+                np.empty(0, dtype=np.float64),
+                np.inf,
+            )
         identity = np.eye(self.order)
         left = identity - 0.5 * dt * self.A
         right = identity + 0.5 * dt * self.A
@@ -337,12 +361,12 @@ def _sentinel_material(grid, role: str) -> _PrivateImpedanceMaterial:
     return material
 
 
-def _electric_quadrants(owner: npt.NDArray[np.int32], axis: int):
+def _electric_quadrants(owner: npt.NDArray[np.int32], axis: int, *, outside: int = -1):
     """Return cyclic surrounding-cell owner arrays and cell offsets for one E axis."""
 
     nx, ny, nz = owner.shape
     if axis == 0:
-        padded = np.pad(owner, ((0, 0), (1, 1), (1, 1)), constant_values=-1)
+        padded = np.pad(owner, ((0, 0), (1, 1), (1, 1)), constant_values=outside)
         arrays = (
             padded[:, 0 : ny + 1, 0 : nz + 1],
             padded[:, 1 : ny + 2, 0 : nz + 1],
@@ -351,7 +375,7 @@ def _electric_quadrants(owner: npt.NDArray[np.int32], axis: int):
         )
         offsets = ((0, -1, -1), (0, 0, -1), (0, 0, 0), (0, -1, 0))
     elif axis == 1:
-        padded = np.pad(owner, ((1, 1), (0, 0), (1, 1)), constant_values=-1)
+        padded = np.pad(owner, ((1, 1), (0, 0), (1, 1)), constant_values=outside)
         arrays = (
             padded[0 : nx + 1, :, 0 : nz + 1],
             padded[0 : nx + 1, :, 1 : nz + 2],
@@ -360,7 +384,7 @@ def _electric_quadrants(owner: npt.NDArray[np.int32], axis: int):
         )
         offsets = ((-1, 0, -1), (-1, 0, 0), (0, 0, 0), (0, 0, -1))
     else:
-        padded = np.pad(owner, ((1, 1), (1, 1), (0, 0)), constant_values=-1)
+        padded = np.pad(owner, ((1, 1), (1, 1), (0, 0)), constant_values=outside)
         arrays = (
             padded[0 : nx + 1, 0 : ny + 1, :],
             padded[1 : nx + 2, 0 : ny + 1, :],
@@ -416,7 +440,9 @@ def _vertex_topology_status_table() -> npt.NDArray[np.uint8]:
 _VERTEX_TOPOLOGY_STATUS = _vertex_topology_status_table()
 
 
-def _validate_impedance_voxel_topology(owner: npt.NDArray[np.int32]) -> None:
+def _validate_impedance_voxel_topology(
+    owner: npt.NDArray[np.int32], *, coordinate_offset=(0, 0, 0)
+) -> None:
     """Reject locally non-manifold binary impedance-voxel configurations.
 
     Every non-negative owner is treated as occupied, irrespective of which
@@ -436,7 +462,12 @@ def _validate_impedance_voxel_topology(owner: npt.NDArray[np.int32]) -> None:
         )
         if np.any(diagonal):
             flat_index = int(np.argmax(diagonal))
-            coord = tuple(int(value) for value in np.unravel_index(flat_index, diagonal.shape))
+            coord = tuple(
+                int(value) + offset
+                for value, offset in zip(
+                    np.unravel_index(flat_index, diagonal.shape), coordinate_offset
+                )
+            )
             raise ValueError(
                 "impedance-volume voxel topology is non-manifold at a Yee edge: "
                 f"{axis_names[axis]}-directed edge {coord}; connect the "
@@ -462,7 +493,7 @@ def _validate_impedance_voxel_topology(owner: npt.NDArray[np.int32]) -> None:
     if np.any(status):
         flat_index = int(np.argmax(status))
         lower = tuple(int(value) for value in np.unravel_index(flat_index, status.shape))
-        vertex = tuple(value + 1 for value in lower)
+        vertex = tuple(value + 1 + offset for value, offset in zip(lower, coordinate_offset))
         local_status = int(status[lower])
         disconnected = []
         if local_status & 1:
@@ -494,17 +525,23 @@ def _component_valid_view(array: np.ndarray, component: int, grid):
 
 
 def _assign_magnetic_component_ids(grid, owner, void_numid: int) -> None:
-    """Void interior H and restore interface-normal H from the retained cell."""
+    """Void interior H and restore unconstrained interface H from the retained cell."""
 
     shapes = (
         (grid.nx + 1, grid.ny, grid.nz),
         (grid.nx, grid.ny + 1, grid.nz),
         (grid.nx, grid.ny, grid.nz + 1),
     )
+    reduced = mode2d_geometry(config.get_model_config().mode)
     for axis, shape in enumerate(shapes):
+        if reduced and f"H{'xyz'[axis]}" not in reduced.active_magnetic:
+            continue
         padding = [(0, 0), (0, 0), (0, 0)]
         padding[axis] = (1, 1)
-        padded = np.pad(owner, padding, constant_values=-1)
+        # Outside the physical grid is neither retained dielectric (-1) nor
+        # an impedance owner. At a symmetry cut through metal, normal H is
+        # interior to the reflected body, not an exposed surface sample.
+        padded = np.pad(owner, padding, constant_values=-2)
         low_slice = [slice(None), slice(None), slice(None)]
         high_slice = [slice(None), slice(None), slice(None)]
         low_slice[axis] = slice(0, shape[axis])
@@ -512,10 +549,21 @@ def _assign_magnetic_component_ids(grid, owner, void_numid: int) -> None:
         low = padded[tuple(low_slice)]
         high = padded[tuple(high_slice)]
         target = grid.ID[3 + axis][tuple(slice(0, value) for value in shape)]
-        both = (low >= 0) & (high >= 0)
-        target[both] = void_numid
-        interface = (low >= 0) ^ (high >= 0)
+        has_metal = (low >= 0) | (high >= 0)
+        if reduced:
+            live = np.zeros(shape, dtype=bool)
+            selection = [slice(None)] * 3
+            selection[reduced.invariant_axis] = reduced.live_index
+            live[tuple(selection)] = True
+            has_metal &= live
+        has_retained = (low == -1) | (high == -1)
+        target[has_metal & ~has_retained] = void_numid
+        interface = has_metal & has_retained
         for coord in np.argwhere(interface):
+            if grid.materials[int(target[tuple(coord)])].is_pmc:
+                # Preserve an explicit component constraint, including a
+                # MagneticEdge with no corresponding PMC voxel in solid.
+                continue
             cell = coord.copy()
             if high[tuple(coord)] >= 0:
                 cell[axis] -= 1
@@ -551,8 +599,6 @@ def _check_plane_wave_compatibility(
 
 
 def _check_supported_configuration(grid, boundary_keys: set[tuple[int, int, int, int]]) -> None:
-    if config.get_model_config().mode != "3D":
-        raise ValueError("impedance volumes currently support only 3-D models")
     if config.sim_config.general["solver"] != "cpu":
         raise ValueError("impedance volumes currently support only the CPU solver")
     from gprMax.subgrids.grid import SubGridBaseGrid
@@ -565,18 +611,7 @@ def _check_supported_configuration(grid, boundary_keys: set[tuple[int, int, int,
         raise ValueError("impedance volumes are not yet supported in subgridded models")
     if grid.thinwires:
         raise ValueError("impedance volumes cannot yet share a grid with thin wires")
-    if grid.virtual_waveguides:
-        raise ValueError(
-            "impedance volumes do not yet support virtual waveguides; use direct "
-            "EigenmodePort planes"
-        )
     _check_plane_wave_compatibility(grid.discreteplanewaves, boundary_keys)
-    if grid.symmetry_boundaries:
-        raise ValueError("impedance volumes cannot yet share a grid with symmetry boundaries")
-
-    for component, i, j, k in boundary_keys:
-        if grid.within_pml(np.asarray((i, j, k), dtype=np.int32)):
-            raise ValueError("impedance-volume boundary cannot intersect a PML")
 
     writers: Iterable = (
         list(grid.voltagesources)
@@ -617,6 +652,10 @@ class ImpedanceSurfaceSystem:
         model_Z0,
         state_y,
         model_ids,
+        edge_dispersion=None,
+        pole_offsets=None,
+        pole_coeffs=None,
+        state_p=None,
     ):
         self.edge_info = edge_info
         self.edge_params = edge_params
@@ -636,6 +675,18 @@ class ImpedanceSurfaceSystem:
         self.model_Z0 = model_Z0
         self.state_y = state_y
         self.model_ids = tuple(model_ids)
+        # S = epsilon0 * retained_area * T is a boundary-owned bulk history.
+        # Store complex values as real/imaginary pairs in the field precision,
+        # so the same sparse kernel handles Debye and complex Lorentz poles.
+        dtype = edge_runtime.dtype
+        self.edge_dispersion = (
+            np.empty((0, 2), dtype=dtype) if edge_dispersion is None else edge_dispersion
+        )
+        self.pole_offsets = np.empty(0, dtype=np.int32) if pole_offsets is None else pole_offsets
+        self.pole_coeffs = np.empty((0, 6), dtype=dtype) if pole_coeffs is None else pole_coeffs
+        self.state_p = (
+            np.zeros((len(self.pole_coeffs), 2), dtype=dtype) if state_p is None else state_p
+        )
 
     @property
     def edge_count(self) -> int:
@@ -647,6 +698,168 @@ class ImpedanceSurfaceSystem:
 
     def reset(self) -> None:
         self.state_y.fill(0)
+        self.state_p.fill(0)
+        self._pending_pml_rhs = None
+        self._pending_modal_delta = None
+
+    def capture_modal_source(self, grid, source, iteration):
+        """Collect modal forcing for the implicit solve without modifying old E.
+
+        Native modal kernels use dense curl coefficients, which are zero on
+        held SIBC rows. A source-only coefficient table supplies A/den/dn on
+        those rows and zero elsewhere. The resulting solved E increment is
+        applied after the sparse solve together with its ADE correction.
+        """
+        normal = int(source.normal_axis)
+        indices = np.flatnonzero(
+            (self.edge_info[:, 0] != normal) & (self.edge_info[:, normal + 1] == source.plane_index)
+        )
+        if not len(indices):
+            return
+        if not hasattr(self, "_modal_source_tables"):
+            self._modal_source_tables = {}
+        if normal not in self._modal_source_tables:
+            ids = np.zeros(self.edge_count, dtype=grid.ID.dtype)
+            coefficients = list(np.zeros_like(grid.updatecoeffsE))
+            material_rows = {}
+            for index, edge in enumerate(self.edge_info):
+                if edge[0] == normal:
+                    continue
+                area = float(self.edge_fraction[index]) * float(
+                    np.prod(np.delete(grid.dl, edge[0]))
+                )
+                coefficient = area * float(self.edge_runtime[index, 1]) / grid.dl[normal]
+                if coefficient not in material_rows:
+                    row = np.zeros(grid.updatecoeffsE.shape[1], dtype=grid.updatecoeffsE.dtype)
+                    row[normal + 1] = coefficient
+                    material_rows[coefficient] = len(coefficients)
+                    coefficients.append(row)
+                ids[index] = material_rows[coefficient]
+            self._modal_source_tables[normal] = ids, np.ascontiguousarray(coefficients)
+        edges = self.edge_info[indices, :4]
+        held = []
+        for component, field in enumerate((grid.Ex, grid.Ey, grid.Ez)):
+            selection = np.flatnonzero(edges[:, 0] == component)
+            points = tuple(edges[selection, 1:].T)
+            held.append((field, points, field[points].copy(), selection))
+            field[points] = 0
+        id_points = tuple(edges.T)
+        original_ids = grid.ID[id_points].copy()
+        coefficients = grid.updatecoeffsE
+        delta = np.zeros(len(indices), dtype=self.edge_runtime.dtype)
+        try:
+            source_ids, grid.updatecoeffsE = self._modal_source_tables[normal]
+            grid.ID[id_points] = source_ids[indices]
+            source.update_eigenmode_electric(iteration, grid)
+            for field, points, _, selection in held:
+                delta[selection] = field[points]
+        finally:
+            grid.ID[id_points] = original_ids
+            grid.updatecoeffsE = coefficients
+            for field, points, values, _ in held:
+                field[points] = values
+        if getattr(self, "_pending_modal_delta", None) is None:
+            self._pending_modal_delta = np.zeros(self.edge_count, dtype=self.edge_runtime.dtype)
+        self._pending_modal_delta[indices] += delta
+
+    @contextmanager
+    def capture_electric_pml(self, grid):
+        """Collect native PML circulation without changing the physical old E.
+
+        Electric PML kernels read only H and their own convolution histories.
+        Temporarily zeroing the held boundary E therefore gives the additive
+        correction directly, without subtracting nearly equal field values.
+        """
+        indices = getattr(self, "pml_edge_indices", ())
+        if not len(indices):
+            yield
+            return
+        edges = self.edge_info[indices, :4]
+        held = []
+        for component, field in enumerate((grid.Ex, grid.Ey, grid.Ez)):
+            selection = np.flatnonzero(edges[:, 0] == component)
+            points = tuple(edges[selection, 1:].T)
+            held.append((field, points, field[points].copy(), selection))
+            field[points] = 0
+        correction = np.zeros(len(indices), dtype=self.edge_runtime.dtype)
+        try:
+            yield
+            for field, points, _, selection in held:
+                correction[selection] = field[points]
+            self._pending_pml_rhs = correction * self.pml_edge_scale
+        finally:
+            for field, points, values, _ in held:
+                field[points] = values
+
+    def _electric_correction_states(self):
+        """Map an additive solved E increment to its trapezoidal histories."""
+        if not hasattr(self, "_correction_states"):
+            edge_indices, state_indices, weights = [], [], []
+            for edge_index, edge in enumerate(self.edge_info):
+                for port in range(int(edge[6]), int(edge[6] + edge[7])):
+                    model, start = self.port_info[port]
+                    count, coefficient = self.model_info[model]
+                    edge_indices.extend([edge_index] * count)
+                    state_indices.extend(range(start, start + count))
+                    weights.extend(
+                        self.model_q[coefficient : coefficient + count]
+                        * (0.5 * self.port_inv_Z0[port])
+                    )
+            self._correction_states = (
+                np.asarray(edge_indices, dtype=np.intp),
+                np.asarray(state_indices, dtype=np.intp),
+                np.asarray(weights, dtype=self.edge_runtime.dtype),
+            )
+        return self._correction_states
+
+    def apply_electric_correction(self, grid, edge_indices, delta_e, *, update_fields=True):
+        """Add solved forcing and its exact linear Foster/polarization response.
+
+        For a circulation forcing r, delta_e = r / denominator. Correcting
+        y by q*delta_e/(2*Z0) is algebraically identical to including r in the
+        implicit edge solve; treating it as a change to E_old is not.
+        """
+        edge_indices = np.asarray(edge_indices, dtype=np.intp)
+        delta_e = np.asarray(delta_e, dtype=self.edge_runtime.dtype)
+        if update_fields:
+            edges = self.edge_info[edge_indices, :4]
+            for component, field in enumerate((grid.Ex, grid.Ey, grid.Ez)):
+                selection = edges[:, 0] == component
+                field[tuple(edges[selection, 1:].T)] += delta_e[selection]
+        if self.state_y.size:
+            full_delta = np.zeros(self.edge_count, dtype=self.edge_runtime.dtype)
+            full_delta[edge_indices] = delta_e
+            rows, states, weights = self._electric_correction_states()
+            self.state_y[states] += weights * full_delta[rows]
+        if self.pole_coeffs.size:
+            for row, increment in zip(edge_indices, delta_e):
+                start, stop = self.pole_offsets[row : row + 2]
+                self.state_p[start:stop] -= self.pole_coeffs[start:stop, 2:4] * increment
+
+    def polarization_admittance(self, edge_index: int, theta: float) -> complex:
+        """Exact harmonic bulk-polarization load relative to midpoint-time E.
+
+        The real-output recurrence is S' = f*S + b*(E_old-E_new),
+        Phi = Re(c*S). Both conjugate branches are needed for Lorentz poles;
+        taking the real part of a complex-frequency transfer is incorrect.
+        The instantaneous and Drude conductivity terms are included here,
+        leaving edge_params as the physical epsilon-infinity/sigma masses.
+        """
+        if not self.pole_coeffs.size:
+            return 0j
+        start, stop = self.pole_offsets[edge_index : edge_index + 2]
+        coefficients = self.pole_coeffs[start:stop].astype(np.float64)
+        f = coefficients[:, 0] + 1j * coefficients[:, 1]
+        b = coefficients[:, 2] + 1j * coefficients[:, 3]
+        c = coefficients[:, 4] + 1j * coefficients[:, 5]
+        z = np.exp(1j * theta)
+        cb = c * b
+        transfer = 0.5 * np.sum(cb / (z - f) + cb.conj() / (z - f.conj()))
+        plus, minus = self.edge_dispersion[edge_index].astype(np.float64)
+        return complex(
+            1j * np.sin(theta / 2) * (plus + minus - 2 * transfer)
+            + np.cos(theta / 2) * (plus - minus)
+        )
 
     @staticmethod
     def _field(fields, component, i, j, k):
@@ -666,6 +879,16 @@ class ImpedanceSurfaceSystem:
                 r_h += self.h_weight[h_index] * magnetic[h_component][hi, hj, hk]
             old_e_coefficient, inverse_denominator = self.edge_runtime[edge_index]
             rhs = old_e_coefficient * e_old + r_h
+            if self.pole_coeffs.size:
+                start, stop = self.pole_offsets[edge_index : edge_index + 2]
+                coefficients = self.pole_coeffs[start:stop]
+                states = self.state_p[start:stop]
+                rhs -= float(
+                    np.sum(
+                        coefficients[:, 4] * states[:, 0] - coefficients[:, 5] * states[:, 1],
+                        dtype=np.float64,
+                    )
+                )
             histories = []
             for port_index in range(port_start, port_start + port_count):
                 model_index, state_start = self.port_info[port_index]
@@ -676,6 +899,19 @@ class ImpedanceSurfaceSystem:
                 rhs -= self.port_g_over_Z0[port_index] * history
             e_new = rhs * inverse_denominator
             electric[component][i, j, k] = e_new
+            if self.pole_coeffs.size:
+                old_real = states[:, 0].copy()
+                old_imag = states[:, 1].copy()
+                states[:, 0] = (
+                    coefficients[:, 0] * old_real
+                    - coefficients[:, 1] * old_imag
+                    + coefficients[:, 2] * (e_old - e_new)
+                )
+                states[:, 1] = (
+                    coefficients[:, 1] * old_real
+                    + coefficients[:, 0] * old_imag
+                    + coefficients[:, 3] * (e_old - e_new)
+                )
             midpoint_e = 0.5 * (e_new + e_old)
             for history, port_index in zip(
                 histories,
@@ -697,11 +933,70 @@ class ImpedanceSurfaceSystem:
                 )
 
     def update(self, grid) -> None:
+        # A virtual guide owns its aperture E and detached rear. Preserve
+        # those completed values without changing the physical sparse rows,
+        # which modal extraction and metadata still need on reused runs.
+        frozen = getattr(self, "virtual_frozen_edges", None)
+        held = []
+        held_states = []
+        if frozen is not None and len(frozen):
+            for component, field in enumerate((grid.Ex, grid.Ey, grid.Ez)):
+                points = frozen[frozen[:, 0] == component, 1:]
+                indices = tuple(points.T)
+                held.append((field, indices, field[indices].copy()))
+            if getattr(self, "_frozen_state_key", None) is not frozen:
+                coordinates = {tuple(edge) for edge in frozen}
+                frozen_rows = [
+                    index
+                    for index, edge in enumerate(self.edge_info)
+                    if tuple(edge[:4]) in coordinates
+                ]
+                rows, states, _ = self._electric_correction_states()
+                self._frozen_y = states[np.isin(rows, frozen_rows)]
+                self._frozen_p = np.asarray(
+                    [
+                        pole
+                        for row in frozen_rows
+                        for pole in (
+                            range(*self.pole_offsets[row : row + 2])
+                            if self.pole_coeffs.size
+                            else ()
+                        )
+                    ],
+                    dtype=np.intp,
+                )
+                self._frozen_state_key = frozen
+            held_states = [
+                (self.state_y, self._frozen_y, self.state_y[self._frozen_y].copy()),
+                (self.state_p, self._frozen_p, self.state_p[self._frozen_p].copy()),
+            ]
+        try:
+            self._advance(grid)
+            rhs = getattr(self, "_pending_pml_rhs", None)
+            if rhs is not None:
+                indices = self.pml_edge_indices
+                self.apply_electric_correction(grid, indices, rhs * self.edge_runtime[indices, 1])
+            delta = getattr(self, "_pending_modal_delta", None)
+            if delta is not None:
+                indices = np.flatnonzero(delta)
+                self.apply_electric_correction(grid, indices, delta[indices])
+        finally:
+            self._pending_pml_rhs = None
+            self._pending_modal_delta = None
+            for field, indices, values in held:
+                field[indices] = values
+            for state, indices, values in held_states:
+                state[indices] = values
+
+    def _advance(self, grid) -> None:
         if not self.edge_count:
             return
         if _cython_update is None:
             self._update_python(grid)
             return
+        polarization = (
+            (self.pole_offsets, self.pole_coeffs, self.state_p) if self.pole_coeffs.size else ()
+        )
         _cython_update(
             config.get_model_config().ompthreads,
             self.edge_info,
@@ -721,6 +1016,7 @@ class ImpedanceSurfaceSystem:
             grid.Hx,
             grid.Hy,
             grid.Hz,
+            *polarization,
         )
 
 
@@ -746,12 +1042,45 @@ def compile_impedance_surfaces(grid) -> ImpedanceSurfaceSystem | None:
     if not occupied.size:
         grid.impedance_surfaces = None
         return None
+    reduced = mode2d_geometry(config.get_model_config().mode)
+    if reduced:
+        section = np.take(grid.solid, 0, axis=reduced.invariant_axis)
+        if not np.all(grid.solid == np.expand_dims(section, reduced.invariant_axis)):
+            raise ValueError(
+                "2-D impedance geometry and retained materials must be uniform "
+                "across the invariant-axis storage layers; extrude volumes "
+                "through the full invariant dimension using float('inf')."
+            )
     minimum = occupied.min(axis=0)
     maximum = occupied.max(axis=0)
-    if np.any(minimum == 0) or np.any(maximum == np.asarray(owner.shape) - 1):
-        raise ValueError("an impedance volume must have at least one retained cell on every side")
+    symmetry = grid.symmetry_boundaries
+    mirror_padding = []
+    for axis, letter in enumerate("xyz"):
+        if reduced and axis == reduced.invariant_axis:
+            mirror_padding.append((1, 1))
+            continue
+        faces = (f"{letter}0", f"{letter}max")
+        mirrored = tuple(symmetry.get(face) in ("pec", "pmc") for face in faces)
+        touches = (minimum[axis] == 0, maximum[axis] == owner.shape[axis] - 1)
+        continued = tuple(grid.pmls["thickness"][face] > 0 for face in faces)
+        for face, contact, mirror, continuation in zip(faces, touches, mirrored, continued):
+            if contact and not (mirror or continuation):
+                raise ValueError(
+                    "an impedance volume must have at least one retained cell on every "
+                    f"non-symmetry side; it touches domain face {face}"
+                )
+        mirror_padding.append(
+            tuple(int(mirror or continuation) for mirror, continuation in zip(mirrored, continued))
+        )
 
+    # Check connectivity in the reflected geometry too, but report coordinates
+    # in the original grid. Only one image cell per declared face is needed.
     _validate_impedance_voxel_topology(owner)
+    if any(any(width) for width in mirror_padding):
+        _validate_impedance_voxel_topology(
+            np.pad(owner, mirror_padding, mode="edge"),
+            coordinate_offset=tuple(-width[0] for width in mirror_padding),
+        )
 
     hold = _sentinel_material(grid, "surface-hold")
     void = _sentinel_material(grid, "volume-void")
@@ -760,6 +1089,10 @@ def compile_impedance_surfaces(grid) -> ImpedanceSurfaceSystem | None:
     edge_records = []
     edge_params = []
     edge_fractions = []
+    edge_dispersion = []
+    pole_offsets = [0]
+    pole_coeffs = []
+    material_dispersion = {}
     h_records = []
     h_weights = []
     port_models = []
@@ -767,6 +1100,8 @@ def compile_impedance_surfaces(grid) -> ImpedanceSurfaceSystem | None:
     port_normals = []
     port_areas = []
     boundary_keys = set()
+    pec_contact_count = 0
+    pec_contact_examples = []
     dl = np.asarray((grid.dx, grid.dy, grid.dz), dtype=np.float64)
     e0 = float(config.sim_config.em_consts["e0"])
     side_b = (-1, 1, 1, -1)
@@ -775,30 +1110,83 @@ def compile_impedance_surfaces(grid) -> ImpedanceSurfaceSystem | None:
     across_c = (3, 2, 1, 0)
 
     for axis in range(3):
+        if reduced and f"E{'xyz'[axis]}" not in reduced.active_electric:
+            continue
         b_axis = (axis + 1) % 3
         c_axis = (axis + 2) % 3
-        quadrants, offsets = _electric_quadrants(owner, axis)
+        quadrants, offsets = _electric_quadrants(owner, axis, outside=-2)
         metal = tuple(value >= 0 for value in quadrants)
         count = sum(value.astype(np.uint8) for value in metal)
+        physical_count = sum((value != -2).astype(np.uint8) for value in quadrants)
         target = _component_valid_view(grid.ID[axis], axis, grid)
-        target[count == 4] = void.numID
+        eligible = np.ones(count.shape, dtype=bool)
+        if reduced:
+            eligible[:] = False
+            selection = [slice(None)] * 3
+            selection[reduced.invariant_axis] = reduced.live_index
+            eligible[tuple(selection)] = True
+        target[(count == physical_count) & eligible] = void.numID
 
-        for coord_array in np.argwhere((count > 0) & (count < 4)):
+        for coord_array in np.argwhere((count > 0) & (count < physical_count) & eligible):
             coord = tuple(int(value) for value in coord_array)
+            # Keep every geometric boundary edge in compatibility checks,
+            # including edges subsequently constrained by PEC.
+            boundary_keys.add((axis, *coord))
             qowners = [int(values[coord]) for values in quadrants]
-            retained = [index for index, value in enumerate(qowners) if value < 0]
+            # On a PMC symmetry plane the contour closes with H_t=0. Keep
+            # only physical quadrants: their half area and half port lengths
+            # give the same E update as odd-H images, without counting image
+            # surface area or allocating duplicate surface-current states.
+            # PEC symmetry E IDs are preserved by the constraint branch below.
+            retained = [index for index, value in enumerate(qowners) if value == -1]
+            retained_materials = {}
+            for quadrant in retained:
+                cell = tuple(coord[dim] + offsets[quadrant][dim] for dim in range(3))
+                material = grid.materials[int(grid.solid[cell])]
+                # Directional geometry now stores an anisotropic material in
+                # solid (older geometry used a dielectric-smoothed average).
+                # This scalar boundary compiler cannot resolve its conductor
+                # axis. Preserve the guard for both material representations.
+                if material.type in ("dielectric-smoothed", "anisotropic") and (
+                    material.is_pec or material.is_pmc
+                ):
+                    raise ValueError(
+                        "impedance-volume boundary does not yet support directional "
+                        "PEC/PMC mixtures; use isotropic PEC/PMC volumes"
+                    )
+                retained_materials[quadrant] = material
+
+            pec_quadrants = [q for q, material in retained_materials.items() if material.is_pec]
+            existing_material = grid.materials[int(target[coord])]
+            if pec_quadrants or existing_material.is_pec:
+                # A PEC incident voxel constrains the shared tangential E
+                # even when a later impedance primitive overwrote its ID.
+                # Also preserve explicit component constraints (e.g. plates).
+                target[coord] = (
+                    existing_material.numID
+                    if existing_material.is_pec
+                    else retained_materials[pec_quadrants[0]].numID
+                )
+                if len(pec_quadrants) == 1 and len(retained) == 3:
+                    opposite = (pec_quadrants[0] + 2) % 4
+                    if qowners[opposite] >= 0:
+                        pec_contact_count += 1
+                        if len(pec_contact_examples) < 3:
+                            pec_contact_examples.append(f"E{'xyz'[axis]} at {coord}")
+                continue
+
             m_eps = 0.0
             m_sigma = 0.0
             local_h = {}
             local_ports = {}
+            dispersive_areas = {}
             quarter_area = dl[b_axis] * dl[c_axis] / 4
 
             for quadrant in retained:
-                cell = tuple(coord[dim] + offsets[quadrant][dim] for dim in range(3))
-                material = grid.materials[int(grid.solid[cell])]
-                if hasattr(material, "poles"):
-                    raise ValueError(
-                        "impedance-volume boundary does not yet support a dispersive retained material"
+                material = retained_materials[quadrant]
+                if getattr(material, "poles", 0):
+                    dispersive_areas[material.numID] = (
+                        dispersive_areas.get(material.numID, 0.0) + quarter_area
                     )
                 m_eps += e0 * float(material.er) * quarter_area
                 m_sigma += float(material.se) * quarter_area
@@ -826,6 +1214,15 @@ def compile_impedance_surfaces(grid) -> ImpedanceSurfaceSystem | None:
 
             h_start = len(h_records)
             for key, weight in sorted(local_h.items()):
+                h_component, hi, hj, hk = key
+                if reduced and f"H{'xyz'[h_component]}" not in reduced.active_magnetic:
+                    continue
+                h_material = grid.materials[int(grid.ID[3 + h_component, hi, hj, hk])]
+                # Prune only a known-zero term of the existing circulation.
+                # PMC remains a retained electric material: neither area nor
+                # surface-current ports change when an H sample is clamped.
+                if h_material.is_pmc:
+                    continue
                 h_records.append(key)
                 h_weights.append(weight)
             port_start = len(port_models)
@@ -844,21 +1241,56 @@ def compile_impedance_surfaces(grid) -> ImpedanceSurfaceSystem | None:
                     axis,
                     *coord,
                     h_start,
-                    len(local_h),
+                    len(h_records) - h_start,
                     port_start,
                     len(local_ports),
                 )
             )
             edge_params.append((m_eps / grid.dt + m_sigma / 2, m_eps / grid.dt - m_sigma / 2))
+            correction = np.zeros(2, dtype=np.float64)
+            for material_id, area in sorted(dispersive_areas.items()):
+                if material_id not in material_dispersion:
+                    material = grid.materials[material_id]
+                    # Compilation precedes the dense coefficient-table build.
+                    # Reuse its constitutive calculation once per material;
+                    # recalculation later is idempotent, including Drude sigma.
+                    material.calculate_update_coeffsE(grid)
+                    base_plus = e0 * float(material.er) / grid.dt + float(material.se) / 2
+                    base_minus = e0 * float(material.er) / grid.dt - float(material.se) / 2
+                    delta = np.asarray(
+                        (1 / material.srce - base_plus, material.CA / material.srce - base_minus)
+                    )
+                    n = material.poles
+                    f = material.eqt[:n]
+                    b = e0 * material.zt[:n]
+                    c = material.eqt2[:n]
+                    coefficients = np.column_stack((f.real, f.imag, b.real, b.imag, c.real, c.imag))
+                    material_dispersion[material_id] = (delta, coefficients)
+                delta, coefficients = material_dispersion[material_id]
+                correction += area * delta
+                coefficients = coefficients.copy()
+                coefficients[:, 2:4] *= area
+                pole_coeffs.extend(coefficients)
+            edge_dispersion.append(correction)
+            pole_offsets.append(len(pole_coeffs))
             edge_fractions.append(len(retained) / 4)
             target[coord] = hold.numID
-            boundary_keys.add((axis, *coord))
 
     _check_supported_configuration(grid, boundary_keys)
 
     marker_ids = np.asarray(tuple(grid.impedance_marker_models), dtype=np.uint32)
     for component in range(6):
         view = _component_valid_view(grid.ID[component], component, grid)
+        if reduced:
+            active = np.zeros(view.shape, dtype=bool)
+            name = ("E" if component < 3 else "H") + "xyz"[component % 3]
+            if name in (*reduced.active_electric, *reduced.active_magnetic):
+                selection = [slice(None)] * 3
+                selection[reduced.invariant_axis] = reduced.live_index
+                active[tuple(selection)] = True
+            # Marker IDs on inactive storage components must also disappear;
+            # they never acquire a sparse row or a surface-current history.
+            view[np.isin(view, marker_ids) & ~active] = void.numID
         if np.isin(view, marker_ids).any():
             raise RuntimeError("impedance marker material survived component compilation")
 
@@ -899,6 +1331,8 @@ def compile_impedance_surfaces(grid) -> ImpedanceSurfaceSystem | None:
         port_stop = port_start + edge[7]
         metric_admittance = float(np.sum(port_g_over_Z0[port_start:port_stop]))
         a_plus, a_minus = edge_params[edge_index]
+        a_plus += edge_dispersion[edge_index][0]
+        a_minus += edge_dispersion[edge_index][1]
         denominator = a_plus - 0.5 * metric_admittance
         if not np.isfinite(denominator) or denominator <= 0:
             raise ValueError("surface-impedance local edge solve has a non-positive denominator")
@@ -930,8 +1364,25 @@ def compile_impedance_surfaces(grid) -> ImpedanceSurfaceSystem | None:
         model_Z0=packed(model_Z0),
         state_y=np.zeros(max(state_offset, 1), dtype=real_dtype),
         model_ids=model_ids,
+        edge_dispersion=(
+            np.ascontiguousarray(edge_dispersion, dtype=real_dtype) if pole_coeffs else None
+        ),
+        pole_offsets=(np.asarray(pole_offsets, dtype=np.int32) if pole_coeffs else None),
+        pole_coeffs=(np.ascontiguousarray(pole_coeffs, dtype=real_dtype) if pole_coeffs else None),
     )
     grid.impedance_surfaces = system
+    if grid.pmls["slabs"]:
+        from gprMax.impedance_pml import prepare_impedance_pml
+
+        prepare_impedance_pml(grid, system)
+    if pec_contact_count:
+        logger.warning(
+            "PEC and surface-impedance voxels meet diagonally in edge-only contact "
+            f"at {pec_contact_count} Yee edge(s) [{grid.name}]. "
+            f"Examples: {'; '.join(pec_contact_examples)}. "
+            "The shared E components are forced to zero by PEC. "
+            "Verify that these edge-only contacts are intended."
+        )
     logger.info(
         f"Compiled {system.edge_count} impedance boundary E edges and "
         f"{system.port_count} surface-current ports [{grid.name}]."

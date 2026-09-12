@@ -143,13 +143,17 @@ cpdef void update_impedance_surfaces(
     float_or_double[:, :, ::1] Hx,
     float_or_double[:, :, ::1] Hy,
     float_or_double[:, :, ::1] Hz,
+    np.int32_t[::1] pole_offsets=None,
+    float_or_double[:, ::1] pole_coeffs=None,
+    float_or_double[:, ::1] state_p=None,
 ):
     """Advance every boundary E edge and its local scalar Foster states."""
 
-    cdef Py_ssize_t edge_index, h_index
+    cdef Py_ssize_t edge_index, h_index, pole
     cdef int component, i, j, k, h_start, h_count, port_start, port_count
     cdef int h_component, hi, hj, hk
     cdef double e_old, e_new, midpoint_e, r_h, rhs, history0, history1
+    cdef double old_real, old_imag, delta_e
 
     for edge_index in prange(edge_info.shape[0], nogil=True, num_threads=nthreads):
         component = edge_info[edge_index, 0]
@@ -182,8 +186,25 @@ cpdef void update_impedance_surfaces(
             history1 = _port_history(port_start + 1, port_info, model_info, state_y)
             rhs = rhs - port_g_over_Z0[port_start + 1] * history1
 
+        if pole_offsets is not None:
+            for pole in range(pole_offsets[edge_index], pole_offsets[edge_index + 1]):
+                rhs = rhs - (pole_coeffs[pole, 4] * state_p[pole, 0]
+                             - pole_coeffs[pole, 5] * state_p[pole, 1])
+
         e_new = rhs * edge_runtime[edge_index, 1]
         _electric_set(component, i, j, k, e_new, Ex, Ey, Ez)
+
+        if pole_offsets is not None:
+            delta_e = e_old - e_new
+            for pole in range(pole_offsets[edge_index], pole_offsets[edge_index + 1]):
+                old_real = state_p[pole, 0]
+                old_imag = state_p[pole, 1]
+                state_p[pole, 0] = (pole_coeffs[pole, 0] * old_real
+                                   - pole_coeffs[pole, 1] * old_imag
+                                   + pole_coeffs[pole, 2] * delta_e)
+                state_p[pole, 1] = (pole_coeffs[pole, 1] * old_real
+                                   + pole_coeffs[pole, 0] * old_imag
+                                   + pole_coeffs[pole, 3] * delta_e)
 
         midpoint_e = 0.5 * (e_new + e_old)
         _advance_port(

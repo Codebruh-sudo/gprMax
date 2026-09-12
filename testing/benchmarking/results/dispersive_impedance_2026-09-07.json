@@ -1,0 +1,1352 @@
+{
+  "timings": [
+    {
+      "configuration": {
+        "domain_cells": 48,
+        "exterior": "none",
+        "python": "3.14.4",
+        "numpy": "2.4.3",
+        "platform": "Windows-11-10.0.26200-SP0",
+        "processor": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel",
+        "iterations": 250,
+        "threads": 4,
+        "repeats": 3,
+        "kernel_iterations": 1000,
+        "kernel_repeats": 3,
+        "hot_loop_iterations": 250,
+        "hot_loop_repeats": 3,
+        "metal_preset": "copper",
+        "fit_frequency_range_hz": [
+          8000000000.0,
+          12000000000.0
+        ],
+        "fit_tolerance": 0.002,
+        "explicit_orders": [
+          4,
+          8
+        ]
+      },
+      "baseline": {
+        "total_seconds": [
+          0.5954736999997294,
+          0.5471262000000934,
+          0.5767494000001534
+        ],
+        "total_median_seconds": 0.5767494000001534,
+        "solve_seconds": [
+          0.43729099999973187,
+          0.40278330000001006,
+          0.43408329999965645
+        ],
+        "solve_median_seconds": 0.43408329999965645,
+        "bulk_hot_seconds": [
+          0.23846540000022287,
+          0.18215679999957501,
+          0.22197719999985566
+        ],
+        "bulk_hot_median_seconds": 0.22197719999985566
+      },
+      "surface_cases": [
+        {
+          "case": "resistive",
+          "kind": "resistance",
+          "requested_order": null,
+          "selected_poles": 0,
+          "fit_tolerance": null,
+          "fit_max_relative_error": null,
+          "fit_rms_relative_error": null,
+          "port_state_values": 0,
+          "port_state_bytes": 0,
+          "packed_state_array_bytes": 8,
+          "polarization_poles": 0,
+          "polarization_state_bytes": 0,
+          "polarization_coefficient_bytes": 0,
+          "model_local_coefficient_bytes": 24,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            0.844004600000062,
+            0.8300931999997374,
+            0.7236828999998579
+          ],
+          "total_median_seconds": 0.8300931999997374,
+          "total_median_overhead_percent": 43.92614886110269,
+          "solve_seconds": [
+            0.47544399999969755,
+            0.4658356999998432,
+            0.3945426000000225
+          ],
+          "solve_median_seconds": 0.4658356999998432,
+          "solve_median_overhead_percent": 7.314817225221959,
+          "sparse_kernel_seconds": [
+            0.044175800000175514,
+            0.05136660000016491,
+            0.03734069999973144
+          ],
+          "sparse_kernel_median_seconds": 0.044175800000175514,
+          "sparse_edge_updates_per_second": 156465757.26919577,
+          "sparse_port_updates_per_second": 162985163.8220789,
+          "sparse_pole_updates_per_second": 0.0,
+          "sparse_polarization_updates_per_second": 0.0,
+          "bulk_plus_surface_hot_seconds": [
+            0.2232429000000593,
+            0.2087546000002476,
+            0.26632400000016787
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.2232429000000593,
+          "bulk_plus_surface_overhead_percent": 0.5701936956608478
+        },
+        {
+          "case": "metal_auto",
+          "kind": "metal",
+          "requested_order": "auto",
+          "selected_poles": 2,
+          "fit_tolerance": 0.002,
+          "fit_max_relative_error": 0.0014847604306244835,
+          "fit_rms_relative_error": 0.0006611468422979866,
+          "port_state_values": 14400,
+          "port_state_bytes": 115200,
+          "packed_state_array_bytes": 115200,
+          "polarization_poles": 0,
+          "polarization_state_bytes": 0,
+          "polarization_coefficient_bytes": 0,
+          "model_local_coefficient_bytes": 40,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            0.8299236000002566,
+            0.8057233000004089,
+            0.7682859000001372
+          ],
+          "total_median_seconds": 0.8057233000004089,
+          "total_median_overhead_percent": 39.700760850413474,
+          "solve_seconds": [
+            0.45736570000008214,
+            0.4707024999997884,
+            0.42045729999972536
+          ],
+          "solve_median_seconds": 0.45736570000008214,
+          "solve_median_overhead_percent": 5.363578833934435,
+          "sparse_kernel_seconds": [
+            0.06027240000003076,
+            0.06147550000014235,
+            0.06944599999997081
+          ],
+          "sparse_kernel_median_seconds": 0.06147550000014235,
+          "sparse_edge_updates_per_second": 112435035.09502152,
+          "sparse_port_updates_per_second": 117119828.22398074,
+          "sparse_pole_updates_per_second": 234239656.44796148,
+          "sparse_polarization_updates_per_second": 0.0,
+          "bulk_plus_surface_hot_seconds": [
+            0.25208119999979317,
+            0.21348279999983788,
+            0.2674875999996402
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.25208119999979317,
+          "bulk_plus_surface_overhead_percent": 13.561753189046932
+        },
+        {
+          "case": "metal_order_4",
+          "kind": "metal",
+          "requested_order": 4,
+          "selected_poles": 4,
+          "fit_tolerance": 0.002,
+          "fit_max_relative_error": 0.00010130570241552983,
+          "fit_rms_relative_error": 3.859344955715788e-05,
+          "port_state_values": 28800,
+          "port_state_bytes": 230400,
+          "packed_state_array_bytes": 230400,
+          "polarization_poles": 0,
+          "polarization_state_bytes": 0,
+          "polarization_coefficient_bytes": 0,
+          "model_local_coefficient_bytes": 72,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            0.7819927000000462,
+            0.6910225999999966,
+            0.7547883999995975
+          ],
+          "total_median_seconds": 0.7547883999995975,
+          "total_median_overhead_percent": 30.869386253266452,
+          "solve_seconds": [
+            0.46868480000011914,
+            0.351684700000078,
+            0.4065236999999797
+          ],
+          "solve_median_seconds": 0.4065236999999797,
+          "solve_median_overhead_percent": -6.348919665810349,
+          "sparse_kernel_seconds": [
+            0.079401300000427,
+            0.06757819999984349,
+            0.06717870000011317
+          ],
+          "sparse_kernel_median_seconds": 0.06757819999984349,
+          "sparse_edge_updates_per_second": 102281504.98261285,
+          "sparse_port_updates_per_second": 106543234.35688838,
+          "sparse_pole_updates_per_second": 426172937.42755353,
+          "sparse_polarization_updates_per_second": 0.0,
+          "bulk_plus_surface_hot_seconds": [
+            0.2289293999997426,
+            0.2462481000002299,
+            0.26403639999989537
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.2462481000002299,
+          "bulk_plus_surface_overhead_percent": 10.933960785337415
+        },
+        {
+          "case": "metal_order_8",
+          "kind": "metal",
+          "requested_order": 8,
+          "selected_poles": 8,
+          "fit_tolerance": 0.002,
+          "fit_max_relative_error": 2.4664270731637396e-08,
+          "fit_rms_relative_error": 7.649175867000972e-09,
+          "port_state_values": 57600,
+          "port_state_bytes": 460800,
+          "packed_state_array_bytes": 460800,
+          "polarization_poles": 0,
+          "polarization_state_bytes": 0,
+          "polarization_coefficient_bytes": 0,
+          "model_local_coefficient_bytes": 136,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            0.8436506000002737,
+            0.7293713999997635,
+            0.7583107999998902
+          ],
+          "total_median_seconds": 0.7583107999998902,
+          "total_median_overhead_percent": 31.48011944176943,
+          "solve_seconds": [
+            0.4948067999998784,
+            0.37777060000007623,
+            0.44150539999964167
+          ],
+          "solve_median_seconds": 0.44150539999964167,
+          "solve_median_overhead_percent": 1.709833112674719,
+          "sparse_kernel_seconds": [
+            0.06163189999961105,
+            0.06301450000000841,
+            0.07590979999986303
+          ],
+          "sparse_kernel_median_seconds": 0.06301450000000841,
+          "sparse_edge_updates_per_second": 109689039.82415281,
+          "sparse_port_updates_per_second": 114259416.48349251,
+          "sparse_pole_updates_per_second": 914075331.8679401,
+          "sparse_polarization_updates_per_second": 0.0,
+          "bulk_plus_surface_hot_seconds": [
+            0.25542730000006486,
+            0.2444746999999552,
+            0.2576991999999336
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.25542730000006486,
+          "bulk_plus_surface_overhead_percent": 15.06916025620242
+        }
+      ]
+    },
+    {
+      "configuration": {
+        "domain_cells": 48,
+        "exterior": "debye",
+        "python": "3.14.4",
+        "numpy": "2.4.3",
+        "platform": "Windows-11-10.0.26200-SP0",
+        "processor": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel",
+        "iterations": 250,
+        "threads": 4,
+        "repeats": 3,
+        "kernel_iterations": 1000,
+        "kernel_repeats": 3,
+        "hot_loop_iterations": 250,
+        "hot_loop_repeats": 3,
+        "metal_preset": "copper",
+        "fit_frequency_range_hz": [
+          8000000000.0,
+          12000000000.0
+        ],
+        "fit_tolerance": 0.002,
+        "explicit_orders": [
+          4,
+          8
+        ]
+      },
+      "baseline": {
+        "total_seconds": [
+          0.914392399999997,
+          0.865045800000189,
+          0.8093578000002708
+        ],
+        "total_median_seconds": 0.865045800000189,
+        "solve_seconds": [
+          0.773790199999894,
+          0.7164155999998911,
+          0.6697626000000128
+        ],
+        "solve_median_seconds": 0.7164155999998911,
+        "bulk_hot_seconds": [
+          0.5627540000000408,
+          0.5782102000002851,
+          0.5467819000000418
+        ],
+        "bulk_hot_median_seconds": 0.5627540000000408
+      },
+      "surface_cases": [
+        {
+          "case": "resistive",
+          "kind": "resistance",
+          "requested_order": null,
+          "selected_poles": 0,
+          "fit_tolerance": null,
+          "fit_max_relative_error": null,
+          "fit_rms_relative_error": null,
+          "port_state_values": 0,
+          "port_state_bytes": 0,
+          "packed_state_array_bytes": 8,
+          "polarization_poles": 13824,
+          "polarization_state_bytes": 221184,
+          "polarization_coefficient_bytes": 801796,
+          "model_local_coefficient_bytes": 24,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            1.2051112999997713,
+            1.1724641000000702,
+            1.1264952000001358
+          ],
+          "total_median_seconds": 1.1724641000000702,
+          "total_median_overhead_percent": 35.537806206308844,
+          "solve_seconds": [
+            0.8469589000001179,
+            0.7517871999998533,
+            0.7398769000001266
+          ],
+          "solve_median_seconds": 0.7517871999998533,
+          "solve_median_overhead_percent": 4.937301756126966,
+          "sparse_kernel_seconds": [
+            0.0744553999998061,
+            0.08567249999987325,
+            0.05997460000025967
+          ],
+          "sparse_kernel_median_seconds": 0.0744553999998061,
+          "sparse_edge_updates_per_second": 92834099.34024933,
+          "sparse_port_updates_per_second": 96702186.81275973,
+          "sparse_pole_updates_per_second": 0.0,
+          "sparse_polarization_updates_per_second": 185668198.68049866,
+          "bulk_plus_surface_hot_seconds": [
+            0.6042896999997538,
+            0.6116981999998643,
+            0.537580700000035
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.6042896999997538,
+          "bulk_plus_surface_overhead_percent": 7.380791606938364
+        },
+        {
+          "case": "metal_auto",
+          "kind": "metal",
+          "requested_order": "auto",
+          "selected_poles": 2,
+          "fit_tolerance": 0.002,
+          "fit_max_relative_error": 0.0014847604306244835,
+          "fit_rms_relative_error": 0.0006611468422979866,
+          "port_state_values": 14400,
+          "port_state_bytes": 115200,
+          "packed_state_array_bytes": 115200,
+          "polarization_poles": 13824,
+          "polarization_state_bytes": 221184,
+          "polarization_coefficient_bytes": 801796,
+          "model_local_coefficient_bytes": 40,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            1.1130003000002944,
+            1.1698122000002513,
+            1.1790147000001525
+          ],
+          "total_median_seconds": 1.1698122000002513,
+          "total_median_overhead_percent": 35.231244403475024,
+          "solve_seconds": [
+            0.7232121000001825,
+            0.7592687000001206,
+            0.7678882000000158
+          ],
+          "solve_median_seconds": 0.7592687000001206,
+          "solve_median_overhead_percent": 5.981597832352614,
+          "sparse_kernel_seconds": [
+            0.054708900000150607,
+            0.09874859999990804,
+            0.061729100000320614
+          ],
+          "sparse_kernel_median_seconds": 0.061729100000320614,
+          "sparse_edge_updates_per_second": 111973121.26637356,
+          "sparse_port_updates_per_second": 116638667.9858058,
+          "sparse_pole_updates_per_second": 233277335.9716116,
+          "sparse_polarization_updates_per_second": 223946242.53274712,
+          "bulk_plus_surface_hot_seconds": [
+            0.5290777999998681,
+            0.6134291999997004,
+            0.5174243000001297
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.5290777999998681,
+          "bulk_plus_surface_overhead_percent": -5.984177811294145
+        },
+        {
+          "case": "metal_order_4",
+          "kind": "metal",
+          "requested_order": 4,
+          "selected_poles": 4,
+          "fit_tolerance": 0.002,
+          "fit_max_relative_error": 0.00010130570241552983,
+          "fit_rms_relative_error": 3.859344955715788e-05,
+          "port_state_values": 28800,
+          "port_state_bytes": 230400,
+          "packed_state_array_bytes": 230400,
+          "polarization_poles": 13824,
+          "polarization_state_bytes": 221184,
+          "polarization_coefficient_bytes": 801796,
+          "model_local_coefficient_bytes": 72,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            1.216156299999966,
+            1.2567182000002504,
+            1.1010711999997511
+          ],
+          "total_median_seconds": 1.216156299999966,
+          "total_median_overhead_percent": 40.58866016108051,
+          "solve_seconds": [
+            0.8057659999999487,
+            0.8482954999999492,
+            0.7545286999998098
+          ],
+          "solve_median_seconds": 0.8057659999999487,
+          "solve_median_overhead_percent": 12.471866888447302,
+          "sparse_kernel_seconds": [
+            0.07726150000007692,
+            0.08480339999960052,
+            0.09892319999971733
+          ],
+          "sparse_kernel_median_seconds": 0.08480339999960052,
+          "sparse_edge_updates_per_second": 81506166.02674611,
+          "sparse_port_updates_per_second": 84902256.27786052,
+          "sparse_pole_updates_per_second": 339609025.1114421,
+          "sparse_polarization_updates_per_second": 163012332.05349222,
+          "bulk_plus_surface_hot_seconds": [
+            0.5380377999999837,
+            0.6506139000002804,
+            0.5152769000001172
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.5380377999999837,
+          "bulk_plus_surface_overhead_percent": -4.392007875564696
+        },
+        {
+          "case": "metal_order_8",
+          "kind": "metal",
+          "requested_order": 8,
+          "selected_poles": 8,
+          "fit_tolerance": 0.002,
+          "fit_max_relative_error": 2.4664270731637396e-08,
+          "fit_rms_relative_error": 7.649175867000972e-09,
+          "port_state_values": 57600,
+          "port_state_bytes": 460800,
+          "packed_state_array_bytes": 460800,
+          "polarization_poles": 13824,
+          "polarization_state_bytes": 221184,
+          "polarization_coefficient_bytes": 801796,
+          "model_local_coefficient_bytes": 136,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            1.3359622999996645,
+            1.1121547000002465,
+            1.2171623999997792
+          ],
+          "total_median_seconds": 1.2171623999997792,
+          "total_median_overhead_percent": 40.704966141620844,
+          "solve_seconds": [
+            0.9112180000001899,
+            0.7379954000002726,
+            0.8428948999999193
+          ],
+          "solve_median_seconds": 0.8428948999999193,
+          "solve_median_overhead_percent": 17.654459227304287,
+          "sparse_kernel_seconds": [
+            0.09777459999986604,
+            0.09682900000007066,
+            0.08147809999991296
+          ],
+          "sparse_kernel_median_seconds": 0.09682900000007066,
+          "sparse_edge_updates_per_second": 71383573.10304718,
+          "sparse_port_updates_per_second": 74357888.64900748,
+          "sparse_pole_updates_per_second": 594863109.1920599,
+          "sparse_polarization_updates_per_second": 142767146.20609435,
+          "bulk_plus_surface_hot_seconds": [
+            0.6130125999998199,
+            0.6305667000001449,
+            0.4939015999998446
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.6130125999998199,
+          "bulk_plus_surface_overhead_percent": 8.930829456525501
+        }
+      ]
+    },
+    {
+      "configuration": {
+        "domain_cells": 48,
+        "exterior": "lorentz",
+        "python": "3.14.4",
+        "numpy": "2.4.3",
+        "platform": "Windows-11-10.0.26200-SP0",
+        "processor": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel",
+        "iterations": 250,
+        "threads": 4,
+        "repeats": 3,
+        "kernel_iterations": 1000,
+        "kernel_repeats": 3,
+        "hot_loop_iterations": 250,
+        "hot_loop_repeats": 3,
+        "metal_preset": "copper",
+        "fit_frequency_range_hz": [
+          8000000000.0,
+          12000000000.0
+        ],
+        "fit_tolerance": 0.002,
+        "explicit_orders": [
+          4,
+          8
+        ]
+      },
+      "baseline": {
+        "total_seconds": [
+          0.6774814999998853,
+          0.598803400000179,
+          0.6325813999997081
+        ],
+        "total_median_seconds": 0.6325813999997081,
+        "solve_seconds": [
+          0.5212740000001759,
+          0.46795330000031754,
+          0.5031245000000126
+        ],
+        "solve_median_seconds": 0.5031245000000126,
+        "bulk_hot_seconds": [
+          0.37483579999980066,
+          0.37840379999988727,
+          0.3738893999998254
+        ],
+        "bulk_hot_median_seconds": 0.37483579999980066
+      },
+      "surface_cases": [
+        {
+          "case": "resistive",
+          "kind": "resistance",
+          "requested_order": null,
+          "selected_poles": 0,
+          "fit_tolerance": null,
+          "fit_max_relative_error": null,
+          "fit_rms_relative_error": null,
+          "port_state_values": 0,
+          "port_state_bytes": 0,
+          "packed_state_array_bytes": 8,
+          "polarization_poles": 13824,
+          "polarization_state_bytes": 221184,
+          "polarization_coefficient_bytes": 801796,
+          "model_local_coefficient_bytes": 24,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            0.8645775999998477,
+            0.8753848999999718,
+            0.8178806000000804
+          ],
+          "total_median_seconds": 0.8645775999998477,
+          "total_median_overhead_percent": 36.674521255327264,
+          "solve_seconds": [
+            0.5490108999997574,
+            0.5814190000000963,
+            0.5195815000001858
+          ],
+          "solve_median_seconds": 0.5490108999997574,
+          "solve_median_overhead_percent": 9.120287324458175,
+          "sparse_kernel_seconds": [
+            0.04586749999998574,
+            0.04160870000032446,
+            0.04472799999985
+          ],
+          "sparse_kernel_median_seconds": 0.04472799999985,
+          "sparse_edge_updates_per_second": 154534072.61722368,
+          "sparse_port_updates_per_second": 160972992.30960798,
+          "sparse_pole_updates_per_second": 0.0,
+          "sparse_polarization_updates_per_second": 309068145.23444736,
+          "bulk_plus_surface_hot_seconds": [
+            0.39491880000014135,
+            0.36577630000010686,
+            0.3865848999998889
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.3865848999998889,
+          "bulk_plus_surface_overhead_percent": 3.134465811455178
+        },
+        {
+          "case": "metal_auto",
+          "kind": "metal",
+          "requested_order": "auto",
+          "selected_poles": 2,
+          "fit_tolerance": 0.002,
+          "fit_max_relative_error": 0.0014847604306244835,
+          "fit_rms_relative_error": 0.0006611468422979866,
+          "port_state_values": 14400,
+          "port_state_bytes": 115200,
+          "packed_state_array_bytes": 115200,
+          "polarization_poles": 13824,
+          "polarization_state_bytes": 221184,
+          "polarization_coefficient_bytes": 801796,
+          "model_local_coefficient_bytes": 40,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            0.8110439000001861,
+            0.8092704000000595,
+            0.8307956000003287
+          ],
+          "total_median_seconds": 0.8110439000001861,
+          "total_median_overhead_percent": 28.211784285873787,
+          "solve_seconds": [
+            0.5151787999998305,
+            0.504377900000236,
+            0.5288009000000784
+          ],
+          "solve_median_seconds": 0.5151787999998305,
+          "solve_median_overhead_percent": 2.39588809525626,
+          "sparse_kernel_seconds": [
+            0.04614059999994424,
+            0.04952659999980824,
+            0.04847509999990507
+          ],
+          "sparse_kernel_median_seconds": 0.04847509999990507,
+          "sparse_edge_updates_per_second": 142588669.23458716,
+          "sparse_port_updates_per_second": 148529863.7860283,
+          "sparse_pole_updates_per_second": 297059727.5720566,
+          "sparse_polarization_updates_per_second": 285177338.4691743,
+          "bulk_plus_surface_hot_seconds": [
+            0.4320926000000327,
+            0.4123152000001937,
+            0.3693684999998368
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.4123152000001937,
+          "bulk_plus_surface_overhead_percent": 9.998884845154343
+        },
+        {
+          "case": "metal_order_4",
+          "kind": "metal",
+          "requested_order": 4,
+          "selected_poles": 4,
+          "fit_tolerance": 0.002,
+          "fit_max_relative_error": 0.00010130570241552983,
+          "fit_rms_relative_error": 3.859344955715788e-05,
+          "port_state_values": 28800,
+          "port_state_bytes": 230400,
+          "packed_state_array_bytes": 230400,
+          "polarization_poles": 13824,
+          "polarization_state_bytes": 221184,
+          "polarization_coefficient_bytes": 801796,
+          "model_local_coefficient_bytes": 72,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            0.7949714999999742,
+            0.8893738000001576,
+            0.8201896999999008
+          ],
+          "total_median_seconds": 0.8201896999999008,
+          "total_median_overhead_percent": 29.65757450349935,
+          "solve_seconds": [
+            0.49547290000009525,
+            0.5326371000001018,
+            0.5241528000001381
+          ],
+          "solve_median_seconds": 0.5241528000001381,
+          "solve_median_overhead_percent": 4.1795420418057505,
+          "sparse_kernel_seconds": [
+            0.051018999999996595,
+            0.0602550000003248,
+            0.06095000000004802
+          ],
+          "sparse_kernel_median_seconds": 0.0602550000003248,
+          "sparse_edge_updates_per_second": 114712471.99340704,
+          "sparse_port_updates_per_second": 119492158.32646567,
+          "sparse_pole_updates_per_second": 477968633.30586267,
+          "sparse_polarization_updates_per_second": 229424943.98681408,
+          "bulk_plus_surface_hot_seconds": [
+            0.39593079999986003,
+            0.47214789999998175,
+            0.3780557999998564
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.39593079999986003,
+          "bulk_plus_surface_overhead_percent": 5.627797558309688
+        },
+        {
+          "case": "metal_order_8",
+          "kind": "metal",
+          "requested_order": 8,
+          "selected_poles": 8,
+          "fit_tolerance": 0.002,
+          "fit_max_relative_error": 2.4664270731637396e-08,
+          "fit_rms_relative_error": 7.649175867000972e-09,
+          "port_state_values": 57600,
+          "port_state_bytes": 460800,
+          "packed_state_array_bytes": 460800,
+          "polarization_poles": 13824,
+          "polarization_state_bytes": 221184,
+          "polarization_coefficient_bytes": 801796,
+          "model_local_coefficient_bytes": 136,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            0.8046448000000055,
+            0.8172332999997707,
+            0.8356463000000076
+          ],
+          "total_median_seconds": 0.8172332999997707,
+          "total_median_overhead_percent": 29.190219630255942,
+          "solve_seconds": [
+            0.5099714000002677,
+            0.5272803000002568,
+            0.5356360000000677
+          ],
+          "solve_median_seconds": 0.5272803000002568,
+          "solve_median_overhead_percent": 4.801157566416192,
+          "sparse_kernel_seconds": [
+            0.06567500000028303,
+            0.05101670000021841,
+            0.05319390000022395
+          ],
+          "sparse_kernel_median_seconds": 0.05319390000022395,
+          "sparse_edge_updates_per_second": 129939711.13174443,
+          "sparse_port_updates_per_second": 135353865.7622338,
+          "sparse_pole_updates_per_second": 1082830926.0978703,
+          "sparse_polarization_updates_per_second": 259879422.26348886,
+          "bulk_plus_surface_hot_seconds": [
+            0.3840285000001131,
+            0.42795479999995223,
+            0.38623109999980443
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.38623109999980443,
+          "bulk_plus_surface_overhead_percent": 3.040077815408737
+        }
+      ]
+    },
+    {
+      "configuration": {
+        "domain_cells": 48,
+        "exterior": "drude",
+        "python": "3.14.4",
+        "numpy": "2.4.3",
+        "platform": "Windows-11-10.0.26200-SP0",
+        "processor": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel",
+        "iterations": 250,
+        "threads": 4,
+        "repeats": 3,
+        "kernel_iterations": 1000,
+        "kernel_repeats": 3,
+        "hot_loop_iterations": 250,
+        "hot_loop_repeats": 3,
+        "metal_preset": "copper",
+        "fit_frequency_range_hz": [
+          8000000000.0,
+          12000000000.0
+        ],
+        "fit_tolerance": 0.002,
+        "explicit_orders": [
+          4,
+          8
+        ]
+      },
+      "baseline": {
+        "total_seconds": [
+          1.147482900000341,
+          0.9634114000000409,
+          0.9613769999996293
+        ],
+        "total_median_seconds": 0.9634114000000409,
+        "solve_seconds": [
+          0.9900492000001577,
+          0.8214023999998972,
+          0.8230575000002318
+        ],
+        "solve_median_seconds": 0.8230575000002318,
+        "bulk_hot_seconds": [
+          0.6862005000002682,
+          0.6662994000007529,
+          0.5958747000004223
+        ],
+        "bulk_hot_median_seconds": 0.6662994000007529
+      },
+      "surface_cases": [
+        {
+          "case": "resistive",
+          "kind": "resistance",
+          "requested_order": null,
+          "selected_poles": 0,
+          "fit_tolerance": null,
+          "fit_max_relative_error": null,
+          "fit_rms_relative_error": null,
+          "port_state_values": 0,
+          "port_state_bytes": 0,
+          "packed_state_array_bytes": 8,
+          "polarization_poles": 13824,
+          "polarization_state_bytes": 221184,
+          "polarization_coefficient_bytes": 801796,
+          "model_local_coefficient_bytes": 24,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            1.404225900000256,
+            1.2009797000000617,
+            1.2608832000000803
+          ],
+          "total_median_seconds": 1.2608832000000803,
+          "total_median_overhead_percent": 30.876923399497525,
+          "solve_seconds": [
+            0.9491587999996227,
+            0.8364738999998735,
+            0.9176250999998956
+          ],
+          "solve_median_seconds": 0.9176250999998956,
+          "solve_median_overhead_percent": 11.489792632912899,
+          "sparse_kernel_seconds": [
+            0.08353139999962877,
+            0.07636990000082733,
+            0.08135809999930643
+          ],
+          "sparse_kernel_median_seconds": 0.08135809999930643,
+          "sparse_edge_updates_per_second": 84957736.23104428,
+          "sparse_port_updates_per_second": 88497641.9073378,
+          "sparse_pole_updates_per_second": 0.0,
+          "sparse_polarization_updates_per_second": 169915472.46208856,
+          "bulk_plus_surface_hot_seconds": [
+            0.6960699999999633,
+            0.6628746000005776,
+            0.6699418999996851
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.6699418999996851,
+          "bulk_plus_surface_overhead_percent": 0.5466761637378026
+        },
+        {
+          "case": "metal_auto",
+          "kind": "metal",
+          "requested_order": "auto",
+          "selected_poles": 2,
+          "fit_tolerance": 0.002,
+          "fit_max_relative_error": 0.0014847604306244835,
+          "fit_rms_relative_error": 0.0006611468422979866,
+          "port_state_values": 14400,
+          "port_state_bytes": 115200,
+          "packed_state_array_bytes": 115200,
+          "polarization_poles": 13824,
+          "polarization_state_bytes": 221184,
+          "polarization_coefficient_bytes": 801796,
+          "model_local_coefficient_bytes": 40,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            1.3197093999997378,
+            1.2565174999999726,
+            1.3652994000003673
+          ],
+          "total_median_seconds": 1.3197093999997378,
+          "total_median_overhead_percent": 36.98295453008775,
+          "solve_seconds": [
+            0.8977404000002025,
+            0.8471552000000884,
+            0.9390277000002243
+          ],
+          "solve_median_seconds": 0.8977404000002025,
+          "solve_median_overhead_percent": 9.073837490084191,
+          "sparse_kernel_seconds": [
+            0.0718723999998474,
+            0.06047099999977945,
+            0.057746899999983725
+          ],
+          "sparse_kernel_median_seconds": 0.06047099999977945,
+          "sparse_edge_updates_per_second": 114302723.62000313,
+          "sparse_port_updates_per_second": 119065337.10416993,
+          "sparse_pole_updates_per_second": 238130674.20833987,
+          "sparse_polarization_updates_per_second": 228605447.24000627,
+          "bulk_plus_surface_hot_seconds": [
+            0.6602453999994395,
+            0.5945825999997396,
+            0.6411223000004611
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.6411223000004611,
+          "bulk_plus_surface_overhead_percent": -3.778646656482565
+        },
+        {
+          "case": "metal_order_4",
+          "kind": "metal",
+          "requested_order": 4,
+          "selected_poles": 4,
+          "fit_tolerance": 0.002,
+          "fit_max_relative_error": 0.00010130570241552983,
+          "fit_rms_relative_error": 3.859344955715788e-05,
+          "port_state_values": 28800,
+          "port_state_bytes": 230400,
+          "packed_state_array_bytes": 230400,
+          "polarization_poles": 13824,
+          "polarization_state_bytes": 221184,
+          "polarization_coefficient_bytes": 801796,
+          "model_local_coefficient_bytes": 72,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            1.4333744999998999,
+            1.235669499999858,
+            1.365133700000115
+          ],
+          "total_median_seconds": 1.365133700000115,
+          "total_median_overhead_percent": 41.69789769978402,
+          "solve_seconds": [
+            0.9136414999998124,
+            0.8502502000001186,
+            0.9954440999999861
+          ],
+          "solve_median_seconds": 0.9136414999998124,
+          "solve_median_overhead_percent": 11.005792426355999,
+          "sparse_kernel_seconds": [
+            0.06261360000007699,
+            0.06466220000038447,
+            0.09886619999997492
+          ],
+          "sparse_kernel_median_seconds": 0.06466220000038447,
+          "sparse_edge_updates_per_second": 106893981.33621965,
+          "sparse_port_updates_per_second": 111347897.2252288,
+          "sparse_pole_updates_per_second": 445391588.9009152,
+          "sparse_polarization_updates_per_second": 213787962.6724393,
+          "bulk_plus_surface_hot_seconds": [
+            0.7350923999993029,
+            0.7054141999997228,
+            0.6175994000004721
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.7054141999997228,
+          "bulk_plus_surface_overhead_percent": 5.8704540329656
+        },
+        {
+          "case": "metal_order_8",
+          "kind": "metal",
+          "requested_order": 8,
+          "selected_poles": 8,
+          "fit_tolerance": 0.002,
+          "fit_max_relative_error": 2.4664270731637396e-08,
+          "fit_rms_relative_error": 7.649175867000972e-09,
+          "port_state_values": 57600,
+          "port_state_bytes": 460800,
+          "packed_state_array_bytes": 460800,
+          "polarization_poles": 13824,
+          "polarization_state_bytes": 221184,
+          "polarization_coefficient_bytes": 801796,
+          "model_local_coefficient_bytes": 136,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            1.2964373000004343,
+            1.1297687000001133,
+            1.358919700000115
+          ],
+          "total_median_seconds": 1.2964373000004343,
+          "total_median_overhead_percent": 34.56736135781446,
+          "solve_seconds": [
+            0.8848462000000836,
+            0.7537129999996068,
+            0.9009784999998374
+          ],
+          "solve_median_seconds": 0.8848462000000836,
+          "solve_median_overhead_percent": 7.507215473989892,
+          "sparse_kernel_seconds": [
+            0.10271349999948143,
+            0.09331889999975829,
+            0.12262819999978092
+          ],
+          "sparse_kernel_median_seconds": 0.10271349999948143,
+          "sparse_edge_updates_per_second": 67293977.90976743,
+          "sparse_port_updates_per_second": 70097893.65600774,
+          "sparse_pole_updates_per_second": 560783149.2480619,
+          "sparse_polarization_updates_per_second": 134587955.81953487,
+          "bulk_plus_surface_hot_seconds": [
+            0.7522697000003973,
+            0.7029351999999562,
+            0.7064804999999978
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.7064804999999978,
+          "bulk_plus_surface_overhead_percent": 6.030487195275813
+        }
+      ]
+    },
+    {
+      "configuration": {
+        "domain_cells": 48,
+        "exterior": "mixed",
+        "python": "3.14.4",
+        "numpy": "2.4.3",
+        "platform": "Windows-11-10.0.26200-SP0",
+        "processor": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel",
+        "iterations": 250,
+        "threads": 4,
+        "repeats": 3,
+        "kernel_iterations": 1000,
+        "kernel_repeats": 3,
+        "hot_loop_iterations": 250,
+        "hot_loop_repeats": 3,
+        "metal_preset": "copper",
+        "fit_frequency_range_hz": [
+          8000000000.0,
+          12000000000.0
+        ],
+        "fit_tolerance": 0.002,
+        "explicit_orders": [
+          4,
+          8
+        ]
+      },
+      "baseline": {
+        "total_seconds": [
+          1.0525526999999784,
+          0.9453846999995221,
+          1.019034300000385
+        ],
+        "total_median_seconds": 1.019034300000385,
+        "solve_seconds": [
+          0.9021343000003981,
+          0.8023001999999906,
+          0.8649628000002849
+        ],
+        "solve_median_seconds": 0.8649628000002849,
+        "bulk_hot_seconds": [
+          0.5956787000004624,
+          0.6651283000001058,
+          0.5812966999992568
+        ],
+        "bulk_hot_median_seconds": 0.5956787000004624
+      },
+      "surface_cases": [
+        {
+          "case": "resistive",
+          "kind": "resistance",
+          "requested_order": null,
+          "selected_poles": 0,
+          "fit_tolerance": null,
+          "fit_max_relative_error": null,
+          "fit_rms_relative_error": null,
+          "port_state_values": 0,
+          "port_state_bytes": 0,
+          "packed_state_array_bytes": 8,
+          "polarization_poles": 14208,
+          "polarization_state_bytes": 227328,
+          "polarization_coefficient_bytes": 820228,
+          "model_local_coefficient_bytes": 24,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            1.3562031000001298,
+            1.1999998999999661,
+            1.1524964000000182
+          ],
+          "total_median_seconds": 1.1999998999999661,
+          "total_median_overhead_percent": 17.758538647768063,
+          "solve_seconds": [
+            0.9850860999995348,
+            0.8350655999993251,
+            0.8138538000002882
+          ],
+          "solve_median_seconds": 0.8350655999993251,
+          "solve_median_overhead_percent": -3.456472347822359,
+          "sparse_kernel_seconds": [
+            0.08425540000007459,
+            0.08616319999964617,
+            0.08217289999993227
+          ],
+          "sparse_kernel_median_seconds": 0.08425540000007459,
+          "sparse_edge_updates_per_second": 82036284.91460347,
+          "sparse_port_updates_per_second": 85454463.45271194,
+          "sparse_pole_updates_per_second": 0.0,
+          "sparse_polarization_updates_per_second": 168630141.21335158,
+          "bulk_plus_surface_hot_seconds": [
+            0.6873703000001115,
+            0.6006606999999349,
+            0.6980106000000887
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.6873703000001115,
+          "bulk_plus_surface_overhead_percent": 15.39279480692828
+        },
+        {
+          "case": "metal_auto",
+          "kind": "metal",
+          "requested_order": "auto",
+          "selected_poles": 2,
+          "fit_tolerance": 0.002,
+          "fit_max_relative_error": 0.0014847604306244835,
+          "fit_rms_relative_error": 0.0006611468422979866,
+          "port_state_values": 14400,
+          "port_state_bytes": 115200,
+          "packed_state_array_bytes": 115200,
+          "polarization_poles": 14208,
+          "polarization_state_bytes": 227328,
+          "polarization_coefficient_bytes": 820228,
+          "model_local_coefficient_bytes": 40,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            1.5423065000004499,
+            1.2822997000002943,
+            1.3778993000005357
+          ],
+          "total_median_seconds": 1.3778993000005357,
+          "total_median_overhead_percent": 35.21618457789057,
+          "solve_seconds": [
+            0.9997283000002426,
+            0.8959344000004421,
+            0.9214130999998815
+          ],
+          "solve_median_seconds": 0.9214130999998815,
+          "solve_median_overhead_percent": 6.526326912507452,
+          "sparse_kernel_seconds": [
+            0.08115490000000136,
+            0.06875190000027942,
+            0.08284840000033
+          ],
+          "sparse_kernel_median_seconds": 0.08115490000000136,
+          "sparse_edge_updates_per_second": 85170457.97604191,
+          "sparse_port_updates_per_second": 88719227.058377,
+          "sparse_pole_updates_per_second": 177438454.116754,
+          "sparse_polarization_updates_per_second": 175072608.06186393,
+          "bulk_plus_surface_hot_seconds": [
+            0.6854235000000699,
+            0.6807860999997501,
+            0.6704329000003781
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.6807860999997501,
+          "bulk_plus_surface_overhead_percent": 14.287467387909224
+        },
+        {
+          "case": "metal_order_4",
+          "kind": "metal",
+          "requested_order": 4,
+          "selected_poles": 4,
+          "fit_tolerance": 0.002,
+          "fit_max_relative_error": 0.00010130570241552983,
+          "fit_rms_relative_error": 3.859344955715788e-05,
+          "port_state_values": 28800,
+          "port_state_bytes": 230400,
+          "packed_state_array_bytes": 230400,
+          "polarization_poles": 14208,
+          "polarization_state_bytes": 227328,
+          "polarization_coefficient_bytes": 820228,
+          "model_local_coefficient_bytes": 72,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            1.2386425000004238,
+            1.1721686999999292,
+            1.2243366000002425
+          ],
+          "total_median_seconds": 1.2243366000002425,
+          "total_median_overhead_percent": 20.14675070307055,
+          "solve_seconds": [
+            0.8716454999994312,
+            0.7968595000002097,
+            0.86452140000074
+          ],
+          "solve_median_seconds": 0.86452140000074,
+          "solve_median_overhead_percent": -0.05103109631360292,
+          "sparse_kernel_seconds": [
+            0.07710690000021714,
+            0.08831819999977597,
+            0.08340409999982512
+          ],
+          "sparse_kernel_median_seconds": 0.08340409999982512,
+          "sparse_edge_updates_per_second": 82873623.71891181,
+          "sparse_port_updates_per_second": 86326691.37386647,
+          "sparse_pole_updates_per_second": 345306765.4954659,
+          "sparse_polarization_updates_per_second": 170351337.64442983,
+          "bulk_plus_surface_hot_seconds": [
+            0.6442184000006819,
+            0.659370499999568,
+            0.6467505000000529
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.6467505000000529,
+          "bulk_plus_surface_overhead_percent": 8.573715998163234
+        },
+        {
+          "case": "metal_order_8",
+          "kind": "metal",
+          "requested_order": 8,
+          "selected_poles": 8,
+          "fit_tolerance": 0.002,
+          "fit_max_relative_error": 2.4664270731637396e-08,
+          "fit_rms_relative_error": 7.649175867000972e-09,
+          "port_state_values": 57600,
+          "port_state_bytes": 460800,
+          "packed_state_array_bytes": 460800,
+          "polarization_poles": 14208,
+          "polarization_state_bytes": 227328,
+          "polarization_coefficient_bytes": 820228,
+          "model_local_coefficient_bytes": 136,
+          "precomputed_edge_port_bytes": 225792,
+          "boundary_edges": 6912,
+          "surface_ports": 7200,
+          "total_seconds": [
+            1.2790213999996922,
+            1.2542587000007188,
+            1.4570339000001695
+          ],
+          "total_median_seconds": 1.2790213999996922,
+          "total_median_overhead_percent": 25.513086262082552,
+          "solve_seconds": [
+            0.8859671999998682,
+            0.8494080000000395,
+            1.0100619000004372
+          ],
+          "solve_median_seconds": 0.8859671999998682,
+          "solve_median_overhead_percent": 2.428358768674954,
+          "sparse_kernel_seconds": [
+            0.08376099999986764,
+            0.10475050000059127,
+            0.10043769999992946
+          ],
+          "sparse_kernel_median_seconds": 0.10043769999992946,
+          "sparse_edge_updates_per_second": 68818780.199117,
+          "sparse_port_updates_per_second": 71686229.37408021,
+          "sparse_pole_updates_per_second": 573489834.9926417,
+          "sparse_polarization_updates_per_second": 141460825.96485162,
+          "bulk_plus_surface_hot_seconds": [
+            0.6780341000003318,
+            0.65683959999933,
+            0.7053431000003911
+          ],
+          "bulk_plus_surface_hot_median_seconds": 0.6780341000003318,
+          "bulk_plus_surface_overhead_percent": 13.825473363376183
+        }
+      ]
+    }
+  ],
+  "validation": [
+    {
+      "exterior": "debye",
+      "passed": true,
+      "domain_cells": [
+        8,
+        8,
+        8
+      ],
+      "iterations": 2400,
+      "dt_seconds": 1.92583320154647e-12,
+      "source_frequency_hz": 10000000000.0,
+      "surface": "copper, four Foster poles, 8-12 GHz fit",
+      "python_cython_trace_relative_l2": 3.989169376939911e-16,
+      "python_cython_final_field_relative_l2": 7.469726271485818e-13,
+      "last_200_samples_peak_over_run_peak": 3.899656065715187e-05,
+      "pec_limit_resistances_ohm": [
+        0.01,
+        0.001
+      ],
+      "pec_limit_trace_relative_l2": [
+        3.4589800940732263e-06,
+        3.458961635578088e-07
+      ],
+      "boundary_polarization_poles": 96
+    },
+    {
+      "exterior": "lorentz",
+      "passed": true,
+      "domain_cells": [
+        8,
+        8,
+        8
+      ],
+      "iterations": 2400,
+      "dt_seconds": 1.92583320154647e-12,
+      "source_frequency_hz": 10000000000.0,
+      "surface": "copper, four Foster poles, 8-12 GHz fit",
+      "python_cython_trace_relative_l2": 1.1640509452039145e-15,
+      "python_cython_final_field_relative_l2": 1.0451373948190431e-12,
+      "last_200_samples_peak_over_run_peak": 0.00010413586716601162,
+      "pec_limit_resistances_ohm": [
+        0.01,
+        0.001
+      ],
+      "pec_limit_trace_relative_l2": [
+        2.301876412968333e-06,
+        2.301988438057457e-07
+      ],
+      "boundary_polarization_poles": 96
+    },
+    {
+      "exterior": "drude",
+      "passed": true,
+      "domain_cells": [
+        8,
+        8,
+        8
+      ],
+      "iterations": 2400,
+      "dt_seconds": 1.92583320154647e-12,
+      "source_frequency_hz": 10000000000.0,
+      "surface": "copper, four Foster poles, 8-12 GHz fit",
+      "python_cython_trace_relative_l2": 5.013567320167209e-16,
+      "python_cython_final_field_relative_l2": 8.190967839600861e-14,
+      "last_200_samples_peak_over_run_peak": 0.00014168538727843237,
+      "pec_limit_resistances_ohm": [
+        0.01,
+        0.001
+      ],
+      "pec_limit_trace_relative_l2": [
+        3.1399888317540997e-06,
+        3.1416323392994993e-07
+      ],
+      "boundary_polarization_poles": 96
+    },
+    {
+      "exterior": "mixed",
+      "passed": true,
+      "domain_cells": [
+        8,
+        8,
+        8
+      ],
+      "iterations": 2400,
+      "dt_seconds": 1.92583320154647e-12,
+      "source_frequency_hz": 10000000000.0,
+      "surface": "copper, four Foster poles, 8-12 GHz fit",
+      "python_cython_trace_relative_l2": 8.031034417777204e-16,
+      "python_cython_final_field_relative_l2": 8.74757755872633e-13,
+      "last_200_samples_peak_over_run_peak": 3.895445623553364e-05,
+      "pec_limit_resistances_ohm": [
+        0.01,
+        0.001
+      ],
+      "pec_limit_trace_relative_l2": [
+        3.5505871479912013e-06,
+        3.550610765905549e-07
+      ],
+      "boundary_polarization_poles": 128
+    }
+  ],
+  "validation_scope": "3-D pulse solves: Python/Cython agreement, late-time decay, and convergence to the ordinary PEC boundary. Timing scenes have no sources."
+}

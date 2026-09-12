@@ -17,19 +17,18 @@ It demonstrates three finite-conductivity effects:
 Run
 ===
 
-From the repository root, using the local ``gprMax`` conda environment:
+From the repository root with gprMax installed in the active environment:
 
 .. code-block:: console
 
-    cd examples/features/impedance_surface/rectangular_waveguide_comparison
-    conda run -n gprMax python run_comparison.py --threads 4
-    conda run -n gprMax python plot_results.py
+    python examples/features/impedance_surface/rectangular_waveguide_comparison/run_comparison.py --threads 4
+    python examples/features/impedance_surface/rectangular_waveguide_comparison/plot_results.py
 
 To build only the geometry and write the FDFD modal-field figures:
 
 .. code-block:: console
 
-    conda run -n gprMax python run_comparison.py --geometry-only --threads 4
+    python examples/features/impedance_surface/rectangular_waveguide_comparison/run_comparison.py --geometry-only --threads 4
 
 The full run writes ``pec_rectangular_waveguide.h5`` and
 ``copper_rectangular_waveguide.h5``. Both runs also write independently scaled
@@ -41,7 +40,7 @@ ratios.
 Material syntax
 ===============
 
-The Python model uses the breaking fit API. The fit range is mandatory for a
+The fit range is mandatory for a
 metal preset, while ``fit_order='auto'`` selects the smallest order meeting
 the requested tolerance. A geometry-only run always writes the fit diagnostic;
 ``plot_fit=False`` suppresses that diagnostic during a full FDTD run, while
@@ -55,7 +54,7 @@ the requested tolerance. A geometry-only run always writes the fit diagnostic;
         fit_frequency_range=(80e9, 200e9),
         fit_order='auto',
         fit_tolerance=2e-3,
-        plot_fit=False,
+        plot_fit=True,
     ))
     scene.add(gprMax.Box(
         p1=lower,
@@ -68,16 +67,16 @@ The equivalent hash definitions are:
 
 .. code-block:: text
 
-    #surface_impedance: copper_wall preset copper 80e9 200e9 auto 2e-3 n
+    #surface_impedance: copper_wall preset copper 80e9 200e9 auto 2e-3 y
     #box: x0 y0 z0 x1 y1 z1 copper_wall n
 
 Dependencies and caveats
 ========================
 
 The model requires NumPy, h5py, Matplotlib, and the normal gprMax runtime; the
-bundled conda environment supplies them. Surface-impedance volumes currently
-run only in the 3-D CPU solver, so the script deliberately requests CPU double
-precision and provides no GPU option.
+gprMax environment supplies them. Surface-impedance volumes support 3-D and
+2-D TE/TM CPU main grids. This example uses 3-D CPU double precision and
+provides no GPU option.
 
 A surface-impedance ID represents the boundary of a volumetric geometry. It
 can be assigned anywhere an ordinary volume material ID is accepted, as the
@@ -88,10 +87,12 @@ The copper preset is the thick, smooth, non-magnetic 293 K good-conductor
 model over the explicitly fitted RF band. It is not an optical, thin-film,
 roughness, plating, alloy, or temperature-dependent copper model.
 
-Impedance walls cannot intersect a PML. The walls therefore end one retained
-cell before each x PML, and the 100 ps record ends before an end reflection can
-return to a receiver. This is a local wall/eigenmode demonstration, not a
-matched waveguide-termination example.
+This example ends its walls one retained cell before each x PML, and the
+100 ps record ends before an end reflection can return to a receiver. It
+demonstrates the local wall law. Uniform impedance walls can extend through
+longitudinal PML or a virtual guide under the host-material and coverage
+requirements in the surface-impedance guide; those matched terminations are
+demonstrated separately by ``../virtual_waveguide_2d.py``.
 
 The two modal-field PNGs choose their own colour/vector scales. Use the
 normalized receiver trace in the combined comparison for the quantitative

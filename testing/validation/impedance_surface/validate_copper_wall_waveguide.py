@@ -36,7 +36,7 @@ import numpy as np
 from scipy.constants import c, epsilon_0, mu_0
 
 import gprMax
-from gprMax.impedance_surfaces import SurfaceImpedanceModel
+from gprMax.impedance_surfaces import MAX_SIBC_TIMESTEP_FACTOR, SurfaceImpedanceModel
 from gprMax.surface_impedance_presets import (
     get_metal_surface_preset,
     good_conductor_surface_impedance,
@@ -451,7 +451,9 @@ def _read_port(path: Path, port: int):
         valid = np.asarray(group["power_wave_valid"], dtype=bool)[0]
         s_parameter = np.asarray(group["S"])[0] if "S" in group else None
         s_valid = (
-            np.asarray(group["power_wave_valid_S"], dtype=bool)[0] if s_parameter is not None else None
+            np.asarray(group["power_wave_valid_S"], dtype=bool)[0]
+            if s_parameter is not None
+            else None
         )
         anchors = np.asarray(group.attrs["CandidateAnchorFrequencies"], dtype=np.float64)
         anchor_neff = np.asarray(group["anchor_complex_neff"])[:, 0]
@@ -716,6 +718,7 @@ def run_validation(
         "domain_m": DOMAIN,
         "pml_cells": PML_CELLS,
         "time_window_s": TIME_WINDOW,
+        "timestep_factor": MAX_SIBC_TIMESTEP_FACTOR,
         "guide_lower_m": GUIDE_LOWER,
         "guide_upper_m": GUIDE_UPPER,
         "wall_outer_lower_m": WALL_OUTER_LOWER,

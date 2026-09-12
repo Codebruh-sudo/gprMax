@@ -1,0 +1,17 @@
+/* Keep explanatory API tables readable in the Read the Docs content column. */
+.wy-table-responsive table.api-parameters {
+    width: 100%;
+    table-layout: fixed;
+}
+
+.wy-table-responsive table.api-parameters th,
+.wy-table-responsive table.api-parameters td {
+    white-space: normal;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+}
+
+.wy-table-responsive table.api-parameters code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}

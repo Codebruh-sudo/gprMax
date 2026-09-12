@@ -392,6 +392,7 @@ class FDTDGrid:
         if self.averagevolumeobjects:
             self._build_components()
         self._build_thin_wires()
+        self._warn_legacy_pmc_geometry()
         self._2d_mode_grid_update()
         self._terminate_pmls_with_pec()
         self._validate_internal_pmls()
@@ -408,6 +409,33 @@ class FDTDGrid:
         self._apply_thin_wire_update_coefficients()
         self._DPW__source_grid_init()
         self._eigenmode_port_grid_init()
+
+    def _warn_legacy_pmc_geometry(self) -> None:
+        """Report user PMC geometry before synthetic TE constraints are installed."""
+        if getattr(self, "_legacy_pmc_checked", False):
+            return
+        self._legacy_pmc_checked = True
+        candidates = [m for m in self.materials if m.is_pmc]
+        if not candidates:
+            return
+
+        def used(numid):
+            # Bound temporary storage to one plane; sorting the complete ID
+            # volume just to report a warning can be expensive on large grids.
+            return any(np.any(plane == numid) for plane in self.solid) or any(
+                np.any(plane == numid) for component in self.ID for plane in component
+            )
+
+        names = sorted(m.ID for m in candidates if used(m.numID))
+        if names:
+            logger.warning(
+                f"Legacy PMC volume geometry in grid {self.name}: {', '.join(names)}. "
+                "Its magnetic-field constraints can displace a flat wall's effective "
+                "reflection plane by half a cell. For exact PMC at the voxel face, use "
+                "SurfaceImpedance(id='wall', resistance=float('inf')) and assign 'wall' "
+                "to the volume, or #surface_impedance: wall resistance inf. "
+                "SIBC solver and geometry restrictions apply."
+            )
 
     def _build_impedance_surfaces(self) -> None:
         """Compile private impedance-volume markers into sparse Yee records."""
@@ -1785,6 +1813,10 @@ class FDTDGrid:
         if marker_cell_counts:
             impedancearrays += self.nx * self.ny * self.nz * np.dtype(np.int32).itemsize
             estimated_state_values = 0
+            max_boundary_poles = max(
+                (getattr(material, "poles", 0) for material in self.materials),
+                default=0,
+            )
             for marker_numid, cell_count in marker_cell_counts.items():
                 # Twelve E edges and 24 surface ports per cell are the
                 # isolated-voxel upper bounds for arbitrary unions, cavities,
@@ -1799,6 +1831,13 @@ class FDTDGrid:
                 # isolated/rough-voxel upper bound; smooth faces merge several
                 # circulation terms.
                 impedancearrays += edges * (24 * np.dtype(np.int32).itemsize + 9 * real_size)
+                if max_boundary_poles:
+                    # At most three retained quadrants per boundary E edge.
+                    # Each pole has six real coefficients and two state values;
+                    # each edge has two instantaneous corrections and an offset.
+                    impedancearrays += edges * (
+                        (2 + 3 * max_boundary_poles * 8) * real_size + np.dtype(np.int32).itemsize
+                    )
                 # Each port stores its model/state indices, normal, area,
                 # geometric weight, and two precomputed Z0 ratios. Foster
                 # history has one in-place scalar per port and retained pole;
@@ -1828,6 +1867,8 @@ class FDTDGrid:
             # compiled Cython memoryview remains valid.
             if estimated_state_values == 0:
                 impedancearrays += real_size
+            if max_boundary_poles:
+                impedancearrays += np.dtype(np.int32).itemsize  # final pole offset
 
         mem_use = fieldarrays + solidarray + tagarray + rigidarrays + pmlarrays + impedancearrays
 
@@ -2053,16 +2094,25 @@ class FDTDGrid:
                 losses = [item for item in usable if item.get("attenuation_material") is not None]
                 if losses:
                     worst = min(losses, key=lambda item: item["attenuation_cells"])
-                    for key in ("attenuation_cells", "attenuation_material", "attenuation_frequency"):
+                    for key in (
+                        "attenuation_cells",
+                        "attenuation_material",
+                        "attenuation_frequency",
+                    ):
                         results[key] = worst[key]
                 phases = [item for item in usable if item["deltavp"] is not None]
                 if phases:
                     worst = max(phases, key=lambda item: abs(item["deltavp"]))
-                    for key in ("deltavp", "phase_error_material", "phase_error_frequency", "phase_error_axis"):
+                    for key in (
+                        "deltavp",
+                        "phase_error_material",
+                        "phase_error_frequency",
+                        "phase_error_axis",
+                    ):
                         results[key] = worst[key]
-                results["phase_error_notes"] = sorted({
-                    note for item in reports for note in item.get("phase_error_notes", [])
-                })
+                results["phase_error_notes"] = sorted(
+                    {note for item in reports for note in item.get("phase_error_notes", [])}
+                )
                 errors = sorted({item["error"] for item in reports if item["error"]})
                 results["error"] = "; ".join(errors)
         if failure is not None:
@@ -2249,6 +2299,8 @@ class FDTDGrid:
         if results["maxfreq"]:
             results["maxfreq"] = max(results["maxfreq"])
 
-            results.update(spatial_resolution(self, results["maxfreq"], config.get_model_config().mode))
+            results.update(
+                spatial_resolution(self, results["maxfreq"], config.get_model_config().mode)
+            )
 
         return results

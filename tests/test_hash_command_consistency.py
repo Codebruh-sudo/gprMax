@@ -77,6 +77,37 @@ def test_every_registered_multiuse_command_has_parser_dispatch():
     assert tracked.accessed == set(commands)
 
 
+@pytest.mark.parametrize(
+    "parameters, filename, ports",
+    [("", "port_modes", ()), ("bank", "bank", ()), ("bank 3 1", "bank", (3, 1))],
+)
+def test_eigenmode_field_output_hash_matches_api(parameters, filename, ports):
+    objects = get_user_objects([f"#eigenmode_field_output: {parameters}\n"], checkessential=False)
+    assert len(objects) == 1
+    assert isinstance(objects[0], gprMax.EigenmodeFieldOutput)
+    assert objects[0].kwargs == gprMax.EigenmodeFieldOutput(filename, ports).kwargs
+
+
+@pytest.mark.parametrize("parameters", ["bank 0", "bank -1", "bank 1 1", "../bank"])
+def test_eigenmode_field_output_hash_preserves_api_validation(parameters):
+    with pytest.raises(ValueError):
+        get_user_objects([f"#eigenmode_field_output: {parameters}\n"], checkessential=False)
+
+
+@pytest.mark.parametrize("port", ["1.5", "nan", "inf", "one", "1,2"])
+def test_eigenmode_field_output_hash_rejects_noninteger_ports(port):
+    with pytest.raises(ValueError, match="port numbers must be integers"):
+        get_user_objects([f"#eigenmode_field_output: bank {port}\n"], checkessential=False)
+
+
+def test_eigenmode_field_output_hash_allows_multiple_requests():
+    objects = get_user_objects(
+        ["#eigenmode_field_output: first 1\n", "#eigenmode_field_output: second 2\n"],
+        checkessential=False,
+    )
+    assert [(obj.filename, obj.ports) for obj in objects] == [("first", (1,)), ("second", (2,))]
+
+
 def test_omp_threads_hash_round_trip_uses_documented_command():
     objects = get_user_objects(["#omp_threads: 2\n"], checkessential=False)
 

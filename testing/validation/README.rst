@@ -16,6 +16,12 @@ The main validations are:
   using a 120--150 GHz excitation, automatic three-pole fit, and a causally
   isolated 500 ps record; its FDFD and FDTD attenuation gates are 1% and 2%
   relative L2 error;
+* ``impedance_surface/validate_conductor_sphere.py`` -- broadband backscatter
+  and complex angular scattering from good-conductor impedance spheres,
+  compared with both impedance-boundary and bulk-conductor Mie solutions;
+* ``impedance_surface/validate_reflection_phase.py`` -- reflected TEM-wave
+  magnitude and phase at a metal wall, including direct contact with a Debye
+  exterior, compared with continuum and discrete analytical coefficients;
 * ``validate_hertzian_dipole.py`` -- Hertzian-dipole far-field pattern and
   directivity, plus one analytical near-field time-domain component;
 * ``planar_layered_ntff/validate_point_dipole.py`` -- the frequency-domain

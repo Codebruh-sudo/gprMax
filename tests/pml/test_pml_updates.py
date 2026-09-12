@@ -142,7 +142,7 @@ class TestFunctionNameResolution:
     def test_cfs_count_selects_the_order(self, make_pml_grid, make_cfs, spy_import, order):
         """Expects ``order<N>`` to track ``len(CFS)``, so a two-pole PML calls
         a different kernel from a one-pole PML. (2 parameter sets)"""
-        cfs = [make_cfs(kappa={"min": 1.0}) for _ in range(order)]
+        cfs = [make_cfs(alpha={"max": 20.0}, kappa={"min": 1.0}) for _ in range(order)]
         g = make_pml_grid(cfs=cfs)
         pml = PML(g, "x0", "xminus", 0, 4, 0, 11, 0, 11)
         pml.calculate_update_coeffs(1.0, 1.0)

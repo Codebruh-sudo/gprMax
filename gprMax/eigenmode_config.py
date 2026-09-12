@@ -361,6 +361,8 @@ class EigenmodePortSpec:
     anchors: str | tuple[float, ...]
     plot_fields: bool | None
     resolved_anchors: tuple[float, ...] = field(default_factory=tuple)
+    degenerate: tuple[tuple[int, ...], ...] = ()
+    mode_polarizations: dict = field(default_factory=dict)
 
     @property
     def anchor_policy(self) -> str:

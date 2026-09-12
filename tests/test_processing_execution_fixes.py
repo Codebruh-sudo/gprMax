@@ -17,7 +17,11 @@ BASE = """#domain: 0.064 0.064 0.064
 #hertzian_dipole: z 0.032 0.032 0.032 w
 #rx: 0.032 0.032 0.032 probe Ez
 """
-BACKENDS = ["cpu", pytest.param("cuda", marks=pytest.mark.gpu), pytest.param("opencl", marks=pytest.mark.gpu)]
+BACKENDS = [
+    "cpu",
+    pytest.param("cuda", marks=pytest.mark.gpu),
+    pytest.param("opencl", marks=pytest.mark.gpu),
+]
 
 
 def backend_options(request, backend):
@@ -42,7 +46,9 @@ def test_run_nested_includes_never_consults_cwd_study(tmp_path, monkeypatch, req
     (caller / "nested/outer.in").write_text("#study: gpr phantom.csv\n")
     (model / "phantom.csv").write_text("case_id,object_id\noff,rx_1\n")
     monkeypatch.chdir(caller)
-    gprMax.run(inputfile=source, hide_progress_bars=True, log_level=50, **backend_options(request, backend))
+    gprMax.run(
+        inputfile=source, hide_progress_bars=True, log_level=50, **backend_options(request, backend)
+    )
     with h5py.File(source.with_suffix(".h5")) as output:
         assert "study" not in output
         assert np.count_nonzero(output["srcs/src1/excitation/samples"]) == 24
@@ -51,7 +57,10 @@ def test_run_nested_includes_never_consults_cwd_study(tmp_path, monkeypatch, req
 
 @pytest.mark.parametrize(
     "scanner, command",
-    [(_find_hash_study, "#study: gpr cases.csv"), (_find_hash_array_codebook, "#array_codebook: modes.json")],
+    [
+        (_find_hash_study, "#study: gpr cases.csv"),
+        (_find_hash_array_codebook, "#array_codebook: modes.json"),
+    ],
 )
 def test_preflight_shares_nested_directory_and_occurrence_policy(tmp_path, scanner, command):
     nested = tmp_path / "nested"
@@ -73,7 +82,12 @@ def test_preflight_rejects_include_cycles(tmp_path, alias):
     main, child = tmp_path / "main.in", tmp_path / "child.in"
     main.write_text("#include_file: child.in\n")
     if alias:
-        (tmp_path / "alias.in").symlink_to(main)
+        try:
+            (tmp_path / "alias.in").symlink_to(main)
+        except OSError as error:
+            if getattr(error, "winerror", None) != 1314:
+                raise
+            pytest.skip("Windows requires Developer Mode or symlink creation privilege")
     child.write_text(f"#include_file: {'alias.in' if alias else 'main.in'}\n")
     with pytest.raises(ValueError, match="cycle detected"):
         static_hash_commands(main)
@@ -101,7 +115,14 @@ def test_python_cannot_silently_introduce_run_controls(tmp_path, command):
 
 
 @pytest.mark.parametrize(
-    "study_type", [gprMax.GPRStudy, gprMax.SourceStudy, gprMax.PortStudy, gprMax.PlaneWaveStudy, gprMax.EigenmodeStudy]
+    "study_type",
+    [
+        gprMax.GPRStudy,
+        gprMax.SourceStudy,
+        gprMax.PortStudy,
+        gprMax.PlaneWaveStudy,
+        gprMax.EigenmodeStudy,
+    ],
 )
 def test_all_study_families_reject_common_invalid_parameters(study_type):
     study = study_type([gprMax.StudyCase("invalid", [gprMax.ObjectState("source", start=np.nan)])])
@@ -150,7 +171,9 @@ def test_study_rejects_nonboolean_flags(parameter, value):
 def test_api_study_python_and_numpy_flags_agree(tmp_path, value):
     model, study, _ = study_scene({"active": value})
     output = tmp_path / "study.h5"
-    gprMax.run(scenes=[model], study=study, outputfile=output, hide_progress_bars=True, log_level=50)
+    gprMax.run(
+        scenes=[model], study=study, outputfile=output, hide_progress_bars=True, log_level=50
+    )
     with h5py.File(output) as handle:
         assert bool(np.any(handle["srcs/src1/excitation/samples"])) == bool(value)
         assert bool(np.any(handle["rxs/rx1/Ez"])) == bool(value)

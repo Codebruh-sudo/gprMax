@@ -59,6 +59,7 @@ from .user_objects.cmds_multiuse import (
 )
 from .user_objects.cmds_output import (
     SAR,
+    EigenmodeFieldOutput,
     GeometryObjectsWrite,
     GeometryView,
     KSIRAntennaPorts,
@@ -527,9 +528,11 @@ def process_multicmds(multicmds):
             modes = tuple(int(value) for value in tmp[8].split(","))
         except ValueError as exc:
             raise ValueError("#eigenmode_port modes must be comma-separated integers.") from exc
-        tail = tmp[9:]
+        from gprMax.eigenmode_tracking import parse_port_options
+
+        tail, options = parse_port_options(tmp[9:])
         plot_fields = None
-        if tail[-1].lower() in ("y", "n"):
+        if tail and tail[-1].lower() in ("y", "n"):
             plot_fields = tail[-1].lower() == "y"
             tail = tail[:-1]
         if tail == ["auto"]:
@@ -547,6 +550,7 @@ def process_multicmds(multicmds):
                 modes=modes,
                 anchors=anchors,
                 plot_fields=plot_fields,
+                **options,
             )
         )
 
@@ -1526,6 +1530,17 @@ def process_multicmds(multicmds):
                 id=tmp[6],
             )
             scene_objects.append(soil)
+
+    for cmdinstance in multicmds.get("#eigenmode_field_output") or []:
+        tmp = cmdinstance.split()
+        if not tmp:
+            scene_objects.append(EigenmodeFieldOutput())
+            continue
+        try:
+            ports = tuple(int(port) for port in tmp[1:])
+        except ValueError as exc:
+            raise ValueError("#eigenmode_field_output port numbers must be integers.") from exc
+        scene_objects.append(EigenmodeFieldOutput(filename=tmp[0], ports=ports))
 
     cmdname = "#geometry_view"
     if multicmds[cmdname] is not None:

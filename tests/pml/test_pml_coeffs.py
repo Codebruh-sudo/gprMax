@@ -135,7 +135,7 @@ class TestArrayShapesAndDtypes:
     def test_row_count_follows_the_cfs_order(self, make_pml_grid, make_cfs, order):
         """Expects a row per CFS term, so a two-pole PML gets two rows.
         (3 parameter sets)"""
-        cfs = [make_cfs(kappa={"min": 1.0}) for _ in range(order)]
+        cfs = [make_cfs(alpha={"max": 20.0}, kappa={"min": 1.0}) for _ in range(order)]
         g = make_pml_grid(cfs=cfs)
         pml = PML(g, "x0", "xminus", 0, 4, 0, 11, 0, 11)
         pml.calculate_update_coeffs(1.0, 1.0)
@@ -400,8 +400,8 @@ class TestMultipole:
         """Expects two CFS terms with different sigma maxima to produce two
         distinct rows, in list order."""
         cfs = [
-            make_cfs(kappa={"min": 0.5}, sigma={"max": 1.0}),
-            make_cfs(kappa={"min": 0.5}, sigma={"max": 9.0}),
+            make_cfs(alpha={"max": 20.0}, kappa={"min": 0.5}, sigma={"max": 1.0}),
+            make_cfs(alpha={"max": 20.0}, kappa={"min": 0.5}, sigma={"max": 9.0}),
         ]
         g = make_pml_grid(cfs=cfs)
         pml = PML(g, "x0", "xminus", 0, 4, 0, 11, 0, 11)
@@ -412,7 +412,7 @@ class TestMultipole:
     def test_rows_are_independent(self, make_pml_grid, make_cfs):
         """Expects the second term's row to match a single-term PML built from
         the same CFS — no cross-talk between poles."""
-        shared = {"kappa": {"min": 1.0}, "sigma": {"max": 9.0}}
+        shared = {"alpha": {"max": 20.0}, "kappa": {"min": 1.0}, "sigma": {"max": 9.0}}
         two = make_pml_grid(cfs=[make_cfs(sigma={"max": 1.0}), make_cfs(**shared)])
         one = make_pml_grid(cfs=[make_cfs(**shared)])
         a = PML(two, "x0", "xminus", 0, 4, 0, 11, 0, 11)
@@ -423,7 +423,7 @@ class TestMultipole:
 
     def test_a_debug_record_is_emitted_per_term(self, make_pml_grid, make_cfs, caplog):
         """Expects one ``sigma.max set to`` record for each CFS term."""
-        cfs = [make_cfs(kappa={"min": 0.5}), make_cfs(kappa={"min": 0.5})]
+        cfs = [make_cfs(kappa={"min": 0.5}), make_cfs(alpha={"max": 20.0}, kappa={"min": 0.5})]
         g = make_pml_grid(cfs=cfs)
         pml = PML(g, "x0", "xminus", 0, 4, 0, 11, 0, 11)
         with caplog.at_level(logging.DEBUG, logger="gprMax.pml"):

@@ -1137,6 +1137,9 @@ class EigenmodePortMonitor:
         group.attrs["Direction"] = self.owner.direction
         group.attrs["Normal"] = self.owner.normal
         group.attrs["ModeIndices"] = self.mode_indices
+        from gprMax.eigenmode_tracking import write_diagnostics
+
+        write_diagnostics(group, self.owner)
         global_plane_index = getattr(self.owner, "global_plane_index", None)
         group.attrs["PlaneIndex"] = (
             self.owner.plane_index if global_plane_index is None else global_plane_index

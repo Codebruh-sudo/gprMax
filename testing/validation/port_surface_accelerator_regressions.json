@@ -1,0 +1,335 @@
+{
+  "date": "2026-09-12",
+  "base_commit": "03c30900",
+  "upstream_devel": "230bf6eb",
+  "environment": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.13.15",
+    "packages": {
+      "numpy": "2.5.2",
+      "scipy": "1.18.1",
+      "h5py": "3.16.0",
+      "pytest": "9.1.1",
+      "pycuda": "2025.1.2",
+      "pyopencl": "2026.1.3"
+    },
+    "cuda_device": "NVIDIA GeForce RTX 4070 Laptop GPU",
+    "compute_capability": [
+      8,
+      9
+    ],
+    "cuda_toolkit": "13.3",
+    "msvc": "14.51.36231",
+    "opencl_devices": [
+      {
+        "platform": "NVIDIA CUDA",
+        "devices": [
+          "NVIDIA GeForce RTX 4070 Laptop GPU"
+        ]
+      },
+      {
+        "platform": "Intel(R) OpenCL Graphics",
+        "devices": [
+          "Intel(R) Iris(R) Xe Graphics"
+        ]
+      }
+    ],
+    "parallel_hdf5": false
+  },
+  "test_files": [
+    "tests/cmds_multiuse/test_eigenmode_commands.py",
+    "tests/cmds_multiuse/test_eigenmode_source_2d.py",
+    "tests/cmds_multiuse/test_eigenmode_subgrid.py",
+    "tests/cmds_multiuse/test_virtual_waveguide_commands.py",
+    "tests/fdfd_eigenmode_solver/test_fdfd_1d_mode_solver.py",
+    "tests/fdfd_eigenmode_solver/test_fdfd_2d_mode_solver.py",
+    "tests/fdfd_eigenmode_solver/test_fdfd_validation.py",
+    "tests/fdfd_eigenmode_solver/test_numerical_dispersion.py",
+    "tests/fdfd_eigenmode_solver/test_surface_impedance_fdfd_operator.py",
+    "tests/fdfd_eigenmode_solver/test_surface_impedance_operator.py",
+    "tests/fdfd_eigenmode_solver/test_virtual_waveguide_device.py",
+    "tests/fractals/test_fractal_box.py",
+    "tests/hash_cmds/test_hash_cmds_file.py",
+    "tests/impedance_surfaces/test_2d_sibc.py",
+    "tests/impedance_surfaces/test_analytical_validation.py",
+    "tests/impedance_surfaces/test_automatic_timestep.py",
+    "tests/impedance_surfaces/test_clipped_stability.py",
+    "tests/impedance_surfaces/test_copper_wall_waveguide.py",
+    "tests/impedance_surfaces/test_default_cfl.py",
+    "tests/impedance_surfaces/test_dispersive_contacts.py",
+    "tests/impedance_surfaces/test_impedance_benchmark.py",
+    "tests/impedance_surfaces/test_impedance_geometry_materials.py",
+    "tests/impedance_surfaces/test_impedance_memory_estimate.py",
+    "tests/impedance_surfaces/test_impedance_surfaces.py",
+    "tests/impedance_surfaces/test_impedance_volume_native_shapes.py",
+    "tests/impedance_surfaces/test_impedance_voxel_topology.py",
+    "tests/impedance_surfaces/test_legacy_pmc_warning.py",
+    "tests/impedance_surfaces/test_metal_presets.py",
+    "tests/impedance_surfaces/test_output_metadata.py",
+    "tests/impedance_surfaces/test_perfect_conductor_contacts.py",
+    "tests/impedance_surfaces/test_pmc_api.py",
+    "tests/impedance_surfaces/test_pmc_pml.py",
+    "tests/impedance_surfaces/test_sibc_based_pmc.py",
+    "tests/impedance_surfaces/test_sibc_pml_physics.py",
+    "tests/impedance_surfaces/test_surface_impedance_plotting.py",
+    "tests/impedance_surfaces/test_symmetry_contacts.py",
+    "tests/ntff/test_hash_command.py",
+    "tests/ntff/test_port_power.py",
+    "tests/ntff/test_solver_integration.py",
+    "tests/ntff/test_validation_guards.py",
+    "tests/outputs/test_fields_outputs_unit.py",
+    "tests/outputs/test_geometry_source_metadata_integration.py",
+    "tests/outputs/test_geometry_views.py",
+    "tests/outputs/test_sar.py",
+    "tests/pml/test_cfs.py",
+    "tests/pml/test_horipml_profile_stability.py",
+    "tests/pml/test_internal_pml_slab.py",
+    "tests/pml/test_mpi_internal_pml_slab.py",
+    "tests/pml/test_mpi_pml.py",
+    "tests/pml/test_opencl_pml_dispatch.py",
+    "tests/pml/test_opencl_pml_geometry_fixed.py",
+    "tests/pml/test_opencl_pml_range_solve.py",
+    "tests/pml/test_pml_build_kernel.py",
+    "tests/pml/test_pml_coeffs.py",
+    "tests/pml/test_pml_construction.py",
+    "tests/pml/test_pml_precision_solve.py",
+    "tests/pml/test_pml_spacing_precision.py",
+    "tests/pml/test_pml_updates.py",
+    "tests/pml/test_profile_guard.py",
+    "tests/subgrids/test_subgrid_updates.py",
+    "tests/test_eigenmode_anchor_policy.py",
+    "tests/test_eigenmode_auto_guard_failure.py",
+    "tests/test_eigenmode_config.py",
+    "tests/test_eigenmode_degenerate.py",
+    "tests/test_eigenmode_degenerate_integration.py",
+    "tests/test_eigenmode_grid_spacing_plot.py",
+    "tests/test_eigenmode_numerical_dispersion.py",
+    "tests/test_eigenmode_plotting.py",
+    "tests/test_eigenmode_ports.py",
+    "tests/test_eigenmode_source_broadband.py",
+    "tests/test_eigenmode_source_upstream_compat.py",
+    "tests/test_eigenmode_sparameter_plot.py",
+    "tests/test_eigenmode_study.py",
+    "tests/test_geometry_fixed_rejects_stateful_sources.py",
+    "tests/test_processing_execution_fixes.py",
+    "tests/test_virtual_waveguide_coupling.py",
+    "tests/test_virtual_waveguide_impedance.py",
+    "tests/test_virtual_waveguide_integration.py",
+    "tests/toolboxes/test_paraview_macro.py",
+    "tests/updates/test_cuda_dispersive_lorentz_drude_solve.py",
+    "tests/updates/test_cuda_magnetic_frill_solve.py",
+    "tests/updates/test_cuda_mixed_source_solve.py",
+    "tests/updates/test_cuda_source_module_initialisation.py",
+    "tests/updates/test_cuda_symmetry_boundary_solve.py",
+    "tests/updates/test_cuda_transmission_line_solve.py",
+    "tests/updates/test_mpi_transmission_line_timing.py",
+    "tests/updates/test_solver.py",
+    "tests/updates/test_updates_base.py"
+  ],
+  "results": {
+    "passed": 2798,
+    "skipped": 23,
+    "total": 2821,
+    "module_count": 88
+  },
+  "runs": {
+    "feature_results.xml": {
+      "passed": 1914,
+      "failure": 16,
+      "skipped": 9
+    },
+    "extra_fixed_results.xml": {
+      "passed": 760,
+      "skipped": 12
+    },
+    "include_fixed_results.xml": {
+      "passed": 74,
+      "skipped": 2
+    },
+    "feature_opencl_fixed_results.xml": {
+      "passed": 19
+    },
+    "degenerate_cpu_final_results.xml": {
+      "passed": 62
+    },
+    "degenerate_gpu_results.xml": {
+      "passed": 72
+    }
+  },
+  "skips": [
+    {
+      "test": "tests.fdfd_eigenmode_solver.test_virtual_waveguide_device.test_device_virtual_waveguide_matches_cpu[metal---0]",
+      "reason": "No Apple Metal device/PyObjC available"
+    },
+    {
+      "test": "tests.fdfd_eigenmode_solver.test_virtual_waveguide_device.test_device_virtual_waveguide_matches_cpu[metal---1]",
+      "reason": "No Apple Metal device/PyObjC available"
+    },
+    {
+      "test": "tests.fdfd_eigenmode_solver.test_virtual_waveguide_device.test_device_virtual_waveguide_matches_cpu[metal---2]",
+      "reason": "No Apple Metal device/PyObjC available"
+    },
+    {
+      "test": "tests.fdfd_eigenmode_solver.test_virtual_waveguide_device.test_device_virtual_waveguide_matches_cpu[metal-+-0]",
+      "reason": "No Apple Metal device/PyObjC available"
+    },
+    {
+      "test": "tests.fdfd_eigenmode_solver.test_virtual_waveguide_device.test_device_virtual_waveguide_matches_cpu[metal-+-1]",
+      "reason": "No Apple Metal device/PyObjC available"
+    },
+    {
+      "test": "tests.fdfd_eigenmode_solver.test_virtual_waveguide_device.test_device_virtual_waveguide_matches_cpu[metal-+-2]",
+      "reason": "No Apple Metal device/PyObjC available"
+    },
+    {
+      "test": "tests.fdfd_eigenmode_solver.test_virtual_waveguide_device.test_device_virtual_waveguide_broadband_matches_cpu[metal]",
+      "reason": "No Apple Metal device/PyObjC available"
+    },
+    {
+      "test": "tests.fdfd_eigenmode_solver.test_virtual_waveguide_device.test_device_passive_virtual_waveguide_matches_cpu[metal]",
+      "reason": "No Apple Metal device/PyObjC available"
+    },
+    {
+      "test": "tests.fdfd_eigenmode_solver.test_virtual_waveguide_device.test_device_direct_eigenmode_source_matches_cpu[metal]",
+      "reason": "No Apple Metal device/PyObjC available"
+    },
+    {
+      "test": "tests.test_processing_execution_fixes.test_preflight_rejects_include_cycles[True]",
+      "reason": "Windows requires Developer Mode or symlink creation privilege"
+    },
+    {
+      "test": "tests.pml.test_pml_precision_solve.test_pml_cpu_matches_real_mpi[HORIPML-single-partition0]",
+      "reason": "requires MPI and parallel HDF5"
+    },
+    {
+      "test": "tests.pml.test_pml_precision_solve.test_pml_cpu_matches_real_mpi[HORIPML-single-partition1]",
+      "reason": "requires MPI and parallel HDF5"
+    },
+    {
+      "test": "tests.pml.test_pml_precision_solve.test_pml_cpu_matches_real_mpi[HORIPML-single-partition2]",
+      "reason": "requires MPI and parallel HDF5"
+    },
+    {
+      "test": "tests.pml.test_pml_precision_solve.test_pml_cpu_matches_real_mpi[HORIPML-double-partition0]",
+      "reason": "requires MPI and parallel HDF5"
+    },
+    {
+      "test": "tests.pml.test_pml_precision_solve.test_pml_cpu_matches_real_mpi[HORIPML-double-partition1]",
+      "reason": "requires MPI and parallel HDF5"
+    },
+    {
+      "test": "tests.pml.test_pml_precision_solve.test_pml_cpu_matches_real_mpi[HORIPML-double-partition2]",
+      "reason": "requires MPI and parallel HDF5"
+    },
+    {
+      "test": "tests.pml.test_pml_precision_solve.test_pml_cpu_matches_real_mpi[MRIPML-single-partition0]",
+      "reason": "requires MPI and parallel HDF5"
+    },
+    {
+      "test": "tests.pml.test_pml_precision_solve.test_pml_cpu_matches_real_mpi[MRIPML-single-partition1]",
+      "reason": "requires MPI and parallel HDF5"
+    },
+    {
+      "test": "tests.pml.test_pml_precision_solve.test_pml_cpu_matches_real_mpi[MRIPML-single-partition2]",
+      "reason": "requires MPI and parallel HDF5"
+    },
+    {
+      "test": "tests.pml.test_pml_precision_solve.test_pml_cpu_matches_real_mpi[MRIPML-double-partition0]",
+      "reason": "requires MPI and parallel HDF5"
+    },
+    {
+      "test": "tests.pml.test_pml_precision_solve.test_pml_cpu_matches_real_mpi[MRIPML-double-partition1]",
+      "reason": "requires MPI and parallel HDF5"
+    },
+    {
+      "test": "tests.pml.test_pml_precision_solve.test_pml_cpu_matches_real_mpi[MRIPML-double-partition2]",
+      "reason": "requires MPI and parallel HDF5"
+    },
+    {
+      "test": "tests.hash_cmds.test_hash_cmds_file.TestProcessIncludeFiles.test_include_cycles_are_rejected_with_chain[True]",
+      "reason": "Windows requires Developer Mode or symlink creation privilege"
+    }
+  ],
+  "degenerate_device_max_normalized_field_error": {
+    "cuda_double": {
+      "cases": 18,
+      "physical_error": 2.642543839096894e-15,
+      "virtual_error": 2.642543839096894e-15
+    },
+    "opencl_double": {
+      "cases": 18,
+      "physical_error": 2.642543839096894e-15,
+      "virtual_error": 2.642543839096894e-15
+    },
+    "cuda_single": {
+      "cases": 18,
+      "physical_error": 1.4559182960687767e-06,
+      "virtual_error": 1.4559182960687767e-06
+    },
+    "opencl_single": {
+      "cases": 18,
+      "physical_error": 1.4559182960687767e-06,
+      "virtual_error": 1.4559182960687767e-06
+    }
+  },
+  "acceptance_limits": {
+    "double_field_error": 2e-08,
+    "single_field_error": 0.0002,
+    "mixed_mode_residual": 1e-09
+  },
+  "documentation": {
+    "sphinx_html": "passed",
+    "warnings": 58,
+    "introduced_warnings": 0
+  },
+  "copper_wall_validation": {
+    "metrics": {
+      "fdfd_insertion_loss_db_max": 0.23512599891190378,
+      "fdfd_insertion_loss_db_min": 0.2063973412056966,
+      "fdfd_physical_alpha_relative_l2_error": 0.0066879867610424235,
+      "fdtd_physical_alpha_relative_l2_error": 0.0074975791084237265,
+      "impedance_fit_relative_l2_error": 0.0002602266395135945,
+      "maximum_continuum_phase_discretisation_deg": 7.550203236540045,
+      "maximum_raw_physical_magnitude_error_db": 0.0030164825291918718,
+      "maximum_raw_physical_phase_error_deg": 0.01926097738771679,
+      "maximum_source_reflection_db": -101.8905217907381,
+      "physical_insertion_loss_db_max": 0.23430464443547658,
+      "physical_insertion_loss_db_min": 0.20441970510064555
+    },
+    "acceptance": {
+      "checks": {
+        "fdfd_physical_attenuation": {
+          "maximum_relative_l2_error": 0.01,
+          "passed": true,
+          "relative_l2_error": 0.0066879867610424235
+        },
+        "fdtd_physical_attenuation": {
+          "maximum_relative_l2_error": 0.02,
+          "passed": true,
+          "relative_l2_error": 0.0074975791084237265
+        },
+        "source_reflection": {
+          "maximum_allowed_db": -20.0,
+          "maximum_db": -101.8905217907381,
+          "passed": true
+        }
+      },
+      "passed": true
+    },
+    "frequency_band_hz": [
+      130000000000.0,
+      150000000000.0
+    ],
+    "fdtd_iterations": 2624,
+    "fdtd_dt_s": 1.9065748695310054e-13,
+    "reproduction": "python -m pytest tests/impedance_surfaces/test_copper_wall_waveguide.py -q"
+  },
+  "notes": [
+    "No upstream devel commits were missing; no rebase was necessary.",
+    "Final test identities are deduplicated across the listed runs; corrected reruns supersede earlier outcomes.",
+    "Initial expanded run: 720 passed, 40 OpenCL cache-access failures, 12 MPI/parallel-HDF5 skips. Complete expanded rerun passed after redirecting the cache.",
+    "Compiler setup and cache configuration fixes did not change the numerical solver or public APIs.",
+    "SIBC remains CPU-only. CUDA/OpenCL coverage exercises the supported eigenmode/virtual-guide paths and rejection of unsupported combinations.",
+    "OpenCL device index 0 selected the NVIDIA RTX 4070; the Intel OpenCL device was not tested."
+  ]
+}

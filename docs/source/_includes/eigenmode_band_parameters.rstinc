@@ -1,0 +1,26 @@
+.. list-table::
+   :class: api-parameters
+   :header-rows: 1
+   :widths: 25 22 53
+
+   * - Argument
+     - Default
+     - Meaning and constraints
+   * - ``id``
+     - Required
+     - Non-empty identifier without whitespace. Exactly one band is allowed per grid.
+   * - ``fmin``, ``fmax``
+     - Required
+     - Positive, finite frequency limits with ``fmax >= fmin``.
+   * - ``points``
+     - Required
+     - Number of equally spaced output frequencies from ``fmin`` to ``fmax``, including both endpoints. Use one point when the limits are equal and at least two when they differ.
+   * - ``frequencies``
+     - No extra frequencies
+     - Extra output frequencies in Hz, between ``fmin`` and ``fmax`` inclusive. Supply one number or a sequence. These are added to the frequencies selected by ``points``, then sorted from low to high; repeated values appear only once.
+   * - ``transition``
+     - ``"auto"``
+     - Automatic pulse transition width, or a positive finite width in Hz.
+   * - ``spectral_threshold``
+     - ``1e-3``
+     - Relative amplitude threshold for significant waveform spectral support; strictly between zero and one.

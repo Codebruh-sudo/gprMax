@@ -875,7 +875,7 @@ Within each individual ``frill`` group are the following datasets:
   the same meaning as the corresponding ``tl`` datasets.
 
 Transmission-line S11 and impedance output
--------------------------------------------
+------------------------------------------
 
 S11, input impedance, and input admittance are generated automatically for
 every transmission-line source; no additional receiver is required. With the
@@ -925,7 +925,7 @@ For example, the valid S11 and impedance bins can be read directly:
     reactance = zin.imag[valid]
 
 Magnetic-frill-source S11 and impedance output
------------------------------------------------
+----------------------------------------------
 
 S11, input impedance, and input admittance are generated automatically for
 every ``#magnetic_frill_source``, exactly as for a transmission line; no
@@ -1196,6 +1196,24 @@ lists every solved candidate; use it together with
 for each mode rather than only their union. Non-propagating reference anchors
 never drive the source and never become power waves.
 
+For a declared degenerate group, source and reference eligibility is decided
+for the complete group. Non-propagating group anchors are excluded from its
+physical references, and failed groups do not fall back member by member.
+The aligned fields are authoritative for excitation, monitoring, studies,
+field exports, and standard modal plots.
+
+The port's ``degenerate_groups`` subgroup stores numbered groups with
+``ModeIndices``, ``PhysicalPolarization``, ``ReferenceAnchorIndex``, and
+``TransverseAxes`` attributes. ``subspace_overlaps`` records continuity;
+physically labelled groups additionally store ``requested_directions``.
+Each ``anchorK`` stores frequency, active status, eigenvalues, and eigenvalue
+spread. Retained anchors additionally contain ``transform``, ``residual``,
+and ``power_gram``; physical alignment also records ``electric_moments``
+and its conditioning diagnostics. Rejected or inactive anchors need not
+contain those aligned quantities. The recorded transformation convention is
+``aligned fields = raw fields @ transform``.
+See :ref:`eigenmode-degenerate-theory` for their definitions and thresholds.
+
 The complex ``electric_cross_power_matrix`` and Hermitian ``power_matrix``
 both have shape
 ``(nfrequencies, nmodes, nmodes)``. For a modal coefficient vector
@@ -1425,7 +1443,7 @@ staggering and fractional-delay interpolation are given in
 :ref:`ntff-formulations`.
 
 Far-field derived antenna quantities
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``radiation_intensity`` has shape ``(nfrequencies, ndirections)``. If
 ``directivity``, an efficiency, or an exterior summary is requested, the five
@@ -1465,7 +1483,7 @@ The two efficiencies are frequency-only quantities and therefore have shape
 requested outputs.
 
 Planar-layered exterior-region antenna quantities
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The grouped ``exterior_power``, ``exterior_maximum``, and
 ``exterior_efficiency`` requests are available only for a
@@ -1695,6 +1713,66 @@ strictly enclose the complete subgrid coupling region.
 
 
 .. _outputs-snaps:
+
+.. _impedance-output:
+
+Surface-impedance reproducibility metadata
+------------------------------------------
+
+Every output file containing a surface definition has a root group
+``/surface_impedance_models``. Its attributes are:
+
+* ``SchemaVersion = 3``;
+* ``TimeConvention = exp(+j*omega*t)``;
+* ``FourierAnalysisConvention = exp(-j*omega*t)``;
+* ``SurfaceNormalConvention = metal_to_retained_dielectric``;
+* ``SurfaceCurrentConvention = K = n_m cross H``;
+* ``Units = SI``;
+* ``FDTDTimeStep``.
+
+Each definition appears as ``model1``, ``model2``, and so on, in definition
+order. A model group stores ``ID``, ``ModelHashSHA256``, ``Order``, ``D``, fit
+limits, source kind, conductivity, preset/provenance, requested and selected
+pole counts, fit method and tolerance, maximum/RMS errors, plotting policy, and
+whether the compiled boundary uses it. The continuous ``A``, ``B``, and ``C``
+arrays are datasets. A preset additionally stores reference temperature and
+resistivity.
+
+For every model used by the compiled boundary, ``fdtd_discrete`` stores the
+exact local ``f`` and ``q`` pole vectors and the ``TimeStep``, ``Z0``, and
+``PassivityChecked`` attributes. Together with the continuous realization,
+these reproduce both the in-place FDTD recurrence and the equivalent FDFD
+transfer. A defined but unused model has no discrete subgroup. The model hash
+covers the continuous model and fitting provenance. The current schema does
+not serialize the complete
+sparse geometry/port map, so geometry reproducibility still depends on the
+input model and normal gprMax output metadata.
+
+An eigenmode port additionally stores ``anchor_complex_neff`` below its
+``/eigenmode_ports/portN`` group. Its complex array has shape
+``(anchor frequency, mode)`` and is aligned with the
+``CandidateAnchorFrequencies`` attribute. The associated
+``anchor_mode_valid`` and ``anchor_mode_reference_valid`` datasets identify
+the usable rows. This is the exact FDFD propagation constant bank used for
+broadband interpolation and makes the FDFD attenuation comparison
+reproducible from the output file.
+
+For example, inspect one used realization with:
+
+.. code-block:: python
+
+    import h5py
+
+    with h5py.File('model.h5', 'r') as output:
+        models = output['surface_impedance_models']
+        wall = models['model1']
+        print(wall.attrs['ID'], wall.attrs['ModelHashSHA256'])
+        A = wall['A'][...]
+        B = wall['B'][...]
+        C = wall['C'][...]
+        f = wall['fdtd_discrete/f'][...]
+        q = wall['fdtd_discrete/q'][...]
+        Z0 = wall['fdtd_discrete'].attrs['Z0']
 
 Snapshots
 ---------

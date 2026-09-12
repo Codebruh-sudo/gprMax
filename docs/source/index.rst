@@ -21,6 +21,8 @@ gprMax User Guide
     material_databases
     impedance_surfaces
     eigenmode_port
+    impedance_surfaces_theory
+    eigenmode_port_theory
     output
 
 .. toctree::

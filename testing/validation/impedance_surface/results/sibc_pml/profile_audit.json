@@ -1,0 +1,36 @@
+{
+  "profile": "Two identical HORIPML factors, alpha=0, kappa=1, default quartic sigma",
+  "purpose": "Determine whether the observed late residual also occurs with ordinary PEC walls",
+  "cases": [
+    {
+      "kind": "resistance",
+      "precision": "double",
+      "formulation": "HORIPML",
+      "order": 2,
+      "steps": 4151,
+      "dt_s": 1.906574869531005e-12,
+      "duration_ns": 7.914192283423202,
+      "peak_field_norm": 12276726871.263515,
+      "final_field_norm": 12276726871.263515,
+      "surface_state_peak": 0.0,
+      "finite": true,
+      "passed": false,
+      "requested_steps": 20000
+    },
+    {
+      "kind": "pec",
+      "precision": "double",
+      "formulation": "HORIPML",
+      "order": 2,
+      "steps": 2951,
+      "dt_s": 1.906574869531005e-12,
+      "duration_ns": 5.626302439985996,
+      "peak_field_norm": 17833431114.612038,
+      "final_field_norm": 17833431114.612038,
+      "surface_state_peak": 0.0,
+      "finite": true,
+      "passed": false,
+      "requested_steps": 20000
+    }
+  ]
+}

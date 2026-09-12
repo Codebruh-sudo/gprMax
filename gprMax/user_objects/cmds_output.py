@@ -64,6 +64,39 @@ from gprMax.utilities.utilities import round_int
 logger = logging.getLogger(__name__)
 
 
+class EigenmodeFieldOutput(OutputUserObject):
+    """Export tracked modal E/H bases during a serial 3D model build.
+
+    ``filename`` is a basename in the run output directory; ``ports`` defaults
+    to all prepared physical ports. No field time stepping is required.
+    """
+
+    @property
+    def order(self):
+        return 17
+
+    @property
+    def hash(self):
+        return "#eigenmode_field_output"
+
+    def __init__(self, filename="port_modes", ports=()):
+        from pathlib import Path
+        if not filename or Path(filename).name != filename or filename in (".", ".."):
+            raise ValueError("Eigenmode field filename must be a basename")
+        ports = tuple(ports)
+        if len(set(ports)) != len(ports) or any(type(p) is not int or p < 1 for p in ports):
+            raise ValueError("Requested ports must be unique positive integers")
+        super().__init__(filename=filename, ports=ports)
+        self.filename, self.ports = filename, ports
+
+    def build(self, model, grid):
+        if config.sim_config.mpi or isinstance(grid, SubGridBaseGrid) or mode2d_geometry(config.get_model_config().mode) is not None:
+            raise ValueError("EigenmodeFieldOutput currently requires a serial 3D main grid")
+        if any(name == self.filename for name, _ in model.eigenmode_field_outputs):
+            raise ValueError("Duplicate eigenmode field output filename")
+        model.eigenmode_field_outputs.append((self.filename, self.ports))
+
+
 class NetworkPort(OutputUserObject):
     """Request port quantities for a rational-network terminal."""
 

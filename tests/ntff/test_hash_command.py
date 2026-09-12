@@ -130,7 +130,8 @@ def test_layered_positional_hash_commands_are_unambiguous():
         "#ntff_surface: 0.02 0.02 0.02 0.08 0.08 0.08 s",
         "#ntff_layered_background: ground z free_space 0.04 soil 0.01 rock",
         "#ntff_layered_frequency: s spectrum ground 1e8 2e8 hann",
-        "#ntff_far_field: 45 0 spectrum pattern Etheta Ephi exterior_power " "exterior_efficiency exterior_maximum",
+        "#ntff_far_field: 45 0 spectrum pattern Etheta Ephi exterior_power "
+        "exterior_efficiency exterior_maximum",
     )
 
     assert [type(item) for item in objects] == [
@@ -184,7 +185,9 @@ def test_terminal_pec_uses_existing_alternating_hash_syntax():
     assert isinstance(objects[0], NTFFLayeredBackground)
     assert objects[0].material_ids == ("free_space", "substrate", "pec")
     assert objects[0].interfaces == (0.04, 0.01)
-    assert str(objects[0]) == ("#ntff_layered_background: grounded z free_space 0.04 substrate 0.01 pec")
+    assert str(objects[0]) == (
+        "#ntff_layered_background: grounded z free_space 0.04 substrate 0.01 pec"
+    )
 
 
 @pytest.mark.parametrize(
@@ -194,7 +197,9 @@ def test_terminal_pec_uses_existing_alternating_hash_syntax():
         ("#material: 4 0 1 0 soil", "#add_dispersion_debye: 1 2 1e-10 soil\n"),
     ),
 )
-def test_layered_time_public_interface_rejects_loss_or_dispersion(tmp_path, material_line, dispersion_line):
+def test_layered_time_public_interface_rejects_loss_or_dispersion(
+    tmp_path, material_line, dispersion_line
+):
     inputfile = tmp_path / "invalid_layered_time.in"
     inputfile.write_text(
         "#domain: 0.08 0.08 0.08\n"
@@ -706,7 +711,9 @@ def test_layered_time_transform_reduces_to_homogeneous_time_ntff(tmp_path):
             "Vi_h",
             "Vv_h",
         )
-        assert tuple(layered["discarded_path_amplitude_sums"].attrs["response_order"].astype(str)) == (
+        assert tuple(
+            layered["discarded_path_amplitude_sums"].attrs["response_order"].astype(str)
+        ) == (
             "Vi_e",
             "Vv_e",
             "Vi_h",
@@ -848,7 +855,10 @@ def test_antenna_metrics_run_from_single_voltage_port(tmp_path):
         group = output["ntff/surf/frequency/band/far_field/broadside"]
         assert group.attrs["radiation_quadrature_theta_order"] >= 12
         assert group.attrs["radiation_quadrature_phi_order"] >= 24
-        assert group.attrs["maximum_directivity_sampling"] == "full-sphere quadrature plus requested directions"
+        assert (
+            group.attrs["maximum_directivity_sampling"]
+            == "full-sphere quadrature plus requested directions"
+        )
         assert group["port_power/port_ids"].asstr()[...].tolist() == ["feed"]
         assert group["port_power/incident_voltage_per_port"].shape == (1, 1)
         assert group["port_power/terminal_voltage_per_port"].shape == (1, 1)
@@ -870,7 +880,7 @@ def test_antenna_metrics_run_from_single_voltage_port(tmp_path):
 
 
 def test_eigenmode_port_normalises_gain_and_realized_gain(tmp_path):
-    inputfile = (
+    example = (
         Path(__file__).parents[2]
         / "examples"
         / "features"
@@ -878,6 +888,21 @@ def test_eigenmode_port_normalises_gain_and_realized_gain(tmp_path):
         / "example_3_antenna_and_farfield"
         / "horn_antenna.in"
     )
+    # This checks broadband port/NTFF power normalization, not angular mesh
+    # convergence. Keep the full geometry, pulse duration and modal anchors,
+    # but sample the lower edge, centre and upper edge of the NTFF band. A
+    # coarse requested angular grid still exercises every normalization array;
+    # the solver's independent full-sphere power quadrature remains unchanged.
+    lines = example.read_text().splitlines()
+    for index, line in enumerate(lines):
+        if line.startswith("#ntff_frequency:"):
+            lines[index] = "#ntff_frequency: horn_surface antenna_band 8e9 10e9 12e9 rectangular"
+        elif line.startswith("#ntff_far_field_array:"):
+            tokens = line.split()
+            tokens[1:7] = ["0", "180", "30", "0", "330", "30"]
+            lines[index] = " ".join(tokens)
+    inputfile = tmp_path / "horn_normalization.in"
+    inputfile.write_text("\n".join(lines) + "\n")
     outputfile = tmp_path / "eigenmode_antenna"
 
     gprMax.run(
@@ -900,10 +925,10 @@ def test_eigenmode_port_normalises_gain_and_realized_gain(tmp_path):
         assert np.all(port_power["gain_valid"][...] == 1)
         assert np.all(port_power["realized_gain_valid"][...] == 1)
         assert modal_port.attrs["port_id"] == "port1"
-        assert modal_port["incident"].shape == (1, 9)
-        assert modal_port["outgoing"].shape == (1, 9)
-        assert modal_port["power_matrix"].shape == (9, 1, 1)
-        assert modal_port["electric_cross_power_matrix"].shape == (9, 1, 1)
+        assert modal_port["incident"].shape == (1, 3)
+        assert modal_port["outgoing"].shape == (1, 3)
+        assert modal_port["power_matrix"].shape == (3, 1, 1)
+        assert modal_port["electric_cross_power_matrix"].shape == (3, 1, 1)
         # This deliberately coarse antenna model is only a smoke test for the
         # modal-port/NTFF normalization path. Its maximum reflection is about
         # 0.20 on the CI mesh, so retain headroom for platform differences

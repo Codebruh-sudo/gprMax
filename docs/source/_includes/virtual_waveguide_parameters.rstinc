@@ -1,0 +1,23 @@
+.. list-table::
+   :class: api-parameters
+   :header-rows: 1
+   :widths: 25 22 53
+
+   * - Argument
+     - Default
+     - Meaning and constraints
+   * - ``port``
+     - Required
+     - Positive, one-based number of an existing ``EigenmodePort`` in the same grid. Attach at most one virtual guide per port.
+   * - ``length_cells``
+     - ``30``
+     - Total auxiliary-guide length, **including** its PML and source clearance. A positive integer, at least ``pml_cells + source_clearance_cells + 3``.
+   * - ``pml_cells``
+     - ``12``
+     - Thickness of the auxiliary guide's absorbing layer at the end away from the port. An integer of at least 2 cells.
+   * - ``source_clearance_cells``
+     - ``6``
+     - Distance between the internal source plane and the start of that PML. A positive integer number of cells, at least 1.
+   * - ``pml_profile``
+     - ``None``
+     - Name of an existing reusable PML profile. ``None`` uses the global PML formulation and absorption settings (CFS terms).

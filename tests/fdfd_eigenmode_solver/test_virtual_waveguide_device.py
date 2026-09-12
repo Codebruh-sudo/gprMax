@@ -110,6 +110,8 @@ def test_rear_clear_dispatch_covers_only_the_aperture_prism(
 
 def _validation_guide(size, nu, nv):
     guide = RuntimeVirtualWaveguide.__new__(RuntimeVirtualWaveguide)
+    guide.reduced = None
+    guide.transverse_axes = (0, 1)
     guide.main_grid = SimpleNamespace(
         size=np.asarray(size),
         materials=[SimpleNamespace(numID=0, ID="free_space", poles=0)],
