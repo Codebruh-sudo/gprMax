@@ -217,6 +217,7 @@ def check_cmd_names(processedlines, checkessential=True):
             "#eigenmode_band",
             "#eigenmode_port",
             "#eigenmode_excitation",
+            "#eigenmode_field_output",
             "#virtual_waveguide",
             "#geometry_view",
             "#geometry_objects_write",

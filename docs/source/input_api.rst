@@ -1279,6 +1279,15 @@ Eigenmode band, ports, excitation, and virtual guides
 
 .. include:: _includes/virtual_waveguide_parameters.rstinc
 
+.. autoclass:: gprMax.user_objects.cmds_output.EigenmodeFieldOutput
+
+Use ``scene.add(gprMax.EigenmodeFieldOutput(filename="bank", ports=(1, 2)))``
+to export prepared tracked modal profiles to ``bank.modes.h5`` in the run
+output directory, including during geometry-only runs. Omit ``ports`` to
+export all prepared physical ports; ``filename`` defaults to ``port_modes``.
+Export requires a serial 3D main grid. The equivalent hash command and output
+restrictions are described under :ref:`hash-eigenmode-field-output`.
+
 A band selects output frequencies; a port defines a reference plane and
 monitored modes; an excitation drives a channel; a virtual guide provides
 a separate matched continuation. The full workflows and compact hash

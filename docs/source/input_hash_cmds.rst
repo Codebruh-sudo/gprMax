@@ -2141,6 +2141,30 @@ member at a time. Physical directions remain aligned at every retained
 anchor. Resolved splitting, rank loss, or failed in-band group matching
 raises an error; see :ref:`eigenmode-degenerate-theory` for the safeguards.
 
+.. _hash-eigenmode-field-output:
+
+#eigenmode_field_output:
+------------------------
+
+Export the tracked modal E/H bases prepared during model construction. This
+also works with a geometry-only run; the arrays are modal profiles, not driven
+time-domain fields:
+
+.. code-block:: none
+
+    #eigenmode_field_output: [filename [port ...]]
+
+``filename`` is a basename without directory components and defaults to
+``port_modes``. The file is written as ``filename.modes.h5`` in the run output
+directory. Optional port numbers are whitespace-separated, unique positive
+integers; omitting them exports all prepared physical ports. For example,
+``#eigenmode_field_output: bank 1 2`` exports ports 1 and 2 to ``bank.modes.h5``.
+
+Repeat the command with distinct filenames for separate exports. Missing or
+unprepared ports raise an error. Export currently requires a serial 3D main
+grid; MPI and reduced 2D/subgrid requests are unsupported. The output retains
+the tracked basis, including any assigned degenerate-mode polarizations.
+
 #eigenmode_excitation:
 ----------------------
 

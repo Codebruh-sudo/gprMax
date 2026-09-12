@@ -203,7 +203,8 @@ def test_cached_modal_study_preserves_physical_labels(tmp_path, monkeypatch):
 
 
 @pytest.mark.integration
-def test_geometry_export_and_plots_use_physical_bank(tmp_path, monkeypatch):
+@pytest.mark.parametrize("syntax", ("python", "hash"))
+def test_geometry_export_and_plots_use_physical_bank(tmp_path, monkeypatch, syntax):
     from matplotlib.figure import Figure
 
     import gprMax.eigenmode_plotting as plotting
@@ -223,7 +224,13 @@ def test_geometry_export_and_plots_use_physical_bank(tmp_path, monkeypatch):
     scene = circular_scene()
     port = next(obj for obj in scene.grid_objects if isinstance(obj, gprMax.EigenmodePort))
     port.kwargs["plot_fields"] = True
-    scene.add(gprMax.EigenmodeFieldOutput(filename="bank"))
+    if syntax == "python":
+        scene.add(gprMax.EigenmodeFieldOutput(filename="bank"))
+    else:
+        from gprMax.hash_cmds_file import get_user_objects
+
+        (output,) = get_user_objects(["#eigenmode_field_output: bank 1\n"], checkessential=False)
+        scene.add(output)
     gprMax.run(
         scenes=[scene],
         geometry_only=True,
