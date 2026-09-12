@@ -2638,6 +2638,9 @@ class EigenmodePort(GridUserObject):
             sequence of modal-solve anchor frequencies in Hz.
         plot_fields: optionally force or suppress modal-field plots. ``None``
             retains the geometry-only default.
+        degenerate: optional mode pair or disjoint groups tracked as subspaces.
+        mode_polarizations: optional mapping from both labels of a degenerate
+            pair to global transverse E axes or real direction vectors (3D only).
     """
 
     @property
@@ -2713,6 +2716,12 @@ class EigenmodePort(GridUserObject):
             )
         normal_axis = equal_axes[0]
         transverse_axes = tuple(axis for axis in range(3) if axis != normal_axis)
+        from gprMax.eigenmode_tracking import normalize_groups, normalize_polarizations
+
+        degenerate = normalize_groups(self.kwargs.get("degenerate"), modes)
+        mode_polarizations = normalize_polarizations(
+            self.kwargs.get("mode_polarizations"), degenerate, normal_axis, invariant_axis
+        )
         plot_fields = self.kwargs.get("plot_fields")
         if plot_fields is not None and not isinstance(plot_fields, (bool, np.bool_)):
             raise ValueError(f"{self.params_str()} plot_fields must be True, False, or None.")
@@ -2728,6 +2737,8 @@ class EigenmodePort(GridUserObject):
             modes=modes,
             anchors=anchors,
             plot_fields=None if plot_fields is None else bool(plot_fields),
+            degenerate=degenerate,
+            mode_polarizations=mode_polarizations,
         )
         axis_name = "xyz"[normal_axis]
         logger.info(
@@ -3048,6 +3059,8 @@ def build_eigenmode_runtime_ports(grid):
             runtime.spectral_threshold = band.spectral_threshold
             runtime.drive_specs = ()
         runtime.anchor_policy = port.anchor_policy
+        runtime.degenerate = port.degenerate
+        runtime.mode_polarizations = port.mode_polarizations
         runtime.requested_anchor_policy = port.anchor_policy
         runtime.resolved_anchor_policy = port.anchor_policy
         runtime.fallback_frequency = 0.5 * (band.fmin + band.fmax)
@@ -3089,6 +3102,8 @@ def build_passive_virtual_eigenmode_ports(grid):
         runtime = grid.eigenmodereceivers[-1]
         runtime.mode_indices = port.modes
         runtime.anchor_policy = port.anchor_policy
+        runtime.degenerate = port.degenerate
+        runtime.mode_polarizations = port.mode_polarizations
         runtime.requested_anchor_policy = port.anchor_policy
         runtime.resolved_anchor_policy = port.anchor_policy
         runtime.fallback_frequency = band.representative_frequency

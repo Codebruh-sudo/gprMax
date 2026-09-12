@@ -527,9 +527,11 @@ def process_multicmds(multicmds):
             modes = tuple(int(value) for value in tmp[8].split(","))
         except ValueError as exc:
             raise ValueError("#eigenmode_port modes must be comma-separated integers.") from exc
-        tail = tmp[9:]
+        from gprMax.eigenmode_tracking import parse_port_options
+
+        tail, options = parse_port_options(tmp[9:])
         plot_fields = None
-        if tail[-1].lower() in ("y", "n"):
+        if tail and tail[-1].lower() in ("y", "n"):
             plot_fields = tail[-1].lower() == "y"
             tail = tail[:-1]
         if tail == ["auto"]:
@@ -547,6 +549,7 @@ def process_multicmds(multicmds):
                 modes=modes,
                 anchors=anchors,
                 plot_fields=plot_fields,
+                **options,
             )
         )
 

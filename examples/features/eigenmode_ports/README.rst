@@ -2,7 +2,7 @@
 Eigenmode port examples
 =======================
 
-These six numbered Python examples form the tutorial in
+These seven numbered Python examples form the tutorial in
 ``docs/source/eigenmode_port.rst``:
 
 ``example_1_straight_waveguide``
@@ -32,6 +32,11 @@ These six numbered Python examples form the tutorial in
     Resolve TE10 immediately above and below cutoff with dense, branch-aware
     anchor points and distinguish coefficient validity from power-wave
     validity.
+
+``example_7_degenerate_te11``
+    Assign global y/x electric polarizations to the degenerate circular TE11
+    pair at every anchor. Switch the launched polarization using only the
+    excitation's mode number, with a virtual-guide source and receiving port.
 
 Run every command below from the repository root. Each model exposes a
 ``build_scene()`` function and uses ``gprMax.run`` directly. Output defaults
@@ -99,6 +104,22 @@ Example 6
     python examples/features/eigenmode_ports/example_6_near_cutoff/near_cutoff.py --geometry-only
     python examples/features/eigenmode_ports/example_6_near_cutoff/near_cutoff.py
     python examples/features/eigenmode_ports/example_6_near_cutoff/plot_results.py
+
+Example 7
+=========
+
+Mode 1 is vertical (global y); mode 2 is horizontal (global x). Each run
+has a separate output stem. The folder also contains an equivalent hash model.
+Both ports enable the standard modal profile pictures with ``plot_fields=True``;
+the folder README includes the generated profiles for both tracked polarizations.
+
+.. code-block:: console
+
+    python examples/features/eigenmode_ports/example_7_degenerate_te11/circular_te11.py --geometry-only
+    python examples/features/eigenmode_ports/example_7_degenerate_te11/circular_te11.py --mode 1
+    python examples/features/eigenmode_ports/example_7_degenerate_te11/plot_results.py --mode 1
+    python examples/features/eigenmode_ports/example_7_degenerate_te11/circular_te11.py --mode 2
+    python examples/features/eigenmode_ports/example_7_degenerate_te11/plot_results.py --mode 2
 
 Generated CSV, HDF5, VTK-HDF, modal-field, snapshot, and result-plot files are
 ignored by Git and can be recreated by rerunning the examples. The larger

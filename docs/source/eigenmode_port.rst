@@ -9,7 +9,7 @@ Eigenmode Ports and S-parameter Analysis
 An eigenmode port solves the waveguide's transverse field profile, launches
 that profile into FDTD, and separates the measured field into incident and
 outgoing modal coefficients. Each Python API introduction is followed by its
-equivalent hash input command. Six runnable Python examples follow, and the
+equivalent hash input command. Seven runnable Python examples follow, and the
 final section develops the mathematics used by the solvers, sources, and
 monitors.
 
@@ -171,6 +171,12 @@ EigenmodePort arguments
    * - ``plot_fields``
      - ``None``
      - ``True`` forces modal-field PNGs, ``False`` suppresses them. ``None`` enables them only in geometry-only runs.
+   * - ``degenerate``
+     - ``None``
+     - A group such as ``(1, 2)``, or disjoint groups such as ``((1, 2), (3, 4))``. All members must be in ``modes``. Track each group as a subspace.
+   * - ``mode_polarizations``
+     - ``None``
+     - Map both members of a two-mode group to global transverse electric-field directions. Accepts ``"x"``, ``"y"``, ``"z"``, or finite nonzero real three-vectors; vectors are normalized. Physical selection requires a 3D cross-section.
 
 Place the aperture in a longitudinally uniform section and include the whole
 guided field, including evanescent tails around a dielectric core. The normal
@@ -198,6 +204,96 @@ Use ``inf`` for an invariant extent and comma-separated mode indices such as
 ``1,2``. Specify ``auto`` or space-separated modal anchor frequencies. The
 optional final ``y`` or ``n`` forces or suppresses the port's field plots;
 omitting it retains the geometry-only default.
+
+Physically labelled degenerate modes
+------------------------------------
+
+For circular TE11 propagating along z, assign the two channels once:
+
+.. code-block:: python
+
+   scene.add(gprMax.EigenmodePort(
+       port=1, p1=(0, 0, 0.02), p2=(0.05, 0.05, 0.02), direction="+",
+       modes=(1, 2), anchors="auto", degenerate=(1, 2),
+       mode_polarizations={1: "y", 2: "x"},
+   ))
+   scene.add(gprMax.EigenmodeExcitation(port=1, mode=1, waveform="auto"))
+
+Here mode 1 is vertically polarized (global y); changing only ``mode=1`` to
+``mode=2`` launches horizontal polarization (global x). Reversing propagation
+does not change these electric-field labels. Use the same assignments on the
+receiving port. For diagonal directions, use
+``mode_polarizations={1: (1, 1, 0), 2: (-1, 1, 0)}``.
+
+Equivalent hash options follow the existing anchor and plotting arguments:
+
+.. code-block:: none
+
+   #eigenmode_port: 1 0 0 0.02 0.05 0.05 0.02 + 1,2 auto degenerate=1,2 mode_polarizations=1:y;2:x
+   #eigenmode_port: 1 0 0 0.02 0.05 0.05 0.02 + 1,2 auto n degenerate=1,2 mode_polarizations=1:1,1,0;2:-1,1,0
+
+Separate groups with semicolons (``degenerate=1,2;3,4``), and polarization
+entries with semicolons. Components inside a vector use commas. Values are
+parsed literally, with no expression evaluation. Partially specified pairs,
+dependent directions, and directions normal to the port are errors.
+
+Polarization means the direction of the integrated transverse electric field,
+not the direction of every local field vector:
+
+.. math::
+
+   \mathbf m_j(f)=\int_{\mathrm{port}}\mathbf E_{t,j}(f)\,dA.
+
+At every anchor, the two moment columns form :math:`M`. Requested unit
+directions form :math:`D`; solving :math:`MT=D` fixes both direction and
+complex phase. The same transformation is applied to every E/H component,
+then each pair is normalized to one watt using real power. This removes
+arbitrary solver phases, ordering and basis rotations before interpolation.
+The positive real electric moment fixes the phase consistently across ports.
+
+Requested directions need not be orthogonal. The full Hermitian power matrix
+is retained: for simultaneous coefficients :math:`c`, total power is
+:math:`c^\dagger P c`, which can include interference terms. Continue using
+multiple ``EigenmodeExcitation`` objects with ``amplitude`` and ``phase_deg``
+for coherent combinations; a 90-degree relative phase drives quadrature.
+
+With only ``degenerate``, the group receives power normalization and SVD
+subspace transport outward from the anchor nearest the band centre. Its
+channel orientations remain arbitrary at that reference anchor. With physical
+directions, alignment is enforced independently at every anchor; subsequent
+tracking diagnostics do not rotate those directions. With neither argument,
+existing independent-mode tracking is unchanged.
+
+The native discrete eigenvalue spread must be below
+:math:`10^{-8}\max(1,\max|\lambda|)`, and mixed-mode relative eigen-residuals
+must be below :math:`10^{-9}`. Resolved splitting is an error: use independent
+modes or correct unintended geometric asymmetry. Propagation constants are
+preserved individually. Moment and direction condition numbers above
+:math:`10^8` are rejected. Higher-order groups with vanishing integrated E can
+use generic tracking, but cannot use axis/vector references.
+Modes on opposite propagation branches are not mixed even if their squared
+eigenvalues coincide.
+
+Continuity is measured using the smallest principal subspace-overlap singular
+value: below 0.9 warns, and below 0.6 rejects an in-band match. Legitimate
+automatic guard trimming and cutoff exclusion apply to the whole group;
+failed groups never silently fall back member by member. Non-propagating
+group anchors are excluded from excitation and physical references.
+
+The aligned bank is shared by single-anchor and broadband sources, monitors,
+modal studies, virtual guides and plots. HDF5 port groups include
+``degenerate_groups`` with requested directions, achieved electric moments,
+transformations, power matrices, eigenvalue spread, condition numbers,
+residuals, subspace overlaps and retained-anchor flags. Geometry-only modal
+field exports include the same diagnostics; plot titles show assigned directions.
+
+A complete circular-guide example with a virtual continuation is executable
+from the repository root:
+
+.. code-block:: console
+
+   python -m testing.validation.degenerate_eigenmode_ports --mode 1 --output circular_vertical
+   python -m testing.validation.degenerate_eigenmode_ports --mode 2 --output circular_horizontal
 
 EigenmodeExcitation arguments
 -----------------------------
@@ -545,8 +641,9 @@ Multiple anchors can fail for several different reasons:
 * **Two modes become indistinguishable or exchange order.** The mode number
   alone does not guarantee the same physical pattern at every frequency.
   Interpolating unrelated patterns would create an incorrect reference.
-  More anchors cannot make an exactly degenerate pair uniquely identifiable;
-  a narrower band or a single anchor may be needed.
+  Declare the complete degenerate group using ``degenerate``. For circular
+  TE11, also use ``mode_polarizations`` to obtain physical channel labels.
+  A resolved split requires independent modes rather than degenerate mixing.
 * **The mode reaches cutoff or a non-propagating gap.** A decaying, or
   *evanescent*, mode cannot supply the same one-watt travelling-wave source
   as a propagating mode. The interpolation cannot bridge a gap where that
@@ -1133,6 +1230,54 @@ below-cutoff region. There, ``coefficient_valid_S`` may be true while
 but its squared magnitude is not transported real power. At exact cutoff
 the forward/backward basis coalesces: inspect conditioning, move the DFT grid,
 and refine the anchor sampling to check sensitivity.
+
+Example 7: physically aligned circular TE11
+-------------------------------------------
+
+The circular PEC guide assigns global y electric polarization to mode 1
+and global x polarization to mode 2 using ``degenerate=(1, 2)`` and
+``mode_polarizations={1: "y", 2: "x"}`` on both ports. Automatic broadband
+anchors preserve those physical labels. The source uses a virtual guide;
+the receiving port sits at the opposite longitudinal PML interface.
+
+.. literalinclude:: ../../examples/features/eigenmode_ports/example_7_degenerate_te11/circular_te11.py
+   :language: python
+   :caption: ``example_7_degenerate_te11/circular_te11.py``
+   :linenos:
+
+.. code-block:: console
+
+   python examples/features/eigenmode_ports/example_7_degenerate_te11/circular_te11.py --geometry-only
+   python examples/features/eigenmode_ports/example_7_degenerate_te11/circular_te11.py --mode 1
+   python examples/features/eigenmode_ports/example_7_degenerate_te11/plot_results.py --mode 1
+   python examples/features/eigenmode_ports/example_7_degenerate_te11/circular_te11.py --mode 2
+   python examples/features/eigenmode_ports/example_7_degenerate_te11/plot_results.py --mode 2
+
+Only the excitation mode changes between the two full runs. Their separate
+result plots show reflection and transmission into each labelled channel
+and the centre receiver's Ex/Ey traces. The folder includes the equivalent
+``circular_te11.in`` hash model and instructions for diagonal or quadrature
+excitation.
+
+Both ports set ``plot_fields=True`` (``y`` after ``auto`` in the hash model).
+The standard gprMax modal plotter uses the aligned basis and includes the
+requested electric direction in each title. A single run generates pictures
+for both modes, regardless of which channel is excited. The unmodified
+source-port pictures below show E on the left and H on the right, with one
+row per retained anchor, including guard frequencies. Local u/v are global
+x/y; E and H magnitudes are normalised independently.
+
+.. figure:: ../../examples/features/eigenmode_ports/example_7_degenerate_te11/te11_mode1.png
+   :alt: Mode 1 retains vertical electric polarization at every frequency anchor.
+   :width: 100%
+
+   Degenerate TE11 mode 1: global y electric polarization.
+
+.. figure:: ../../examples/features/eigenmode_ports/example_7_degenerate_te11/te11_mode2.png
+   :alt: Mode 2 retains horizontal electric polarization at every frequency anchor.
+   :width: 100%
+
+   Degenerate TE11 mode 2: global x electric polarization.
 
 Direct eigenmode ports inside an HSG subgrid
 --------------------------------------------

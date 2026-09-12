@@ -33,6 +33,9 @@ def write_eigenmode_fields(path, grid, ports=()):
         for monitor in monitors:
             owner = monitor.owner
             group = output.create_group(f"ports/{monitor.port_index}")
+            from gprMax.eigenmode_tracking import write_diagnostics
+
+            write_diagnostics(group, owner)
             axes = tuple(owner.transverse_axes)
             starts = np.asarray(owner.transverse_start)
             counts = np.asarray(owner.transverse_stop) - starts

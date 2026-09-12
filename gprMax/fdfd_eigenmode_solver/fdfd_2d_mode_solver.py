@@ -607,6 +607,8 @@ class FDFD_2D_mode_solver:
         Q_reduced = Q[self.free_huv_mask, :]
         omega_matrix = P_reduced @ Q_reduced
         omega_matrix = omega_matrix[self.free_euv_mask, :][:, self.free_euv_mask]
+        if getattr(self, "retain_tracking_operator", False):
+            self.mode_tracking_operator = omega_matrix
         eigenvalues, reduced_eigenvectors = self._solve_reduced(omega_matrix)
         eigenvectors = np.zeros((self.n_e_transverse, self.num_modes), dtype=np.complex128)
         eigenvectors[self.free_euv_mask, :] = reduced_eigenvectors

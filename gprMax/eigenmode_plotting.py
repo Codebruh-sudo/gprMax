@@ -348,7 +348,9 @@ def plot_eigenmode_port_fields(solvers, frequencies, mode_index, port_index, out
     fig = Figure(figsize=(12, max(3.8, 3.8 * len(solvers))), constrained_layout=True)
     FigureCanvasAgg(fig)
     axes = fig.subplots(len(solvers), 2, squeeze=False)
-    fig.suptitle(f"Port {port_index}, Mode {mode_index}: tangential modal vector fields")
+    direction = getattr(solvers[0], "mode_polarizations", {}).get(mode_index)
+    label = "" if direction is None else f", E direction {tuple(direction)}"
+    fig.suptitle(f"Port {port_index}, Mode {mode_index}{label}: tangential modal vector fields")
 
     for row, (solver, frequency) in enumerate(zip(solvers, frequencies)):
         if isinstance(solver, FDFD_2D_mode_solver):
@@ -361,6 +363,8 @@ def plot_eigenmode_port_fields(solvers, frequencies, mode_index, port_index, out
                 solver._field_to_cells(solver.Hv[:, :, mode], "hv"),
             )
             phase = _display_phase(electric, magnetic)
+            if direction is not None:
+                phase = 1.0 + 0.0j
             _plot_2d_vector(
                 axes[row, 0], solver, solver.Eu[:, :, mode], solver.Ev[:, :, mode], phase, "E"
             )

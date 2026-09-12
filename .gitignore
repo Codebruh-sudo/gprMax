@@ -39,6 +39,8 @@ examples/**/*.vtkhdf
 examples/features/eigenmode_ports/**/*.csv
 !examples/features/eigenmode_ports/**/modal_cases.csv
 examples/features/eigenmode_ports/**/*.png
+!examples/features/eigenmode_ports/example_7_degenerate_te11/te11_mode1.png
+!examples/features/eigenmode_ports/example_7_degenerate_te11/te11_mode2.png
 examples/features/impedance_surface/**/*.csv
 examples/features/impedance_surface/**/*.png
 examples/**/*_eigenmode_*.png

@@ -1,0 +1,20 @@
+#title: Example 7 - physically aligned circular TE11 modes
+#domain: 0.016 0.016 0.072
+#dx_dy_dz: 0.001 0.001 0.001
+#time_window: 3e-9
+#omp_threads: 1
+#pml_cells: 0 0 8 0 0 8
+
+## Circular air bore, uniform along z including the PML regions.
+#box: 0 0 0 0.016 0.016 0.072 pec
+#cylinder: 0.008 0.008 0 0.008 0.008 0.072 0.006 free_space n
+#eigenmode_band: te11 20e9 24e9 41
+
+## Mode 1 = global y; mode 2 = global x, on both ports and at every anchor.
+#eigenmode_port: 1 0.001 0.001 0.024 0.015 0.015 0.024 + 1,2 auto y degenerate=1,2 mode_polarizations=1:y;2:x
+#eigenmode_port: 2 0.001 0.001 0.064 0.015 0.015 0.064 - 1,2 auto y degenerate=1,2 mode_polarizations=1:y;2:x
+#virtual_waveguide: 1 24 8 4
+
+## Change the second integer below from 1 to 2 for horizontal polarization.
+#eigenmode_excitation: 1 1 auto
+#rx: 0.008 0.008 0.040 centre Ex Ey Ez Hx Hy Hz
