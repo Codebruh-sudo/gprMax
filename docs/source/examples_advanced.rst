@@ -7,9 +7,10 @@ This section provides example models of some of the more advanced features of gp
 Eigenmode ports
 ===============
 
-The six numbered examples under ``examples/features/eigenmode_ports`` progress
+The seven numbered examples under ``examples/features/eigenmode_ports`` progress
 from straight and curved guides to a closed-surface horn, a complete modal
-matrix study, a phase-steered array, and a guide crossing cutoff.
+matrix study, a phase-steered array, a guide crossing cutoff, and physically
+aligned degenerate circular TE11 modes.
 :doc:`eigenmode_port` provides a step-by-step tutorial for users who primarily
 want S-parameters and far fields.
 
@@ -32,6 +33,16 @@ material, PEC, or PMC boundaries.
 The complete regression and directionality matrix is kept separately under
 ``testing/regression/eigenmode_sources``; it is not intended as introductory
 user material.
+
+Surface-impedance walls
+=======================
+
+Start with the copper-versus-PEC rectangular-guide workflow in
+:doc:`impedance_surfaces`. It introduces material fitting and wall geometry,
+then explains how to inspect modal and receiver results. The same guide
+links executable 2D TE/TM virtual continuations and PEC/PMC contact examples.
+The boundary equations and benchmark evidence are in
+:doc:`impedance_surfaces_theory`.
 
 
 Plane-wave TFSF source

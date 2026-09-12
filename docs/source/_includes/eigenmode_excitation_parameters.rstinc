@@ -1,0 +1,29 @@
+.. list-table::
+   :class: api-parameters
+   :header-rows: 1
+   :widths: 25 22 53
+
+   * - Argument
+     - Default
+     - Meaning and constraints
+   * - ``port``, ``mode``
+     - Required
+     - Existing port and one of its monitored modes. Each driven channel must be unique.
+   * - ``waveform``
+     - ``"auto"``
+     - Band-adapted finite pulse, or the ID of an explicitly added ``gprMax.Waveform``. Simultaneous drives must share one base waveform.
+   * - ``amplitude``
+     - ``1.0``
+     - Finite nonzero modal-amplitude scale. Omit the excitation to make a channel passive.
+   * - ``power``
+     - Not set
+     - Positive finite relative incident-power scale, applying amplitude ``sqrt(power)``. Mutually exclusive with ``amplitude``; it scales the base pulse rather than specifying a constant time-domain power.
+   * - ``phase_deg``
+     - ``0.0``
+     - Finite constant spectral phase in degrees.
+   * - ``delay_s``
+     - ``0.0``
+     - Finite true time delay in seconds, applied as ``exp(-1j*2*pi*f*delay_s)``. Ensure the shifted pulse fits the time window.
+   * - ``plot_waveform``
+     - ``None``
+     - Force or suppress the waveform/spectrum PNG with ``True`` or ``False``; ``None`` enables it only for geometry-only runs.

@@ -53,6 +53,7 @@ exclude_patterns = []
 
 html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
+html_css_files = ["css/feature_guides.css"]
 
 # -- Options for LaTeX and PDF output ----------------------------------------
 

@@ -60,7 +60,8 @@ impressed source outside a closed antenna NTFF surface. CPU virtual guides
 also support 2D TE/TM and passive surface-impedance walls, including exact
 voxel-face PMC through infinite surface resistance. See :ref:`eigenmode`
 for the recommended workflow, limitations, antenna coupling, and mathematical
-formulation.
+formulation in :doc:`eigenmode_port_theory`. Degenerate mode groups can be
+tracked together, with physical electric-polarization labels for a 3D pair.
 
 Plane-wave excitation is available through a total-field/scattered-field
 (TFSF) surface. gprMax uses the finite-difference time-domain discrete plane
@@ -77,7 +78,7 @@ The source, eigenmode, and plane-wave commands are described in
 .. _ntff-formulations:
 
 Near-to-far-field transformations
-==================================
+=================================
 
 gprMax provides two complementary surface formulations. The Kirchhoff
 surface-integral representation (KSIR) reconstructs finite-distance fields as
@@ -257,7 +258,7 @@ command reference in :ref:`input-hash-cmds` and the HDF5 schema in
 :ref:`output`.
 
 Equivalent electric and magnetic currents
-------------------------------------------
+-----------------------------------------
 
 Unlike KSIR, the equivalent-current formulation first collocates the
 tangential Yee fields at common cell-face centres. Arithmetic interpolation
@@ -304,7 +305,7 @@ of the scalar KSIR construction. Direct frequency accumulation avoids storing
 the complete surface-field history.
 
 Planar-layered frequency-domain far field
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The planar-layered extension follows the transmission-line dyadic Green
 function of Çapoğlu *et al.* [CAP2012]_. It retains the same sampled Love
@@ -388,7 +389,7 @@ report finite-depth fields, interface-crossing power, or absorbed-power and
 radiometric quantities without labelling them as far-field antenna gain.
 
 Planar-layered direct time-domain far field
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 For a positive, lossless, nondispersive planar stack, the transmission-line
 Green functions also have a direct time-domain representation [CAP2007]_.
@@ -440,7 +441,7 @@ and supports MPI surface partitioning; accelerator backends currently use the
 frequency-domain formulation.
 
 Modified 1997 time-domain far field
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Let :math:`\tau=t-r/c_b` be reduced time and let a dot denote a time
 derivative. The range-normalised transient electric field implemented by

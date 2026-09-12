@@ -16,6 +16,24 @@ every automatic frequency anchor and agree at the source and receiving port,
 including the receiving port's reversed direction. Polarization describes
 the integrated transverse E field, rather than every local field vector.
 
+Why declare the pair?
+---------------------
+
+In a circular guide, the two TE11 patterns have the same propagation
+constant but independent polarizations. The solver can return any rotated
+pair of these patterns, so raw mode 1 is not inherently vertical. Its
+orientation can change between frequency anchors without any physical
+polarization conversion in the guide.
+
+``degenerate`` tells gprMax to track both patterns together;
+``mode_polarizations`` gives them the physical labels used here. This does
+not excite both modes: the excitation's ``mode`` still selects the launched
+channel. See the eigenmode user guide's explanation of degeneracy for the
+difference between arbitrary basis rotation and physical mode splitting.
+
+Model and commands
+------------------
+
 The 6 mm radius bore has a 1 mm cubic mesh. Its geometry extends uniformly
 through the longitudinal PMLs. A virtual waveguide supplies the source-side
 continuation; the receiving port is at the upper PML interface. The example

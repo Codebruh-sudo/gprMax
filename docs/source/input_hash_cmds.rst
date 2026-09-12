@@ -427,9 +427,8 @@ This microwave-only implementation requires ``f3 <= 300e9`` and checks
 optical/terahertz bands and targets for which the good-conductor law is not a
 valid approximation.
 
-See :doc:`impedance_surfaces` for the surface-current convention, ADE and
-FDFD equations, geometry compilation rules, metal applicability, validation,
-and troubleshooting guidance.
+See :doc:`impedance_surfaces` for model selection, geometry, and troubleshooting;
+:doc:`impedance_surfaces_theory` gives the boundary equations and validation.
 
 .. note::
 
@@ -450,17 +449,20 @@ and troubleshooting guidance.
     are not valid for thin films, rough surfaces, nanoscale conductors, or
     thicknesses comparable with the skin depth.
 
-    Direct 3-D ``#eigenmode_port`` planes are supported when the impedance
+    Direct 3-D and 2-D TE/TM ``#eigenmode_port`` planes are supported when the impedance
     boundary is propagation-invariant through the modal plane and the modal
     window contains its required boundary field components. The FDFD operator
     uses the exact time-discrete ADE response and clipped Yee Ampere rows.
     Keep every eigenmode anchor and its trapezoidal bilinear-warped evaluation
     frequency inside the surface model's declared fit band; extrapolation is
-    rejected. The surrounding P/Q bulk operator retains physical-frequency
-    normalization; only the surface ADE reduction is exactly time-discrete.
+    rejected. The bulk operator uses the Yee temporal and longitudinal
+    difference symbols; dispersive bulk poles still use their analytic
+    physical-frequency response. The surface ADE reduction uses its exact
+    discrete response; see :doc:`eigenmode_port_theory`.
     ``#virtual_waveguide`` supports passive SIBC walls, including fitted
     metal models, uniformly extruded along the propagation direction. Walls
-    must lie strictly inside the modal window with opaque-voxel padding.
+    must lie strictly inside the modal window with opaque-voxel padding
+    along each physical transverse axis (only one such axis in 2-D).
     SIBC can continue through a longitudinal PML when its wall and retained
     host are invariant along the absorption direction. The host at each
     intersecting edge must be homogeneous, isotropic, lossless, and
@@ -672,7 +674,7 @@ For example to create a series of 10 materials with relative permittivity rangin
 .. _material_list:
 
 #material_list:
-----------------
+---------------
 
 Allows you to create a list of pre-defined materials that can be used in conjunction with the ``#fractal_box`` command for spatial distributions of dielectric properties. The syntax of the command is:
 
@@ -848,7 +850,7 @@ At the boundaries between different materials in the model there is the question
 
 
 #magnetic_averaging:
----------------------
+--------------------
 
 Selects the mixing rule used for magnetic-field components at smoothed material interfaces. Each H component is constructed from the two cells stacked along its own axis. Because the normal component of magnetic flux density is continuous across an interface, the harmonic mean of relative permeability (:math:`\mu_r`) and magnetic loss (:math:`\sigma_*`) is used by default. Electric-field smoothing is unchanged and continues to use its arithmetic four-cell average. The syntax is:
 
@@ -1063,7 +1065,7 @@ and Metal field-update kernels.
 
 
 #magnetic_edge:
-----------------
+---------------
 
 Allows you to introduce a single magnetic-field edge with specific properties into the model. It is the magnetic dual of ``#edge``. The syntax is:
 
@@ -1752,7 +1754,7 @@ For example, to specify a z directed transmission line source with a resistance 
 An example antenna model using a transmission line can be found in the :ref:`examples <example-wire-dipole>` section.
 
 #magnetic_frill_source:
-------------------------
+-----------------------
 
 Allows you to introduce a magnetic-frill (equivalent-feed) source [HYU2009]_ at an
 electric field location, for an antenna driven through a PEC ground plane by a
@@ -1957,7 +1959,7 @@ objects (including the waveform) to the same subgrid object.
       (:math:`E_z \neq 0` at the feed) - use ``#voltage_source`` for that case.
 
 #plane_wave_angles:
----------------------
+-------------------
 
 Allows you to introduce a discrete plane wave source [TAN2010]_. Plane wave sources are a useful tool in multiple different scenarios of electromagnetic simulations, especially when the wave is emitted by a source that is quite far away from the target. The plane wave can originate from any direction and it is assumed that it propagates in a homogeneous background medium. The syntax of the command is:
 
@@ -1984,7 +1986,7 @@ For example, to specify a discrete plane wave in a TFSF box (0.010, 0.010, 0.010
     * Internally, theta and phi are approximated by an integer direction vector (Mx, My, Mz) found to within a maximum acceptable angular difference of 3 arc minutes (0.05 degrees) by default. This tolerance can be relaxed or tightened using the ``max_angle_diff`` parameter (in degrees) when using the Python API.
 
 #plane_wave_vector:
----------------------
+-------------------
 
 Allows you to introduce a discrete plane wave source [TAN2010]_. Plane wave sources are a useful tool in multiple different scenarios of electromagnetic simulations, especially when the wave is emitted by a source that is quite far away from the target. The plane wave can originate from any direction and it is assumed that it propagates in a homogeneous background medium. The syntax of the command is:
 
@@ -2010,7 +2012,7 @@ For example, to specify a discrete plane wave in a TFSF box (0.010, 0.010, 0.010
 
 
 #plane_wave_axial:
----------------------
+------------------
 
 Allows you to introduce a discrete plane wave source [TAN2010]_. Plane wave sources are a useful tool in multiple different scenarios of electromagnetic simulations, especially when the wave is emitted by a source that is quite far away from the target. This command introduces a plane wave that propagates along one of the three grid axes and can be normally incident on multi-layer setups that span the entire model domain perpendicular to the direction of propagation. It takes its media properties from the background materials of the grid at the direction of the axis that it propagates. This allows for half-space simulations but only for normally incident plane waves. The syntax of the command is:
 
@@ -2060,6 +2062,8 @@ Defines the single frequency band shared by every eigenmode port in the model:
 Exactly one band is required when eigenmode ports are present. Defining the
 band once guarantees identical DFT bins at every port.
 
+.. _hash-eigenmode-port:
+
 #eigenmode_port:
 ----------------
 
@@ -2069,7 +2073,7 @@ port/mode channels.
 
 .. code-block:: none
 
-    #eigenmode_port: i1 f1 f2 f3 f4 f5 f6 c1 i2[,i3 ...] str1|f7 [f8 ...] [c2]
+    #eigenmode_port: i1 f1 f2 f3 f4 f5 f6 c1 i2[,i3 ...] str1|f7 [f8 ...] [c2] [degenerate=groups] [mode_polarizations=entries]
 
 * ``i1`` is the unique, one-based port number.
 * ``f1 f2 f3`` and ``f4 f5 f6`` are opposite port-plane points in metres.
@@ -2090,6 +2094,28 @@ port/mode channels.
   always suppresses them. If omitted, geometry-only runs write the plots and
   normal runs do not.
 
+* ``degenerate`` optionally declares one group (``1,2``) or disjoint groups
+  separated by semicolons (``1,2;3,4``). Every member must be in the monitored
+  mode list. Groups must be exactly or numerically unresolved degenerate;
+  resolved splitting is an error.
+* ``mode_polarizations`` optionally maps both members of a two-mode group
+  to physical transverse electric directions in a 3-D cross-section.
+  Separate entries with semicolons: ``1:y;2:x`` or
+  ``1:1,1,0;2:-1,1,0``. Axes are global; vectors are real and normalized
+  automatically. Zero/nonfinite, normal-to-port, or dependent directions
+  and incomplete pairs are rejected. These options are parsed literally,
+  without expression evaluation, after the anchor and plotting arguments.
+
+For a z-normal circular TE11 pair, for example:
+
+.. code-block:: none
+
+    #eigenmode_port: 1 0 0 0.02 0.05 0.05 0.02 + 1,2 auto y degenerate=1,2 mode_polarizations=1:y;2:x
+
+Mode 1 then means global y electric polarization and mode 2 means global x,
+including in the standard modal plots. Excitation syntax is unchanged.
+See :doc:`eigenmode_port` for the runnable example.
+
 For example, these two rectangular-waveguide ports share one DFT band and one
 automatic anchor list:
 
@@ -2099,7 +2125,7 @@ automatic anchor list:
     #eigenmode_port: 1 0.002 0.001 0.001 0.002 0.007 0.005 + 1 auto
     #eigenmode_port: 2 0.011 0.001 0.001 0.011 0.007 0.005 - 1 auto
 
-Consecutive anchors are checked using normalized modal-field overlap. If
+For independently tracked modes, consecutive anchors are checked using normalized modal-field overlap. If
 explicit multiple anchors show a severe mismatch, such as at a degeneracy or
 mode crossing, the run stops and recommends one explicit anchor. With
 ``auto``, a failure confined to a spectral guard outside the requested band
@@ -2108,6 +2134,12 @@ retained modal profile for endpoint extrapolation. A failure in the requested
 band makes that port and mode warn and use its band-centre anchor. Candidate
 frequencies remain common, but retained masks and fallbacks are per port and
 per mode.
+
+Declared degenerate groups use subspace tracking instead. Guard trimming and
+cutoff exclusion apply to whole groups; a failed group never falls back one
+member at a time. Physical directions remain aligned at every retained
+anchor. Resolved splitting, rank loss, or failed in-band group matching
+raises an error; see :ref:`eigenmode-degenerate-theory` for the safeguards.
 
 #eigenmode_excitation:
 ----------------------
@@ -2484,7 +2516,7 @@ three-dimensional only; it is rejected in TM and TE models.
 
 
 #radiometry:
--------------
+------------
 
 Requests density-independent absorbed-power and radiometric weighting over
 semantic geometry tags. The waveform, current-moment, plane-wave flux, and
@@ -2830,7 +2862,7 @@ planes.
     command above always defines a main-grid snapshot.
 
 Near-to-far-field transformation commands
-==========================================
+=========================================
 
 The NTFF commands separate the integration surface from the formulation and
 its output points. A closed surface can therefore be reused by KSIR and
@@ -3308,7 +3340,7 @@ crossings should use a single-frequency modal solve rather than broadband
 profile interpolation.
 
 #ksir_time_rx: and #ksir_time_rx_spherical:
---------------------------------------------
+-------------------------------------------
 
 Request exact physical time-domain fields at one Cartesian or spherical
 point:
@@ -3417,7 +3449,7 @@ symmetry-completed surfaces.
     #ntff_time_far_field_array: 0 180 2 0 360 2 radiation_surface transient Etheta Ephi
 
 #ntff_layered_time_far_field: and #ntff_layered_time_far_field_array:
----------------------------------------------------------------------------
+---------------------------------------------------------------------
 
 Request range-normalized transient far fields from a
 ``#ntff_layered_time`` transform:
@@ -3440,7 +3472,7 @@ multiple-reflection impulse is written.
     #ntff_layered_time_far_field_array: 5 175 5 0 355 5 ground_transient transient_pattern Etheta Ephi
 
 #ksir_frequency_rx: and #ksir_frequency_rx_spherical:
-------------------------------------------------------
+-----------------------------------------------------
 
 Request the exact finite-distance physical phasor at one point using a
 previously declared transform:
@@ -3618,7 +3650,7 @@ the following requests a five-degree full-sphere pattern:
     #ksir_far_field_array: 0 180 5 0 360 5 antenna_band pattern Etheta Ephi radiation_intensity
 
 #ntff_far_field: and #ntff_far_field_array:
-------------------------------------------------
+-------------------------------------------
 
 Request conventional equivalent-current frequency-domain far fields:
 
@@ -3673,7 +3705,7 @@ PML commands
 The default behaviour for the absorbing boundary conditions (ABC) is first order Complex Frequency Shifted (CFS) Perfectly Matched Layers (PML), with thicknesses of 10 cells on each of the six sides of the model domain.
 
 #pml_cells:
-------------
+-----------
 
 Allows you to control the number of cells (thickness) of PML that are used on the six sides of the model domain. The PML is defined within the model domain, i.e. it is not added to the domain size. The syntax of the command is:
 
@@ -3829,7 +3861,7 @@ as domain PMLs do at edges and corners.
 
 
 #symmetry_boundary:
---------------------
+-------------------
 
 Sets a PEC or PMC symmetry boundary on one face of the model domain, replacing the PML on that face. The command may be used more than once to set different faces. The syntax is:
 

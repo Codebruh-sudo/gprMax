@@ -1,0 +1,32 @@
+.. list-table::
+   :class: api-parameters
+   :header-rows: 1
+   :widths: 25 22 53
+
+   * - Argument
+     - Default
+     - Meaning and constraints
+   * - ``port``
+     - Required
+     - Unique positive, one-based port number within the grid.
+   * - ``p1``, ``p2``
+     - Required
+     - Opposite physical corners of an axis-aligned aperture. Exactly one finite coordinate must match, defining its normal; the invariant 2D axis is ignored in that test.
+   * - ``direction``
+     - Required
+     - ``"+"`` or ``"-"`` along that normal. Point both port directions into the device for the usual S convention.
+   * - ``modes``
+     - Required
+     - An increasing sequence of unique positive mode indices, or a positive integer mode count. ``modes=2`` means modes 1 and 2; ``modes=(2,)`` means only mode 2.
+   * - ``anchors``
+     - ``"auto"``
+     - One modal solve frequency, an increasing sequence of positive finite frequencies, or automatic candidate selection.
+   * - ``plot_fields``
+     - ``None``
+     - ``True`` forces modal-field PNGs, ``False`` suppresses them. ``None`` enables them only in geometry-only runs.
+   * - ``degenerate``
+     - ``None``
+     - A group such as ``(1, 2)``, or disjoint groups such as ``((1, 2), (3, 4))``. All members must be in ``modes``. Track each group as a subspace.
+   * - ``mode_polarizations``
+     - ``None``
+     - Map both members of a two-mode group to global transverse electric-field directions. Accepts ``"x"``, ``"y"``, ``"z"``, or finite nonzero real three-vectors; vectors are normalized. Physical selection requires a 3D cross-section.
